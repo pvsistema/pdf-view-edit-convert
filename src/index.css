@@ -4,35 +4,39 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 48 24% 96%;
+    --foreground: 210 17% 9%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 47 18% 90%;
+    --card-foreground: 210 17% 9%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 48 24% 96%;
+    --popover-foreground: 210 17% 9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 216 77% 48%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 47 18% 90%;
+    --secondary-foreground: 210 17% 9%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 47 18% 90%;
+    --muted-foreground: 105 4% 39%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 189 74% 62%;
+    --accent-foreground: 220 87% 31%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 44%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 46 15% 83%;
+    --input: 46 15% 83%;
+    --ring: 216 77% 48%;
 
-    --radius: 0.5rem;
+    --radius: 0rem;
+
+    --rule: 210 17% 9%;
+    --grid-line: 46 15% 83%;
+    --deep: 220 87% 31%;
 
     --sidebar-background: 0 0% 98%;
 
@@ -52,33 +56,37 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 210 17% 9%;
+    --foreground: 48 24% 96%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 210 14% 14%;
+    --card-foreground: 48 24% 96%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 210 17% 9%;
+    --popover-foreground: 48 24% 96%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 216 77% 55%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 210 14% 14%;
+    --secondary-foreground: 48 24% 96%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 210 14% 14%;
+    --muted-foreground: 105 6% 62%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 189 74% 62%;
+    --accent-foreground: 220 87% 31%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 210 12% 22%;
+    --input: 210 12% 22%;
+    --ring: 216 77% 55%;
+
+    --rule: 48 24% 96%;
+    --grid-line: 210 12% 22%;
+    --deep: 220 87% 31%;
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -96,6 +104,54 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-body antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .grid-lines {
+    background-image: repeating-linear-gradient(
+      to right,
+      hsl(var(--grid-line)) 0,
+      hsl(var(--grid-line)) 1px,
+      transparent 1px,
+      transparent calc((100% - 1px) / 12)
+    );
+    opacity: 0.55;
+  }
+
+  .rule {
+    height: 1px;
+    background: hsl(var(--rule));
+    transform-origin: left center;
+  }
+
+  .rule-thick {
+    height: 3px;
+  }
+
+  .label-caps {
+    @apply font-body uppercase tracking-[0.18em] text-[0.72rem] text-muted-foreground;
+  }
+
+  .btn-block {
+    @apply inline-flex items-center justify-center gap-2 bg-primary px-10 py-5 font-head text-[0.86rem] font-bold uppercase tracking-[0.12em] text-primary-foreground transition-colors hover:bg-[hsl(var(--deep))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary;
+  }
+
+  .btn-ghost-block {
+    @apply inline-flex items-center justify-center gap-2 border border-foreground px-10 py-5 font-head text-[0.86rem] font-bold uppercase tracking-[0.12em] text-foreground transition-colors hover:bg-foreground hover:text-background;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }

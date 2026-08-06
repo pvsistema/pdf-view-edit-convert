@@ -18,7 +18,13 @@ export default {
 			}
 		},
 		extend: {
+			fontFamily: {
+				head: ['Inter', 'sans-serif'],
+				body: ['"IBM Plex Sans"', 'sans-serif'],
+			},
 			colors: {
+				rule: 'hsl(var(--rule))',
+				deep: 'hsl(var(--deep))',
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
@@ -84,11 +90,31 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				draw: {
+					from: { transform: 'scaleX(0)' },
+					to: { transform: 'scaleX(1)' }
+				},
+				rise: {
+					from: { opacity: '0', transform: 'translateY(14px)' },
+					to: { opacity: '1', transform: 'none' }
+				},
+				'fade-in': {
+					from: { opacity: '0', transform: 'translateY(10px)' },
+					to: { opacity: '1', transform: 'none' }
+				},
+				'scale-in': {
+					from: { opacity: '0', transform: 'scale(0.96)' },
+					to: { opacity: '1', transform: 'scale(1)' }
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				draw: 'draw 0.7s cubic-bezier(.2,.8,.2,1) both',
+				rise: 'rise 0.8s cubic-bezier(.2,.8,.2,1) both',
+				'fade-in': 'fade-in 0.4s ease-out both',
+				'scale-in': 'scale-in 0.25s ease-out both'
 			}
 		}
 	},
