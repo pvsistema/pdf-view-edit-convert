@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Проверка версии без релизов",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "check", "version": "1.0.0" },
+      "expectedStatus": 200,
+      "expectedBody": { "update_available": false },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Публикация без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "publish", "version": "9.9.9" },
+      "expectedStatus": 401
+    }
+  ]
+}

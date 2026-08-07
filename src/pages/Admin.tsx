@@ -4,6 +4,7 @@ import { LOGO_URL } from "@/lib/brand";
 import AdminLogin from "@/components/admin/AdminLogin";
 import LicenseForm from "@/components/admin/LicenseForm";
 import HistoryPanel from "@/components/admin/HistoryPanel";
+import ReleasesPanel from "@/components/admin/ReleasesPanel";
 import {
   checkSession,
   clearToken,
@@ -44,7 +45,7 @@ const Admin = () => {
     open: false,
     item: null,
   });
-  const [tab, setTab] = useState<"licenses" | "history">("licenses");
+  const [tab, setTab] = useState<"licenses" | "history" | "releases">("licenses");
   const [histFor, setHistFor] = useState<License | null>(null);
 
   const load = useCallback(async (q = "") => {
@@ -163,6 +164,7 @@ const Admin = () => {
             [
               ["licenses", "Лицензии"],
               ["history", "История проверок"],
+              ["releases", "Версии программы"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -177,7 +179,9 @@ const Admin = () => {
           ))}
         </div>
 
-        {tab === "history" ? (
+        {tab === "releases" ? (
+          <ReleasesPanel />
+        ) : tab === "history" ? (
           <div className="mt-6">
             <HistoryPanel />
           </div>

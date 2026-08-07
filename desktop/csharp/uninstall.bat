@@ -28,11 +28,14 @@ if errorlevel 2 goto :cancel
 taskkill /F /IM PVSPDF.exe >nul 2>nul
 timeout /t 1 /nobreak >nul
 
+REM Shortcut name is passed as base64 so this .bat stays pure ASCII.
+set "LNK_B64=0J/Qki3QodC40YHRgtC10LzQsCBQREYubG5r"
+
 echo Removing shortcuts...
 powershell -NoProfile -Command ^
-  "$p=[Environment]::GetFolderPath('Desktop')+'\ПВ-Система PDF.lnk'; if(Test-Path $p){Remove-Item $p -Force}" >nul 2>nul
-powershell -NoProfile -Command ^
-  "$p=[Environment]::GetFolderPath('Programs')+'\ПВ-Система PDF.lnk'; if(Test-Path $p){Remove-Item $p -Force}" >nul 2>nul
+  "$n=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%LNK_B64%'));" ^
+  "foreach($d in @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('Programs'))){" ^
+  "  $p=Join-Path $d $n; if(Test-Path $p){Remove-Item $p -Force} }" >nul 2>nul
 
 echo Removing program folder...
 rmdir /S /Q "%INSTALL_DIR%"

@@ -9,6 +9,7 @@ import ToolsPanel from "@/components/app/ToolsPanel";
 import AppWindow from "@/components/app/AppWindow";
 import { LicenseProvider } from "@/context/LicenseContext";
 import { isDesktop, onDesktopFile, setNativeTitle } from "@/lib/desktop";
+import UpdateBanner from "@/components/app/UpdateBanner";
 import { useEffect } from "react";
 
 const Workspace = () => {
@@ -75,6 +76,7 @@ const Workspace = () => {
             </div>
           </div>
         )}
+        <UpdateBanner />
       </div>
     </AppWindow>
   );

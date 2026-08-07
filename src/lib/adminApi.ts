@@ -1,5 +1,6 @@
 const AUTH_URL = 'https://functions.poehali.dev/01789cff-13e5-495c-97c6-ab32c229a8f8';
 const LIC_URL = 'https://functions.poehali.dev/75aa9cca-1901-4a09-ae83-b403dbd9062c';
+const VER_URL = 'https://functions.poehali.dev/30df1eed-1f2b-4871-a057-0dd656d6f09f';
 
 const TOKEN_KEY = 'pv_admin_token';
 
@@ -80,3 +81,32 @@ export const verifyKey = (key: string) =>
     valid_until?: string;
     days_left?: number;
   }>;
+export type Release = {
+  id: number;
+  version: string;
+  download_url: string;
+  notes: string;
+  is_required: boolean;
+  is_published: boolean;
+  published_at: string;
+};
+
+export type UpdateInfo = {
+  update_available: boolean;
+  latest: string;
+  download_url?: string;
+  notes?: string;
+  required?: boolean;
+  published_at?: string;
+};
+
+export const checkUpdate = (version: string) =>
+  post(VER_URL, { action: 'check', version }) as Promise<UpdateInfo>;
+
+export const listReleases = () =>
+  post(VER_URL, { action: 'list' }) as Promise<{ items: Release[] }>;
+
+export const publishRelease = (data: Partial<Release>) =>
+  post(VER_URL, { action: 'publish', ...data });
+
+export const unpublishRelease = (id: number) => post(VER_URL, { action: 'unpublish', id });

@@ -1,7 +1,7 @@
 @echo off
 REM Force a stable code page so this .bat is parsed identically on any PC.
-REM (This file is pure ASCII - no national characters in commands/comments.)
-chcp 65001 >nul 2>nul
+REM (This file is pure ASCII - no national characters anywhere.)
+chcp 437 >nul 2>nul
 setlocal enabledelayedexpansion
 
 REM ============================================================
@@ -88,20 +88,14 @@ echo     .NET 8 SDK: OK
 
 REM --- Inno Setup needed only for the installer step ---
 set "ISCC="
-if "%DO_SETUP%"=="1" (
-    if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
-    if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
-    if not defined ISCC (
-        for /f "delims=" %%p in ('where iscc 2^>nul') do set "ISCC=%%p"
-    )
-    if not defined ISCC (
-        echo ERROR: Inno Setup 6 not found - needed to build the installer.
-        echo        Install it from https://jrsoftware.org/isdl.php
-        echo        Or build without the installer: desktop\csharp\build.bat
-        goto :fail
-    )
-    echo     Inno Setup 6: OK
+if "%DO_SETUP%"=="1" call :find_iscc
+if "%DO_SETUP%"=="1" if not defined ISCC (
+    echo ERROR: Inno Setup 6 not found - needed to build the installer.
+    echo        Install it from https://jrsoftware.org/isdl.php
+    echo        Or build without the installer: desktop\csharp\build.bat
+    goto :fail
 )
+if defined ISCC echo     Inno Setup 6: OK
 echo.
 
 REM ---------- [0/5] Project files ----------
@@ -263,23 +257,20 @@ if errorlevel 1 (
     goto :fail
 )
 
-echo     Creating desktop shortcut...
-powershell -NoProfile -Command ^
-  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\ПВ-Система PDF.lnk');" ^
-  "$s.TargetPath='%INSTALL_DIR%\PVSPDF.exe';" ^
-  "$s.WorkingDirectory='%INSTALL_DIR%';" ^
-  "$s.IconLocation='%INSTALL_DIR%\pvspdf.ico';" ^
-  "$s.Description='ПВ-Система PDF';" ^
-  "$s.Save()" >nul 2>nul
+REM Shortcut name is passed as base64 so this .bat stays pure ASCII
+REM (a national name typed directly here breaks on other code pages).
+set "LNK_B64=0J/Qki3QodC40YHRgtC10LzQsCBQREYubG5r"
 
-echo     Creating Start menu shortcut...
+echo     Creating shortcuts...
 powershell -NoProfile -Command ^
-  "$d=[Environment]::GetFolderPath('Programs');" ^
-  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($d+'\ПВ-Система PDF.lnk');" ^
-  "$s.TargetPath='%INSTALL_DIR%\PVSPDF.exe';" ^
-  "$s.WorkingDirectory='%INSTALL_DIR%';" ^
-  "$s.IconLocation='%INSTALL_DIR%\pvspdf.ico';" ^
-  "$s.Save()" >nul 2>nul
+  "$n=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%LNK_B64%'));" ^
+  "$w=New-Object -ComObject WScript.Shell;" ^
+  "foreach($d in @([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('Programs'))){" ^
+  "  $s=$w.CreateShortcut((Join-Path $d $n));" ^
+  "  $s.TargetPath='%INSTALL_DIR%\PVSPDF.exe';" ^
+  "  $s.WorkingDirectory='%INSTALL_DIR%';" ^
+  "  $s.IconLocation='%INSTALL_DIR%\pvspdf.ico';" ^
+  "  $s.Save() }" >nul 2>nul
 
 echo     OK - installed
 echo.
@@ -316,6 +307,17 @@ if "%DO_INSTALL%"=="1" (
 echo ============================================================
 echo.
 pause
+exit /b 0
+
+REM ---------- helper: locate Inno Setup compiler ----------
+REM Kept as a subroutine: the %ProgramFiles(x86)% variable contains brackets,
+REM which break IF/FOR blocks when expanded inside them.
+:find_iscc
+set "PF86=%ProgramFiles(x86)%"
+if exist "%PF86%\Inno Setup 6\ISCC.exe" set "ISCC=%PF86%\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+if not defined ISCC for /f "delims=" %%p in ('where iscc 2^>nul') do set "ISCC=%%p"
 exit /b 0
 
 :fail
