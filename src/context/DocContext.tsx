@@ -30,6 +30,32 @@ export type SourceFile = {
 
 type Snapshot = { pages: PageMeta[]; annots: Annot[]; label: string };
 
+export type PaperId = 'original' | 'a3' | 'a4' | 'a5' | 'letter' | 'legal';
+export type FitMode = 'fit' | 'fill' | 'stretch' | 'actual';
+export type Orientation = 'auto' | 'portrait' | 'landscape';
+
+export type Layout = {
+  paper: PaperId;
+  fit: FitMode;
+  orientation: Orientation;
+  margin: number;
+};
+
+export const PAPERS: Record<Exclude<PaperId, 'original'>, [number, number]> = {
+  a3: [841.89, 1190.55],
+  a4: [595.28, 841.89],
+  a5: [419.53, 595.28],
+  letter: [612, 792],
+  legal: [612, 1008],
+};
+
+export const DEFAULT_LAYOUT: Layout = {
+  paper: 'original',
+  fit: 'fit',
+  orientation: 'auto',
+  margin: 0,
+};
+
 type Ctx = {
   annots: Annot[];
   addAnnot: (a: Omit<Annot, 'id'>) => void;
@@ -48,7 +74,7 @@ type Ctx = {
   move: (uid: string, dir: number) => void;
   reset: () => void;
   docOf: (p: PageMeta) => any;
-  buildPdf: (subset?: PageMeta[]) => Promise<Uint8Array>;
+  buildPdf: (subset?: PageMeta[], layout?: Layout) => Promise<Uint8Array>;
   version: number;
   undo: () => void;
   redo: () => void;
@@ -282,7 +308,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const buildPdf = useCallback(
-    async (subset?: PageMeta[]) => {
+    async (subset?: PageMeta[], layout: Layout = DEFAULT_LAYOUT) => {
       const list = subset ?? pages;
       const out = await PDFDocument.create();
       const cache = new Map<string, any>();
@@ -298,7 +324,52 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           const cur = copied.getRotation().angle;
           copied.setRotation(degrees((cur + p.rotation) % 360));
         }
-        const added = out.addPage(copied);
+
+        let added;
+        if (layout.paper === 'original' && layout.orientation === 'auto') {
+          added = out.addPage(copied);
+        } else {
+          const srcSize = copied.getSize();
+          const rot = copied.getRotation().angle % 180 !== 0;
+          const sw = rot ? srcSize.height : srcSize.width;
+          const sh = rot ? srcSize.width : srcSize.height;
+
+          let [pw, ph] =
+            layout.paper === 'original' ? [sw, sh] : PAPERS[layout.paper as keyof typeof PAPERS];
+          const wantLand =
+            layout.orientation === 'landscape' ||
+            (layout.orientation === 'auto' && sw > sh);
+          if (wantLand !== pw > ph) [pw, ph] = [ph, pw];
+
+          added = out.addPage([pw, ph]);
+          const m = layout.margin;
+          const availW = Math.max(1, pw - m * 2);
+          const availH = Math.max(1, ph - m * 2);
+
+          let scaleX = 1;
+          let scaleY = 1;
+          if (layout.fit === 'fit') {
+            const s = Math.min(availW / sw, availH / sh);
+            scaleX = scaleY = s;
+          } else if (layout.fit === 'fill') {
+            const s = Math.max(availW / sw, availH / sh);
+            scaleX = scaleY = s;
+          } else if (layout.fit === 'stretch') {
+            scaleX = availW / sw;
+            scaleY = availH / sh;
+          }
+
+          const embedded = await out.embedPage(copied);
+          const dw = sw * scaleX;
+          const dh = sh * scaleY;
+          added.drawPage(embedded, {
+            x: (pw - dw) / 2,
+            y: (ph - dh) / 2,
+            width: dw,
+            height: dh,
+          });
+        }
+
         const marks = annots.filter((a) => a.pageUid === p.uid);
         if (marks.length) {
           const { width, height } = added.getSize();
