@@ -1,7 +1,7 @@
 import Icon from '@/components/ui/icon';
 import { LOGO_URL, APP_NAME } from '@/lib/brand';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob, formatSize } from '@/lib/pdf';
+import { downloadBlob, formatSize, printBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 
@@ -16,20 +16,8 @@ const AppBar = () => {
 
   const print = async () => {
     const bytes = await buildPdf();
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-    const frame = document.createElement('iframe');
-    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    frame.src = url;
-    frame.onload = () =>
-      setTimeout(() => {
-        frame.contentWindow?.focus();
-        frame.contentWindow?.print();
-      }, 300);
-    document.body.appendChild(frame);
-    setTimeout(() => {
-      frame.remove();
-      URL.revokeObjectURL(url);
-    }, 60000);
+    printBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
+    toast({ title: 'Готовим печать', description: 'Откроется окно выбора принтера' });
   };
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);

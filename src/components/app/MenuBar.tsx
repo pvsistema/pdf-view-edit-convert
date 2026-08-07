@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob } from '@/lib/pdf';
+import { downloadBlob, printBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 
 const MenuBar = () => {
@@ -63,21 +63,8 @@ const MenuBar = () => {
 
   const print = async () => {
     close();
-    const url = URL.createObjectURL(await makeBlob());
-    const frame = document.createElement('iframe');
-    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    frame.src = url;
-    frame.onload = () =>
-      setTimeout(() => {
-        frame.contentWindow?.focus();
-        frame.contentWindow?.print();
-      }, 300);
-    document.body.appendChild(frame);
-    setTimeout(() => {
-      frame.remove();
-      URL.revokeObjectURL(url);
-    }, 60000);
-    toast({ title: 'Отправлено на печать', description: 'Выберите принтер в окне печати' });
+    printBlob(await makeBlob(), name || 'document.pdf');
+    toast({ title: 'Готовим печать', description: 'Откроется окно выбора принтера' });
   };
 
   useEffect(() => {

@@ -64,6 +64,47 @@ export const downloadBlob = (blob: Blob, name: string) => {
 export const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality = 0.92) =>
   new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), type, quality));
 
+export const printBlob = (blob: Blob, name = 'document.pdf') => {
+  const url = URL.createObjectURL(blob);
+  const cleanup = () => setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  frame.src = url;
+
+  let done = false;
+  const fallback = () => {
+    if (done) return;
+    done = true;
+    frame.remove();
+    const win = window.open(url, '_blank');
+    if (!win) downloadBlob(blob, name);
+    cleanup();
+  };
+
+  frame.onload = () => {
+    setTimeout(() => {
+      try {
+        const w = frame.contentWindow;
+        if (!w) throw new Error('no window');
+        w.focus();
+        w.print();
+        done = true;
+        setTimeout(() => {
+          frame.remove();
+          cleanup();
+        }, 60000);
+      } catch {
+        fallback();
+      }
+    }, 400);
+  };
+  frame.onerror = fallback;
+
+  document.body.appendChild(frame);
+  setTimeout(fallback, 4000);
+};
+
 export const formatSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
