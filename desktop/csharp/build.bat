@@ -8,8 +8,9 @@ REM ============================================================
 REM  PV-Sistema PDF desktop build (PVSPDF.exe)
 REM  Run by double-click or from command line:
 REM      desktop\csharp\build.bat
-REM  Optional: build.bat noobf   - build without obfuscation
-REM            build.bat install - build and install to C:\PVSPDF
+REM  Optional: build.bat noobf     - build without obfuscation
+REM            build.bat install   - build and install to C:\PVSPDF
+REM            build.bat installer - build and make PVSPDF-Setup.exe
 REM  Script finds project root by itself.
 REM ============================================================
 
@@ -23,14 +24,18 @@ set "APP_DIR=%CS_DIR%\PvsPdfApp"
 set "DIST=%CS_DIR%\dist"
 set "INSTALL_DIR=C:\PVSPDF"
 set "ICON_SRC=%ROOT%\public\app-icon.png"
+set "ISS_DIR=%ROOT%\desktop\installer"
+set "SETUP_OUT=%CS_DIR%\installer-out"
 
 REM ---------- Build mode ----------
 set "OBFUSCATE=1"
 set "DO_INSTALL=0"
-if /i "%~1"=="noobf" set "OBFUSCATE=0"
-if /i "%~1"=="install" set "DO_INSTALL=1"
-if /i "%~2"=="install" set "DO_INSTALL=1"
-if /i "%~2"=="noobf" set "OBFUSCATE=0"
+set "DO_SETUP=0"
+for %%a in (%*) do (
+    if /i "%%~a"=="noobf" set "OBFUSCATE=0"
+    if /i "%%~a"=="install" set "DO_INSTALL=1"
+    if /i "%%~a"=="installer" set "DO_SETUP=1"
+)
 
 REM ---------- Read app version (MANUAL) ----------
 REM The version is set MANUALLY in desktop\APP_VERSION. No auto-increment.
@@ -55,6 +60,7 @@ REM ---------- [0/5] Environment ----------
 echo [0/5] Checking environment...
 if "%OBFUSCATE%"=="0" echo     MODE: build WITHOUT obfuscation ^(noobf^)
 if "%DO_INSTALL%"=="1" echo     MODE: will install to %INSTALL_DIR% after build
+if "%DO_SETUP%"=="1" echo     MODE: will build PVSPDF-Setup.exe
 
 where node >nul 2>nul
 if errorlevel 1 (
@@ -79,6 +85,23 @@ if errorlevel 1 (
     goto :fail
 )
 echo     .NET 8 SDK: OK
+
+REM --- Inno Setup needed only for the installer step ---
+set "ISCC="
+if "%DO_SETUP%"=="1" (
+    if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+    if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+    if not defined ISCC (
+        for /f "delims=" %%p in ('where iscc 2^>nul') do set "ISCC=%%p"
+    )
+    if not defined ISCC (
+        echo ERROR: Inno Setup 6 not found - needed to build the installer.
+        echo        Install it from https://jrsoftware.org/isdl.php
+        echo        Or build without the installer: desktop\csharp\build.bat
+        goto :fail
+    )
+    echo     Inno Setup 6: OK
+)
 echo.
 
 REM ---------- [0/5] Project files ----------
@@ -192,7 +215,35 @@ del /Q "%DIST%\*.pdb" >nul 2>nul
 echo     OK
 echo.
 
-REM ---------- [5/5] Install to C:\PVSPDF ----------
+REM ---------- [5/5] Installer (PVSPDF-Setup.exe) ----------
+if "%DO_SETUP%"=="0" goto :installstep
+
+echo [5/5] Building installer PVSPDF-Setup.exe...
+
+REM Bundle the WebView2 bootstrapper so the installer works on a clean PC.
+if not exist "%ISS_DIR%\MicrosoftEdgeWebview2Setup.exe" (
+    echo     Downloading WebView2 bootstrapper...
+    curl -s -L -o "%ISS_DIR%\MicrosoftEdgeWebview2Setup.exe" "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+    if not exist "%ISS_DIR%\MicrosoftEdgeWebview2Setup.exe" (
+        echo     WARNING: could not download WebView2 bootstrapper.
+        echo              Installer will be built without it.
+    )
+)
+
+if exist "%SETUP_OUT%" rmdir /S /Q "%SETUP_OUT%"
+mkdir "%SETUP_OUT%"
+
+"%ISCC%" /Q "/DAppVersion=%APP_VERSION%" "/DSourceDir=%DIST%" "/DOutputDir=%SETUP_OUT%" "%ISS_DIR%\setup.iss" || goto :fail
+
+if not exist "%SETUP_OUT%\PVSPDF-Setup-%APP_VERSION%.exe" (
+    echo ERROR: installer was not produced
+    goto :fail
+)
+echo     OK - %SETUP_OUT%\PVSPDF-Setup-%APP_VERSION%.exe
+echo.
+
+:installstep
+REM ---------- Install to C:\PVSPDF ----------
 echo [5/5] Install step...
 if "%DO_INSTALL%"=="0" (
     echo     Skipped ^(run "build.bat install" to copy into %INSTALL_DIR%^)
@@ -244,18 +295,24 @@ echo     web\              (interface files)
 echo     app_version.txt
 echo   Run: PVSPDF.exe
 echo ------------------------------------------------------------
+if "%DO_SETUP%"=="1" (
+    echo   INSTALLER READY - give this ONE file to users:
+    echo     %SETUP_OUT%\PVSPDF-Setup-%APP_VERSION%.exe
+    echo   It installs into %INSTALL_DIR%, makes shortcuts and
+    echo   installs the WebView2 component if it is missing.
+) else (
+    echo   TO BUILD THE INSTALLER ^(one setup.exe for users^):
+    echo     desktop\csharp\build.bat installer
+    echo   ^(needs Inno Setup 6 - https://jrsoftware.org/isdl.php^)
+)
+echo ------------------------------------------------------------
 if "%DO_INSTALL%"=="1" (
     echo   INSTALLED TO: %INSTALL_DIR%
     echo   Shortcuts created on Desktop and in Start menu.
 ) else (
-    echo   TO INSTALL ON THIS PC:
+    echo   TO INSTALL ON THIS PC WITHOUT THE INSTALLER:
     echo     desktop\csharp\build.bat install
-    echo   ^(copies everything into %INSTALL_DIR% and makes shortcuts^)
 )
-echo ------------------------------------------------------------
-echo   NOTE: the PC needs Microsoft Edge WebView2 Runtime.
-echo         On Windows 10/11 it is present by default.
-echo         Otherwise: https://developer.microsoft.com/microsoft-edge/webview2/
 echo ============================================================
 echo.
 pause
