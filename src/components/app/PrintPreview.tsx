@@ -37,8 +37,14 @@ const PrintPreview = ({ page, layout, index, total }: Props) => {
   const wantLand = layout.orientation === 'landscape' || (layout.orientation === 'auto' && sw > sh);
   if (wantLand !== pw > ph) [pw, ph] = [ph, pw];
 
-  const boxH = 250;
-  const boxW = (pw / ph) * boxH;
+  const MAX_H = 250;
+  const MAX_W = 230;
+  let boxH = MAX_H;
+  let boxW = (pw / ph) * boxH;
+  if (boxW > MAX_W) {
+    boxW = MAX_W;
+    boxH = (ph / pw) * boxW;
+  }
   const mScale = boxW / pw;
   const m = layout.margin * mScale;
   const availW = Math.max(1, boxW - m * 2);
@@ -55,8 +61,11 @@ const PrintPreview = ({ page, layout, index, total }: Props) => {
     dw = sw * s;
     dh = sh * s;
   } else if (layout.fit === 'actual') {
-    dw = sw;
-    dh = sh;
+    // Реальный размер: страница в точках PDF (canvas отрисован с масштабом 0.5)
+    const ptW = sw / 0.5;
+    const ptH = sh / 0.5;
+    dw = ptW * mScale;
+    dh = ptH * mScale;
   }
 
   return (

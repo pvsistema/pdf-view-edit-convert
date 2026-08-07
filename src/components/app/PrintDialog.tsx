@@ -11,6 +11,7 @@ import {
 import { printBlob, downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
+import DraggableDialog from '@/components/app/DraggableDialog';
 
 type Scope = 'all' | 'current' | 'range' | 'even' | 'odd';
 
@@ -111,19 +112,44 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
     { id: 'even', label: 'Чётные', note: '2, 4, 6…' },
   ];
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-foreground/50 p-4">
-      <div className="flex max-h-[92vh] w-full max-w-[880px] flex-col border border-foreground bg-background">
-        <div className="flex shrink-0 items-center justify-between border-b border-foreground bg-foreground px-4 py-3 text-background">
-          <span className="font-head text-[0.76rem] font-bold uppercase tracking-[0.12em]">
-            Печать документа
-          </span>
-          <button onClick={onClose} className="transition-opacity hover:opacity-70" title="Закрыть">
-            <Icon name="X" size={16} />
-          </button>
-        </div>
+  const footer = (
+    <div className="flex gap-3 p-4">
+      <button
+        className="btn-block flex-1 justify-center disabled:opacity-50"
+        onClick={() => run('print')}
+        disabled={busy || !indexes.length}
+      >
+        <Icon name={busy ? 'LoaderCircle' : 'Printer'} size={16} className={busy ? 'animate-spin' : ''} />
+        Печать
+      </button>
+      <button
+        className="border border-foreground px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background disabled:opacity-50"
+        onClick={() => run('save')}
+        disabled={busy || !indexes.length}
+        title="Сохранить выбранные страницы в файл"
+      >
+        В файл
+      </button>
+      <button
+        className="border border-border px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:border-foreground"
+        onClick={onClose}
+      >
+        Отмена
+      </button>
+    </div>
+  );
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
+  return (
+    <DraggableDialog
+      title="Печать документа"
+      onClose={onClose}
+      footer={footer}
+      width={900}
+      height={620}
+      minWidth={560}
+      minHeight={420}
+    >
+      <div className="flex h-full min-h-0 flex-col overflow-hidden md:flex-row">
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
             <div className="flex shrink-0 border border-border">
               {(
@@ -289,7 +315,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
             )}
           </div>
 
-          <div className="flex w-full shrink-0 flex-col items-center border-t border-border bg-card p-5 md:w-[320px] md:border-l md:border-t-0">
+          <div className="flex w-full shrink-0 flex-col items-center overflow-y-auto border-t border-border bg-card p-5 md:w-[300px] md:border-l md:border-t-0">
             <div className="label-caps mb-4 self-start">Предпросмотр</div>
             <PrintPreview page={shown} layout={layout} index={pos} total={indexes.length} />
 
@@ -323,33 +349,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
             </div>
           </div>
         </div>
-
-        <div className="flex shrink-0 gap-3 border-t border-border p-4">
-          <button
-            className="btn-block flex-1 justify-center disabled:opacity-50"
-            onClick={() => run('print')}
-            disabled={busy || !indexes.length}
-          >
-            <Icon name={busy ? 'LoaderCircle' : 'Printer'} size={16} className={busy ? 'animate-spin' : ''} />
-            Печать
-          </button>
-          <button
-            className="border border-foreground px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background disabled:opacity-50"
-            onClick={() => run('save')}
-            disabled={busy || !indexes.length}
-            title="Сохранить выбранные страницы в файл"
-          >
-            В файл
-          </button>
-          <button
-            className="border border-border px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:border-foreground"
-            onClick={onClose}
-          >
-            Отмена
-          </button>
-        </div>
-      </div>
-    </div>
+    </DraggableDialog>
   );
 };
 

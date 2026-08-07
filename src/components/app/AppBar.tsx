@@ -25,7 +25,7 @@ const AppBar = () => {
   const totalSize = files.reduce((s, f) => s + f.size, 0);
 
   return (
-    <header className="shrink-0 border-b border-foreground bg-background">
+    <header className="sticky top-0 z-50 shrink-0 border-b border-foreground bg-background">
       <div className="flex h-14 items-center gap-3 px-4">
         <MenuBar />
 

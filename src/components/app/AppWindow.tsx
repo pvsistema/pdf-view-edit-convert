@@ -108,7 +108,7 @@ const AppWindow = ({ children, title }: { children: React.ReactNode; title?: str
 
   const toggleMax = () => setMode((m) => (m === 'max' ? 'normal' : 'max'));
 
-  if (small) return <>{children}</>;
+  if (small) return <div className="h-screen overflow-hidden">{children}</div>;
 
   if (closed) {
     return (
