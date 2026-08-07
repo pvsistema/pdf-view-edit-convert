@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Список без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "list" },
+      "expectedStatus": 401
+    },
+    {
+      "name": "Проверка несуществующего ключа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "verify", "key": "PVPDF-XXXXX-XXXXX-XXXXX-XXXXX" },
+      "expectedStatus": 200,
+      "expectedBody": { "valid": false },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
