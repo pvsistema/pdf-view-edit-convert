@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { LOGO_URL, APP_NAME } from '@/lib/brand';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob, formatSize, printBlob } from '@/lib/pdf';
+import { downloadBlob, formatSize } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
+import PrintDialog from '@/components/app/PrintDialog';
 
 const AppBar = () => {
   const { name, pages, files, buildPdf, undo, redo, canUndo, canRedo } = useDoc();
@@ -14,11 +16,7 @@ const AppBar = () => {
     toast({ title: 'Документ сохранён' });
   };
 
-  const print = async () => {
-    const bytes = await buildPdf();
-    printBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
-    toast({ title: 'Готовим печать', description: 'Откроется окно выбора принтера' });
-  };
+  const [showPrint, setShowPrint] = useState(false);
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);
 
@@ -61,7 +59,7 @@ const AppBar = () => {
           {name && (
             <>
               <button
-                onClick={print}
+                onClick={() => setShowPrint(true)}
                 className="inline-flex h-10 items-center gap-2 border border-foreground px-4 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
                 title="Печать (Ctrl+P)"
               >
@@ -87,6 +85,8 @@ const AppBar = () => {
           </div>
         </div>
       </div>
+
+      {showPrint && <PrintDialog onClose={() => setShowPrint(false)} />}
     </header>
   );
 };

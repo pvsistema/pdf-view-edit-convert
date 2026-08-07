@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob, printBlob } from '@/lib/pdf';
+import { downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
+import PrintDialog from '@/components/app/PrintDialog';
 
 const MenuBar = () => {
   const {
@@ -29,6 +30,7 @@ const MenuBar = () => {
 
   const [menu, setMenu] = useState<'file' | 'edit' | null>(null);
   const [askName, setAskName] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
   const [draft, setDraft] = useState('');
   const openInput = useRef<HTMLInputElement>(null);
   const appendInput = useRef<HTMLInputElement>(null);
@@ -61,10 +63,9 @@ const MenuBar = () => {
     toast({ title: 'Файл сохранён', description: file });
   };
 
-  const print = async () => {
+  const print = () => {
     close();
-    printBlob(await makeBlob(), name || 'document.pdf');
-    toast({ title: 'Готовим печать', description: 'Откроется окно выбора принтера' });
+    setShowPrint(true);
   };
 
   useEffect(() => {
@@ -81,7 +82,7 @@ const MenuBar = () => {
         e.shiftKey ? saveAs() : save();
       } else if (k === 'p' && has) {
         e.preventDefault();
-        print();
+        setShowPrint(true);
       } else if (k === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -210,6 +211,8 @@ const MenuBar = () => {
           e.target.value = '';
         }}
       />
+
+      {showPrint && <PrintDialog onClose={() => setShowPrint(false)} />}
 
       {askName && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">
