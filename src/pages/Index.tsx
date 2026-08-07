@@ -8,11 +8,21 @@ import Viewer, { type Tool } from "@/components/app/Viewer";
 import ToolsPanel from "@/components/app/ToolsPanel";
 import AppWindow from "@/components/app/AppWindow";
 import { LicenseProvider } from "@/context/LicenseContext";
+import { isDesktop, onDesktopFile, setNativeTitle } from "@/lib/desktop";
+import { useEffect } from "react";
 
 const Workspace = () => {
-  const { pages, name } = useDoc();
+  const { pages, name, open } = useDoc();
   const [tool, setTool] = useState<Tool>("hand");
   const [panel, setPanel] = useState<"pages" | "tools" | null>(null);
+
+  useEffect(() => onDesktopFile((f) => open(f)), [open]);
+
+  useEffect(() => {
+    if (isDesktop()) {
+      setNativeTitle(name ? `${name} — ПВ-Система PDF` : "ПВ-Система PDF");
+    }
+  }, [name]);
 
   return (
     <AppWindow title={name ? `${name} — ПВ-Система PDF` : undefined}>

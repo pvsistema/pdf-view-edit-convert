@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { LOGO_URL, APP_NAME } from '@/lib/brand';
+import { isDesktop } from '@/lib/desktop';
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Mode = 'normal' | 'max' | 'min';
@@ -36,7 +37,8 @@ const AppWindow = ({ children, title }: { children: React.ReactNode; title?: str
   const [busy, setBusy] = useState(false);
   const drag = useRef<{ kind: 'move' | Edge; sx: number; sy: number; base: Rect } | null>(null);
 
-  const small = typeof window !== 'undefined' && window.innerWidth < MIN_W + 40;
+  const small =
+    isDesktop() || (typeof window !== 'undefined' && window.innerWidth < MIN_W + 40);
 
   useEffect(() => {
     const onResize = () => setRect((r) => clampRect(r));

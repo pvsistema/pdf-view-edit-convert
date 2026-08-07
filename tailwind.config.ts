@@ -19,8 +19,8 @@ export default {
 		},
 		extend: {
 			fontFamily: {
-				head: ['Inter', 'sans-serif'],
-				body: ['"IBM Plex Sans"', 'sans-serif'],
+				head: ['Inter', '"Segoe UI"', 'Roboto', 'Arial', 'sans-serif'],
+				body: ['"IBM Plex Sans"', '"Segoe UI"', 'Roboto', 'Arial', 'sans-serif'],
 			},
 			colors: {
 				rule: 'hsl(var(--rule))',
