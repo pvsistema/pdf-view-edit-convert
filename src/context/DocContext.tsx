@@ -28,6 +28,8 @@ export type SourceFile = {
   size: number;
 };
 
+type Snapshot = { pages: PageMeta[]; annots: Annot[]; label: string };
+
 type Ctx = {
   annots: Annot[];
   addAnnot: (a: Omit<Annot, 'id'>) => void;
@@ -48,6 +50,15 @@ type Ctx = {
   docOf: (p: PageMeta) => any;
   buildPdf: (subset?: PageMeta[]) => Promise<Uint8Array>;
   version: number;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  undoLabel: string;
+  redoLabel: string;
+  selectAllPages: () => void;
+  clearAnnots: () => void;
+  duplicatePage: (uid: string) => void;
 };
 
 const DocCtx = createContext<Ctx | null>(null);
@@ -58,24 +69,94 @@ const nextId = () => `p${++seq}`;
 export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [pages, setPages] = useState<PageMeta[]>([]);
+  const [annots, setAnnots] = useState<Annot[]>([]);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const [version, setVersion] = useState(0);
-  const [annots, setAnnots] = useState<Annot[]>([]);
+  const [past, setPast] = useState<Snapshot[]>([]);
+  const [future, setFuture] = useState<Snapshot[]>([]);
   const filesRef = useRef<SourceFile[]>([]);
+  const pagesRef = useRef<PageMeta[]>([]);
+  const annotsRef = useRef<Annot[]>([]);
 
-  const addAnnot = useCallback((a: Omit<Annot, 'id'>) => {
-    setAnnots((list) => [...list, { ...a, id: `a${++seq}` }]);
+  const apply = useCallback((label: string, next: { pages?: PageMeta[]; annots?: Annot[] }) => {
+    setPast((h) => [
+      ...h.slice(-49),
+      { pages: pagesRef.current, annots: annotsRef.current, label },
+    ]);
+    setFuture([]);
+    if (next.pages) {
+      pagesRef.current = next.pages;
+      setPages(next.pages);
+    }
+    if (next.annots) {
+      annotsRef.current = next.annots;
+      setAnnots(next.annots);
+    }
+    setVersion((v) => v + 1);
   }, []);
 
-  const updateAnnot = useCallback((id: string, patch: Partial<Annot>) => {
-    setAnnots((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  const commit = useCallback((snap: Snapshot) => {
+    pagesRef.current = snap.pages;
+    annotsRef.current = snap.annots;
+    setPages(snap.pages);
+    setAnnots(snap.annots);
+    setActive((a) => Math.max(0, Math.min(a, snap.pages.length - 1)));
+    setVersion((v) => v + 1);
   }, []);
 
-  const removeAnnot = useCallback((id: string) => {
-    setAnnots((list) => list.filter((a) => a.id !== id));
-  }, []);
+  const undo = useCallback(() => {
+    setPast((h) => {
+      if (!h.length) return h;
+      const prev = h[h.length - 1];
+      setFuture((f) => [
+        { pages: pagesRef.current, annots: annotsRef.current, label: prev.label },
+        ...f,
+      ]);
+      commit(prev);
+      return h.slice(0, -1);
+    });
+  }, [commit]);
+
+  const redo = useCallback(() => {
+    setFuture((f) => {
+      if (!f.length) return f;
+      const next = f[0];
+      setPast((h) => [...h, { pages: pagesRef.current, annots: annotsRef.current, label: next.label }]);
+      commit(next);
+      return f.slice(1);
+    });
+  }, [commit]);
+
+  const addAnnot = useCallback(
+    (a: Omit<Annot, 'id'>) => {
+      apply(a.kind === 'text' ? 'добавление надписи' : 'закрашивание', {
+        annots: [...annotsRef.current, { ...a, id: `a${++seq}` }],
+      });
+    },
+    [apply],
+  );
+
+  const updateAnnot = useCallback(
+    (id: string, patch: Partial<Annot>) => {
+      apply('изменение надписи', {
+        annots: annotsRef.current.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+      });
+    },
+    [apply],
+  );
+
+  const removeAnnot = useCallback(
+    (id: string) => {
+      apply('удаление пометки', { annots: annotsRef.current.filter((a) => a.id !== id) });
+    },
+    [apply],
+  );
+
+  const clearAnnots = useCallback(() => {
+    apply('очистку пометок', { annots: [] });
+  }, [apply]);
 
   const readFile = useCallback(async (file: File) => {
     const bytes = await file.arrayBuffer();
@@ -97,10 +178,15 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const { entry, list } = await readFile(file);
         filesRef.current = [entry];
+        pagesRef.current = list;
+        annotsRef.current = [];
         setFiles([entry]);
         setPages(list);
+        setAnnots([]);
         setName(file.name);
         setActive(0);
+        setPast([]);
+        setFuture([]);
         setVersion((v) => v + 1);
       } finally {
         setLoading(false);
@@ -116,52 +202,77 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         const { entry, list } = await readFile(file);
         filesRef.current = [...filesRef.current, entry];
         setFiles((f) => [...f, entry]);
-        setPages((p) => [...p, ...list]);
-        setVersion((v) => v + 1);
+        apply('добавление файла', { pages: [...pagesRef.current, ...list] });
       } finally {
         setLoading(false);
       }
     },
-    [readFile],
+    [readFile, apply],
   );
 
-  const rotate = useCallback((uid: string, dir: number) => {
-    setPages((p) =>
-      p.map((x) => (x.uid === uid ? { ...x, rotation: (x.rotation + dir + 360) % 360 } : x)),
-    );
-    setVersion((v) => v + 1);
-  }, []);
+  const rotate = useCallback(
+    (uid: string, dir: number) => {
+      apply('поворот страницы', {
+        pages: pagesRef.current.map((x) =>
+          x.uid === uid ? { ...x, rotation: (x.rotation + dir + 360) % 360 } : x,
+        ),
+      });
+    },
+    [apply],
+  );
 
-  const remove = useCallback((uid: string) => {
-    setPages((p) => {
-      const idx = p.findIndex((x) => x.uid === uid);
-      const next = p.filter((x) => x.uid !== uid);
+  const remove = useCallback(
+    (uid: string) => {
+      const idx = pagesRef.current.findIndex((x) => x.uid === uid);
+      const next = pagesRef.current.filter((x) => x.uid !== uid);
+      if (!next.length) return;
+      apply('удаление страницы', {
+        pages: next,
+        annots: annotsRef.current.filter((a) => a.pageUid !== uid),
+      });
       setActive((a) => Math.max(0, Math.min(a >= idx ? a - 1 : a, next.length - 1)));
-      return next;
-    });
-    setVersion((v) => v + 1);
-  }, []);
+    },
+    [apply],
+  );
 
-  const move = useCallback((uid: string, dir: number) => {
-    setPages((p) => {
-      const i = p.findIndex((x) => x.uid === uid);
+  const move = useCallback(
+    (uid: string, dir: number) => {
+      const i = pagesRef.current.findIndex((x) => x.uid === uid);
       const j = i + dir;
-      if (i < 0 || j < 0 || j >= p.length) return p;
-      const next = [...p];
+      if (i < 0 || j < 0 || j >= pagesRef.current.length) return;
+      const next = [...pagesRef.current];
       [next[i], next[j]] = [next[j], next[i]];
+      apply('перемещение страницы', { pages: next });
       setActive(j);
-      return next;
-    });
-    setVersion((v) => v + 1);
-  }, []);
+    },
+    [apply],
+  );
+
+  const duplicatePage = useCallback(
+    (uid: string) => {
+      const i = pagesRef.current.findIndex((x) => x.uid === uid);
+      if (i < 0) return;
+      const copy = { ...pagesRef.current[i], uid: nextId() };
+      const next = [...pagesRef.current];
+      next.splice(i + 1, 0, copy);
+      apply('копирование страницы', { pages: next });
+    },
+    [apply],
+  );
+
+  const selectAllPages = useCallback(() => setActive(0), []);
 
   const reset = useCallback(() => {
     filesRef.current = [];
+    pagesRef.current = [];
+    annotsRef.current = [];
     setFiles([]);
     setPages([]);
+    setAnnots([]);
     setName('');
     setActive(0);
-    setAnnots([]);
+    setPast([]);
+    setFuture([]);
     setVersion((v) => v + 1);
   }, []);
 
@@ -225,6 +336,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       addAnnot,
       updateAnnot,
       removeAnnot,
+      clearAnnots,
       files,
       pages,
       name,
@@ -236,16 +348,25 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       rotate,
       remove,
       move,
+      duplicatePage,
+      selectAllPages,
       reset,
       docOf,
       buildPdf,
       version,
+      undo,
+      redo,
+      canUndo: past.length > 0,
+      canRedo: future.length > 0,
+      undoLabel: past.length ? past[past.length - 1].label : '',
+      redoLabel: future.length ? future[0].label : '',
     }),
     [
       annots,
       addAnnot,
       updateAnnot,
       removeAnnot,
+      clearAnnots,
       files,
       pages,
       name,
@@ -256,10 +377,16 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       rotate,
       remove,
       move,
+      duplicatePage,
+      selectAllPages,
       reset,
       docOf,
       buildPdf,
       version,
+      undo,
+      redo,
+      past,
+      future,
     ],
   );
 

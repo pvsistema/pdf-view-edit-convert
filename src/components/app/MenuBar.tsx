@@ -1,27 +1,41 @@
 import { useEffect, useRef, useState } from 'react';
-import Icon from '@/components/ui/icon';
+import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
 import { downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 
-const FileMenu = () => {
-  const { name, pages, open, append, reset, buildPdf } = useDoc();
-  const [show, setShow] = useState(false);
+const MenuBar = () => {
+  const {
+    name,
+    pages,
+    active,
+    open,
+    append,
+    reset,
+    buildPdf,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    undoLabel,
+    redoLabel,
+    rotate,
+    remove,
+    move,
+    duplicatePage,
+    annots,
+    clearAnnots,
+  } = useDoc();
+
+  const [menu, setMenu] = useState<'file' | 'edit' | null>(null);
   const [askName, setAskName] = useState(false);
   const [draft, setDraft] = useState('');
-  const box = useRef<HTMLDivElement>(null);
   const openInput = useRef<HTMLInputElement>(null);
   const appendInput = useRef<HTMLInputElement>(null);
 
   const has = pages.length > 0;
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setShow(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, []);
+  const current = pages[active];
+  const close = () => setMenu(null);
 
   const makeBlob = async () => {
     const bytes = await buildPdf();
@@ -29,13 +43,13 @@ const FileMenu = () => {
   };
 
   const save = async () => {
-    setShow(false);
+    close();
     downloadBlob(await makeBlob(), name || 'document.pdf');
     toast({ title: 'Документ сохранён' });
   };
 
   const saveAs = () => {
-    setShow(false);
+    close();
     setDraft((name || 'document.pdf').replace(/\.pdf$/i, ''));
     setAskName(true);
   };
@@ -48,18 +62,16 @@ const FileMenu = () => {
   };
 
   const print = async () => {
-    setShow(false);
-    const blob = await makeBlob();
-    const url = URL.createObjectURL(blob);
+    close();
+    const url = URL.createObjectURL(await makeBlob());
     const frame = document.createElement('iframe');
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
     frame.src = url;
-    frame.onload = () => {
+    frame.onload = () =>
       setTimeout(() => {
         frame.contentWindow?.focus();
         frame.contentWindow?.print();
       }, 300);
-    };
     document.body.appendChild(frame);
     setTimeout(() => {
       frame.remove();
@@ -68,13 +80,10 @@ const FileMenu = () => {
     toast({ title: 'Отправлено на печать', description: 'Выберите принтер в окне печати' });
   };
 
-  const close = () => {
-    setShow(false);
-    reset();
-  };
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = e.key.toLowerCase();
       if (k === 'o') {
@@ -82,60 +91,107 @@ const FileMenu = () => {
         openInput.current?.click();
       } else if (k === 's' && has) {
         e.preventDefault();
-        if (e.shiftKey) saveAs();
-        else save();
+        e.shiftKey ? saveAs() : save();
       } else if (k === 'p' && has) {
         e.preventDefault();
         print();
+      } else if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+        e.preventDefault();
+        redo();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const items = [
+  const act = (fn: () => void) => () => {
+    close();
+    fn();
+  };
+
+  const fileItems: MenuItem[] = [
     { icon: 'FolderOpen', label: 'Открыть', hint: 'Ctrl+O', fn: () => openInput.current?.click(), on: true },
-    { icon: 'FilePlus2', label: 'Добавить файл', hint: '', fn: () => appendInput.current?.click(), on: has },
+    { icon: 'FilePlus2', label: 'Добавить файл', fn: () => appendInput.current?.click(), on: has },
     { icon: 'Save', label: 'Сохранить', hint: 'Ctrl+S', fn: save, on: has, sep: true },
     { icon: 'SaveAll', label: 'Сохранить как…', hint: 'Ctrl+Shift+S', fn: saveAs, on: has },
     { icon: 'Printer', label: 'Печать…', hint: 'Ctrl+P', fn: print, on: has, sep: true },
-    { icon: 'X', label: 'Закрыть документ', hint: '', fn: close, on: has },
+    { icon: 'X', label: 'Закрыть документ', fn: act(reset), on: has },
+  ];
+
+  const editItems: MenuItem[] = [
+    {
+      icon: 'Undo2',
+      label: canUndo ? `Отменить ${undoLabel}` : 'Отменить',
+      hint: 'Ctrl+Z',
+      fn: act(undo),
+      on: canUndo,
+    },
+    {
+      icon: 'Redo2',
+      label: canRedo ? `Вернуть ${redoLabel}` : 'Вернуть',
+      hint: 'Ctrl+Y',
+      fn: act(redo),
+      on: canRedo,
+    },
+    {
+      icon: 'RotateCw',
+      label: 'Повернуть страницу',
+      fn: act(() => current && rotate(current.uid, 90)),
+      on: has,
+      sep: true,
+    },
+    {
+      icon: 'Copy',
+      label: 'Дублировать страницу',
+      fn: act(() => current && duplicatePage(current.uid)),
+      on: has,
+    },
+    {
+      icon: 'ArrowUp',
+      label: 'Переместить выше',
+      fn: act(() => current && move(current.uid, -1)),
+      on: has && active > 0,
+    },
+    {
+      icon: 'ArrowDown',
+      label: 'Переместить ниже',
+      fn: act(() => current && move(current.uid, 1)),
+      on: has && active < pages.length - 1,
+    },
+    {
+      icon: 'Trash2',
+      label: 'Удалить страницу',
+      fn: act(() => current && remove(current.uid)),
+      on: has && pages.length > 1,
+      sep: true,
+    },
+    {
+      icon: 'Eraser',
+      label: 'Убрать все пометки',
+      fn: act(clearAnnots),
+      on: annots.length > 0,
+    },
   ];
 
   return (
-    <div className="relative" ref={box}>
-      <button
-        onClick={() => setShow((v) => !v)}
-        className={`flex h-9 items-center gap-1.5 px-3 font-head text-[0.78rem] font-bold uppercase tracking-[0.08em] transition-colors ${
-          show ? 'bg-foreground text-background' : 'hover:bg-card'
-        }`}
-      >
-        Файл
-        <Icon name="ChevronDown" size={13} />
-      </button>
-
-      {show && (
-        <div className="animate-fade-in absolute left-0 top-full z-50 mt-px w-[280px] border border-foreground bg-background shadow-[6px_6px_0_hsl(var(--rule)/0.25)]">
-          {items.map((it) => (
-            <button
-              key={it.label}
-              onClick={it.fn}
-              disabled={!it.on}
-              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors disabled:opacity-35 ${
-                it.sep ? 'border-t border-border' : ''
-              } enabled:hover:bg-card`}
-            >
-              <Icon name={it.icon} size={16} className="shrink-0 text-primary" />
-              <span className="flex-1 text-[0.88rem]">{it.label}</span>
-              {it.hint && (
-                <span className="font-head text-[0.7rem] tracking-[0.06em] text-muted-foreground">
-                  {it.hint}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="flex items-center gap-1">
+      <MenuShell
+        title="Файл"
+        open={menu === 'file'}
+        onToggle={() => setMenu((m) => (m === 'file' ? null : 'file'))}
+        onClose={() => setMenu((m) => (m === 'file' ? null : m))}
+        items={fileItems}
+      />
+      <MenuShell
+        title="Правка"
+        open={menu === 'edit'}
+        onToggle={() => setMenu((m) => (m === 'edit' ? null : 'edit'))}
+        onClose={() => setMenu((m) => (m === 'edit' ? null : m))}
+        items={editItems}
+      />
 
       <input
         ref={openInput}
@@ -145,7 +201,7 @@ const FileMenu = () => {
         onChange={async (e) => {
           const f = e.target.files?.[0];
           if (f) {
-            setShow(false);
+            close();
             await open(f);
             toast({ title: 'Документ открыт', description: f.name });
           }
@@ -160,7 +216,7 @@ const FileMenu = () => {
         onChange={async (e) => {
           const f = e.target.files?.[0];
           if (f) {
-            setShow(false);
+            close();
             await append(f);
             toast({ title: 'Файл добавлен', description: f.name });
           }
@@ -201,4 +257,4 @@ const FileMenu = () => {
   );
 };
 
-export default FileMenu;
+export default MenuBar;
