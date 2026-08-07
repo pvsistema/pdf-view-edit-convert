@@ -56,6 +56,22 @@ export const updateLicense = (data: Partial<License> & { id: number }) =>
 
 export const deleteLicense = (id: number) => post(LIC_URL, { action: 'delete', id });
 
+export type CheckRecord = {
+  id: number;
+  license_key: string;
+  result: string;
+  ip: string;
+  user_agent: string;
+  checked_at: string;
+  org_name: string;
+};
+
+export const listHistory = (id = 0, limit = 200) =>
+  post(LIC_URL, { action: 'history', id, limit }) as Promise<{
+    items: CheckRecord[];
+    by_result: Record<string, number>;
+  }>;
+
 export const verifyKey = (key: string) =>
   post(LIC_URL, { action: 'verify', key }) as Promise<{
     valid: boolean;

@@ -79,25 +79,43 @@ def handler(event, context):
 
     if action == 'verify':
         key = _esc(str(body.get('key') or params.get('key', '')).strip().upper())
+        headers = event.get('headers') or {}
+        ip = _esc((event.get('requestContext') or {}).get('identity', {}).get('sourceIp', ''))[:60]
+        agent = _esc(headers.get('User-Agent') or headers.get('user-agent') or '')[:240]
+
         if not key:
             cur.close()
             conn.close()
             return _resp(400, {'valid': False, 'error': 'Ключ не указан'})
+
         cur.execute(
-            f"SELECT org_name, valid_until, status FROM {SCHEMA}.licenses WHERE license_key = '{key}'"
+            f"SELECT id, org_name, valid_until, status FROM {SCHEMA}.licenses WHERE license_key = '{key}'"
         )
         row = cur.fetchone()
+
+        def log(lic_id, outcome):
+            lid = str(lic_id) if lic_id else 'NULL'
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.license_checks (license_id, license_key, result, ip, user_agent) "
+                f"VALUES ({lid}, '{key}', '{outcome}', '{ip}', '{agent}')"
+            )
+
         if not row:
+            log(None, 'not_found')
             cur.close()
             conn.close()
             return _resp(200, {'valid': False, 'reason': 'Ключ не найден'})
-        org, until, status = row
+
+        lic_id, org, until, status = row
         today = datetime.utcnow().date()
         if status != 'active':
+            log(lic_id, 'blocked')
             result = {'valid': False, 'reason': 'Ключ заблокирован', 'org_name': org}
         elif until < today:
+            log(lic_id, 'expired')
             result = {'valid': False, 'reason': 'Срок действия истёк', 'org_name': org, 'valid_until': str(until)}
         else:
+            log(lic_id, 'ok')
             result = {'valid': True, 'org_name': org, 'valid_until': str(until), 'days_left': (until - today).days}
             cur.execute(
                 f"UPDATE {SCHEMA}.licenses SET activations = activations + 1, last_check_at = NOW() WHERE license_key = '{key}'"
@@ -128,6 +146,37 @@ def handler(event, context):
         cur.close()
         conn.close()
         return _resp(200, {'items': items, 'stats': stats})
+
+    if action == 'history':
+        lic_id = int(body.get('id') or params.get('id') or 0)
+        limit = min(int(body.get('limit') or 200), 500)
+        where = f"WHERE c.license_id = {lic_id}" if lic_id else ''
+        cur.execute(
+            f"SELECT c.id, c.license_key, c.result, c.ip, c.user_agent, c.checked_at, "
+            f"COALESCE(l.org_name, '') FROM {SCHEMA}.license_checks c "
+            f"LEFT JOIN {SCHEMA}.licenses l ON l.id = c.license_id {where} "
+            f"ORDER BY c.checked_at DESC LIMIT {limit}"
+        )
+        items = [
+            {
+                'id': r[0],
+                'license_key': r[1],
+                'result': r[2],
+                'ip': r[3] or '',
+                'user_agent': r[4] or '',
+                'checked_at': r[5].strftime('%Y-%m-%d %H:%M') if r[5] else '',
+                'org_name': r[6],
+            }
+            for r in cur.fetchall()
+        ]
+        cur.execute(
+            f"SELECT result, COUNT(*) FROM {SCHEMA}.license_checks "
+            f"{'WHERE license_id = ' + str(lic_id) if lic_id else ''} GROUP BY result"
+        )
+        by_result = {r[0]: r[1] for r in cur.fetchall()}
+        cur.close()
+        conn.close()
+        return _resp(200, {'items': items, 'by_result': by_result})
 
     if action == 'generate_key':
         for _ in range(10):
