@@ -4,14 +4,18 @@ import { useDoc } from '@/context/DocContext';
 import { canvasToBlob, downloadBlob, pageText, renderPage } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { createWorker } from 'tesseract.js';
+import { useLicense } from '@/context/LicenseContext';
+import ActivateDialog from '@/components/app/ActivateDialog';
 
 const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
 const ToolsPanel = () => {
   const { pages, name, active, docOf, buildPdf } = useDoc();
+  const { isFull } = useLicense();
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [ocrText, setOcrText] = useState('');
+  const [showAct, setShowAct] = useState(false);
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -136,38 +140,49 @@ const ToolsPanel = () => {
 
   const TOOLS = [
     { key: 'pdf', icon: 'Save', label: 'Сохранить PDF', note: 'Со всеми правками', fn: toPdf },
-    { key: 'word', icon: 'FileText', label: 'В Word', note: 'Редактируемый документ', fn: toWord },
-    { key: 'excel', icon: 'Table', label: 'В Excel', note: 'Таблица из документа', fn: toExcel },
-    { key: 'jpg', icon: 'Image', label: 'В JPG', note: 'Каждая страница картинкой', fn: toImages },
+    { key: 'word', icon: 'FileText', label: 'В Word', note: 'Редактируемый документ', fn: toWord, pro: true },
+    { key: 'excel', icon: 'Table', label: 'В Excel', note: 'Таблица из документа', fn: toExcel, pro: true },
+    { key: 'jpg', icon: 'Image', label: 'В JPG', note: 'Каждая страница картинкой', fn: toImages, pro: true },
     { key: 'text', icon: 'AlignLeft', label: 'В текст', note: 'Простой файл TXT', fn: toText },
     { key: 'split', icon: 'Scissors', label: 'Выделить страницу', note: 'Текущая — отдельным файлом', fn: splitCurrent },
-    { key: 'ocr', icon: 'ScanText', label: 'Распознать (OCR)', note: 'Русский и английский', fn: runOcr },
+    { key: 'ocr', icon: 'ScanText', label: 'Распознать (OCR)', note: 'Русский и английский', fn: runOcr, pro: true },
   ];
 
   return (
     <aside className="flex h-full w-[290px] shrink-0 flex-col border-l border-border bg-card">
-      <div className="border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <span className="label-caps">Инструменты</span>
+        {!isFull && (
+          <span className="font-head text-[0.66rem] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+            Бесплатная версия
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {TOOLS.map((t) => (
+        {TOOLS.map((t) => {
+          const locked = !!t.pro && !isFull;
+          return (
           <button
             key={t.key}
-            onClick={t.fn}
+            onClick={locked ? () => setShowAct(true) : t.fn}
             disabled={!!busy}
             className="flex w-full items-start gap-3 border-b border-border px-4 py-4 text-left transition-colors hover:bg-background disabled:opacity-50"
           >
             <Icon
-              name={busy === t.key ? 'LoaderCircle' : t.icon}
+              name={busy === t.key ? 'LoaderCircle' : locked ? 'Lock' : t.icon}
               size={18}
-              className={`mt-0.5 shrink-0 text-primary ${busy === t.key ? 'animate-spin' : ''}`}
+              className={`mt-0.5 shrink-0 ${locked ? 'text-muted-foreground' : 'text-primary'} ${
+                busy === t.key ? 'animate-spin' : ''
+              }`}
             />
             <span className="min-w-0">
               <span className="block font-head text-[0.92rem] font-bold uppercase tracking-[-0.01em]">
                 {t.label}
               </span>
-              <span className="mt-0.5 block text-[0.8rem] text-muted-foreground">{t.note}</span>
+              <span className="mt-0.5 block text-[0.8rem] text-muted-foreground">
+                {locked ? 'Доступно в полной версии' : t.note}
+              </span>
               {busy === t.key && progress > 0 && (
                 <span className="mt-2 block h-1 w-full bg-border">
                   <span className="block h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
@@ -175,7 +190,25 @@ const ToolsPanel = () => {
               )}
             </span>
           </button>
-        ))}
+          );
+        })}
+
+        {!isFull && (
+          <button
+            onClick={() => setShowAct(true)}
+            className="flex w-full items-center gap-3 border-b border-border bg-primary/5 px-4 py-4 text-left transition-colors hover:bg-primary/10"
+          >
+            <Icon name="KeyRound" size={18} className="shrink-0 text-primary" />
+            <span>
+              <span className="block font-head text-[0.9rem] font-bold uppercase text-primary">
+                Активировать
+              </span>
+              <span className="mt-0.5 block text-[0.78rem] text-muted-foreground">
+                Открыть все возможности
+              </span>
+            </span>
+          </button>
+        )}
 
         {ocrText && (
           <div className="border-b border-border p-4">
@@ -203,6 +236,8 @@ const ToolsPanel = () => {
           </div>
         )}
       </div>
+
+      {showAct && <ActivateDialog onClose={() => setShowAct(false)} />}
     </aside>
   );
 };

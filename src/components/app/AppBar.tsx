@@ -6,6 +6,8 @@ import { downloadBlob, formatSize } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';
+import ActivateDialog from '@/components/app/ActivateDialog';
+import { useLicense } from '@/context/LicenseContext';
 
 const AppBar = () => {
   const { name, pages, files, buildPdf, undo, redo, canUndo, canRedo } = useDoc();
@@ -17,6 +19,8 @@ const AppBar = () => {
   };
 
   const [showPrint, setShowPrint] = useState(false);
+  const [showAct, setShowAct] = useState(false);
+  const { isFull, license } = useLicense();
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);
 
@@ -77,6 +81,19 @@ const AppBar = () => {
             </>
           )}
 
+          <button
+            onClick={() => setShowAct(true)}
+            title={isFull ? `Полная версия — ${license?.org}` : 'Активировать полную версию'}
+            className={`inline-flex h-10 items-center gap-2 px-3 font-head text-[0.7rem] font-bold uppercase tracking-[0.1em] transition-colors ${
+              isFull
+                ? 'border border-primary text-primary hover:bg-primary hover:text-primary-foreground'
+                : 'border border-foreground hover:bg-foreground hover:text-background'
+            }`}
+          >
+            <Icon name={isFull ? 'ShieldCheck' : 'KeyRound'} size={15} />
+            <span className="hidden lg:inline">{isFull ? 'Полная версия' : 'Активировать'}</span>
+          </button>
+
           <div className="flex items-center gap-2.5 border-l border-border pl-3">
             <span className="hidden font-head text-[0.76rem] font-bold uppercase tracking-[0.12em] sm:inline">
               ПВ-Система&nbsp;PDF
@@ -87,6 +104,7 @@ const AppBar = () => {
       </div>
 
       {showPrint && <PrintDialog onClose={() => setShowPrint(false)} />}
+      {showAct && <ActivateDialog onClose={() => setShowAct(false)} />}
     </header>
   );
 };

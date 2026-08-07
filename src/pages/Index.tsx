@@ -7,6 +7,7 @@ import PagesPanel from "@/components/app/PagesPanel";
 import Viewer, { type Tool } from "@/components/app/Viewer";
 import ToolsPanel from "@/components/app/ToolsPanel";
 import AppWindow from "@/components/app/AppWindow";
+import { LicenseProvider } from "@/context/LicenseContext";
 
 const Workspace = () => {
   const { pages, name } = useDoc();
@@ -70,9 +71,11 @@ const Workspace = () => {
 };
 
 const Index = () => (
-  <DocProvider>
-    <Workspace />
-  </DocProvider>
+  <LicenseProvider>
+    <DocProvider>
+      <Workspace />
+    </DocProvider>
+  </LicenseProvider>
 );
 
 export default Index;
