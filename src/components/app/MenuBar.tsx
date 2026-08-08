@@ -73,7 +73,12 @@ const MenuBar = () => {
       const target = e.target as HTMLElement;
       if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
       if (!(e.ctrlKey || e.metaKey)) return;
-      const k = e.key.toLowerCase();
+
+      // Определяем клавишу по её месту на клавиатуре (e.code), а не по букве:
+      // на русской раскладке Ctrl+P даёт букву "з", и проверка по букве не срабатывала.
+      const byCode = /^Key([A-Z])$/.exec(e.code)?.[1]?.toLowerCase();
+      const k = byCode || e.key.toLowerCase();
+
       if (k === 'o') {
         e.preventDefault();
         openInput.current?.click();
