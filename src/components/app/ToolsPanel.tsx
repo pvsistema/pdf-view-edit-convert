@@ -6,6 +6,7 @@ import { toast } from '@/hooks/use-toast';
 import { createWorker } from 'tesseract.js';
 import { useLicense } from '@/context/LicenseContext';
 import ActivateDialog from '@/components/app/ActivateDialog';
+import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 
 const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
@@ -16,6 +17,7 @@ const ToolsPanel = () => {
   const [progress, setProgress] = useState(0);
   const [ocrText, setOcrText] = useState('');
   const [showAct, setShowAct] = useState(false);
+  const desktop = isDesktop();
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -48,7 +50,7 @@ const ToolsPanel = () => {
         new Blob([bytes as BlobPart], { type: 'application/pdf' }),
         `${baseName(name)}-изменённый.pdf`,
       );
-      toast({ title: 'Файл сохранён', description: 'Документ PDF со всеми изменениями' });
+      if (!desktop) toast({ title: 'Файл сохранён', description: 'Документ PDF со всеми изменениями' });
     });
 
   const toWord = () =>
@@ -65,7 +67,8 @@ const ToolsPanel = () => {
         .join('');
       const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"></head><body style="font-family:Times New Roman,serif">${body}</body></html>`;
       downloadBlob(new Blob(['\ufeff', html], { type: 'application/msword' }), `${baseName(name)}.doc`);
-      toast({ title: 'Готов файл Word', description: 'Открывается в Word и в редакторах документов' });
+      if (!desktop)
+        toast({ title: 'Готов файл Word', description: 'Открывается в Word и в редакторах документов' });
     });
 
   const toExcel = () =>
@@ -86,7 +89,7 @@ const ToolsPanel = () => {
         .join('');
       const html = `<html><head><meta charset="utf-8"></head><body><table border="1"><tr><th>Стр.</th><th>Данные</th></tr>${rows}</table></body></html>`;
       downloadBlob(new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel' }), `${baseName(name)}.xls`);
-      toast({ title: 'Готова таблица', description: 'Файл открывается в Excel' });
+      if (!desktop) toast({ title: 'Готова таблица', description: 'Файл открывается в Excel' });
     });
 
   const toText = () =>
@@ -94,19 +97,32 @@ const ToolsPanel = () => {
       const chunks = await collectText();
       const text = chunks.map((t, i) => `--- Страница ${i + 1} ---\n${t}`).join('\n\n');
       downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${baseName(name)}.txt`);
-      toast({ title: 'Готов текстовый файл' });
+      if (!desktop) toast({ title: 'Готов текстовый файл' });
     });
 
   const toImages = () =>
     run('jpg', async () => {
+      const items: { blob: Blob; name: string }[] = [];
       for (let i = 0; i < pages.length; i++) {
         const doc = docOf(pages[i]);
         if (!doc) continue;
         const canvas = await renderPage(doc, pages[i].src, 2, pages[i].rotation);
         const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
-        downloadBlob(blob, `${baseName(name)}-${String(i + 1).padStart(3, '0')}.jpg`);
+        const file = `${baseName(name)}-${String(i + 1).padStart(3, '0')}.jpg`;
         setProgress(Math.round(((i + 1) / pages.length) * 100));
-        await new Promise((r) => setTimeout(r, 250));
+
+        if (desktop) {
+          items.push({ blob, name: file });
+        } else {
+          downloadBlob(blob, file);
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+
+      // В программе папку выбираем один раз, а не окно на каждую страницу
+      if (desktop) {
+        await nativeSaveMany(items);
+        return;
       }
       toast({ title: 'Страницы сохранены', description: `${pages.length} изображений JPG` });
     });
@@ -118,7 +134,7 @@ const ToolsPanel = () => {
         new Blob([bytes as BlobPart], { type: 'application/pdf' }),
         `${baseName(name)}-страница-${active + 1}.pdf`,
       );
-      toast({ title: 'Страница сохранена отдельным файлом' });
+      if (!desktop) toast({ title: 'Страница сохранена отдельным файлом' });
     });
 
   const runOcr = () =>
@@ -128,7 +144,7 @@ const ToolsPanel = () => {
       if (!doc) return;
       const canvas = await renderPage(doc, p.src, 2, p.rotation);
       const worker = await createWorker('rus+eng', 1, {
-        logger: (m: any) => {
+        logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') setProgress(Math.round(m.progress * 100));
         },
       });

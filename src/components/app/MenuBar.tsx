@@ -5,6 +5,7 @@ import { downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
+import { isDesktop } from '@/lib/desktop';
 
 const MenuBar = () => {
   const {
@@ -49,11 +50,16 @@ const MenuBar = () => {
   const save = async () => {
     close();
     downloadBlob(await makeBlob(), name || 'document.pdf');
-    toast({ title: 'Документ сохранён' });
+    if (!isDesktop()) toast({ title: 'Документ сохранён' });
   };
 
-  const saveAs = () => {
+  const saveAs = async () => {
     close();
+    // В десктопной версии имя и папку спрашивает системное окно Windows
+    if (isDesktop()) {
+      downloadBlob(await makeBlob(), name || 'document.pdf');
+      return;
+    }
     setDraft((name || 'document.pdf').replace(/\.pdf$/i, ''));
     setAskName(true);
   };

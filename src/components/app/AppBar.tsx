@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';
 import { onPrintRequest } from '@/lib/printBus';
+import { isDesktop } from '@/lib/desktop';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { useLicense } from '@/context/LicenseContext';
 
@@ -16,7 +17,7 @@ const AppBar = () => {
   const save = async () => {
     const bytes = await buildPdf();
     downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
-    toast({ title: 'Документ сохранён' });
+    if (!isDesktop()) toast({ title: 'Документ сохранён' });
   };
 
   const [showPrint, setShowPrint] = useState(false);

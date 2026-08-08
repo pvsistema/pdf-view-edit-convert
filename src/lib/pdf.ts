@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { isDesktop, nativeSave } from '@/lib/desktop';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
@@ -51,6 +52,11 @@ export const pageText = async (doc: any, pageIndex: number) => {
 };
 
 export const downloadBlob = (blob: Blob, name: string) => {
+  // В десктопной версии открываем системное окно "Сохранить как" с выбором папки
+  if (isDesktop()) {
+    void nativeSave(blob, name);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -42,6 +42,45 @@ export const nativePrint = async (blob: Blob, name = 'document.pdf') => {
   send({ type: 'print', name, data });
 };
 
+// Сохранение через системное окно "Сохранить как"
+export const nativeSave = async (blob: Blob, name = 'document.pdf') => {
+  const data = toBase64(await blob.arrayBuffer());
+  send({ type: 'saveFile', name, data });
+};
+
+// Пакетное сохранение: папку пользователь выбирает один раз
+export const nativeSaveMany = async (items: { blob: Blob; name: string }[]) => {
+  const files = await Promise.all(
+    items.map(async (i) => ({ name: i.name, data: toBase64(await i.blob.arrayBuffer()) })),
+  );
+  send({ type: 'saveFiles', files });
+};
+
+type SaveResult = {
+  ok: boolean;
+  cancelled?: boolean;
+  path?: string;
+  count?: number;
+  error?: string;
+};
+
+export const onSaveDone = (cb: (r: SaveResult) => void) => {
+  const handler = (e: MessageEvent) => {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d?.type === 'saveDone') cb(d as SaveResult);
+    } catch {
+      /* игнорируем чужие сообщения */
+    }
+  };
+  window.chrome?.webview?.addEventListener?.('message', handler as EventListener);
+  window.addEventListener('message', handler);
+  return () => {
+    window.chrome?.webview?.removeEventListener?.('message', handler as EventListener);
+    window.removeEventListener('message', handler);
+  };
+};
+
 export const onDesktopFile = (cb: (file: File) => void) => {
   const handler = (e: MessageEvent) => {
     try {

@@ -180,6 +180,25 @@ public class MainForm : Form
                     : "document.pdf";
                 _ = PrintPdfAsync(b64, fileName);
             }
+            else if (type == "saveFiles")
+            {
+                var items = new List<(string Name, string Data)>();
+                foreach (var it in root.GetProperty("files").EnumerateArray())
+                {
+                    items.Add((
+                        it.GetProperty("name").GetString() ?? "file",
+                        it.GetProperty("data").GetString() ?? ""));
+                }
+                _ = SaveManyAsync(items);
+            }
+            else if (type == "saveFile")
+            {
+                string b64 = root.GetProperty("data").GetString() ?? "";
+                string fileName = root.TryGetProperty("name", out var n)
+                    ? (n.GetString() ?? "document.pdf")
+                    : "document.pdf";
+                _ = SaveFileAsync(b64, fileName);
+            }
         }
         catch { }
     }
@@ -233,6 +252,98 @@ public class MainForm : Form
             PostToPage(new { type = "printDone", ok = false, error = ex.Message });
             MessageBox.Show(
                 "Не удалось отправить документ на печать.\r\n\r\n" + ex.Message,
+                "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // Сохранение через системное окно "Сохранить как" с выбором папки
+    async Task SaveFileAsync(string base64, string fileName)
+    {
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(base64);
+
+            string safe = string.Concat(fileName.Split(Path.GetInvalidFileNameChars()));
+            if (string.IsNullOrWhiteSpace(safe)) safe = "document.pdf";
+            string ext = Path.GetExtension(safe).TrimStart('.').ToLowerInvariant();
+            if (ext.Length == 0) { ext = "pdf"; safe += ".pdf"; }
+
+            string filter = ext switch
+            {
+                "pdf" => "Документ PDF (*.pdf)|*.pdf",
+                "docx" => "Документ Word (*.docx)|*.docx",
+                "xlsx" => "Таблица Excel (*.xlsx)|*.xlsx",
+                "txt" => "Текстовый файл (*.txt)|*.txt",
+                "jpg" or "jpeg" => "Изображение JPEG (*.jpg)|*.jpg",
+                "png" => "Изображение PNG (*.png)|*.png",
+                "zip" => "Архив ZIP (*.zip)|*.zip",
+                _ => $"Файл (*.{ext})|*.{ext}"
+            };
+
+            using var dlg = new SaveFileDialog
+            {
+                Title = "Сохранить как",
+                FileName = safe,
+                DefaultExt = ext,
+                Filter = filter + "|Все файлы (*.*)|*.*",
+                AddExtension = true,
+                OverwritePrompt = true,
+                RestoreDirectory = true,
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
+            };
+
+            if (dlg.ShowDialog(this) != DialogResult.OK)
+            {
+                PostToPage(new { type = "saveDone", ok = false, cancelled = true });
+                return;
+            }
+
+            await File.WriteAllBytesAsync(dlg.FileName, bytes);
+            PostToPage(new { type = "saveDone", ok = true, path = dlg.FileName });
+        }
+        catch (Exception ex)
+        {
+            PostToPage(new { type = "saveDone", ok = false, error = ex.Message });
+            MessageBox.Show(
+                "Не удалось сохранить файл.\r\n\r\n" + ex.Message,
+                "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // Пакетное сохранение: папку спрашиваем один раз
+    async Task SaveManyAsync(List<(string Name, string Data)> files)
+    {
+        try
+        {
+            using var dlg = new FolderBrowserDialog
+            {
+                Description = "Выберите папку для сохранения файлов",
+                UseDescriptionForTitle = true,
+                ShowNewFolderButton = true
+            };
+
+            if (dlg.ShowDialog(this) != DialogResult.OK)
+            {
+                PostToPage(new { type = "saveDone", ok = false, cancelled = true });
+                return;
+            }
+
+            foreach (var f in files)
+            {
+                string safe = string.Concat(f.Name.Split(Path.GetInvalidFileNameChars()));
+                if (string.IsNullOrWhiteSpace(safe)) continue;
+                await File.WriteAllBytesAsync(
+                    Path.Combine(dlg.SelectedPath, safe),
+                    Convert.FromBase64String(f.Data));
+            }
+
+            PostToPage(new { type = "saveDone", ok = true, path = dlg.SelectedPath, count = files.Count });
+        }
+        catch (Exception ex)
+        {
+            PostToPage(new { type = "saveDone", ok = false, error = ex.Message });
+            MessageBox.Show(
+                "Не удалось сохранить файлы.\r\n\r\n" + ex.Message,
                 "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
