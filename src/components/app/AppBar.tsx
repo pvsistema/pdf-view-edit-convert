@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { LOGO_URL, APP_NAME } from '@/lib/brand';
 import { useDoc } from '@/context/DocContext';
@@ -6,6 +6,7 @@ import { downloadBlob, formatSize } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';
+import { onPrintRequest } from '@/lib/printBus';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { useLicense } from '@/context/LicenseContext';
 
@@ -21,6 +22,8 @@ const AppBar = () => {
   const [showPrint, setShowPrint] = useState(false);
   const [showAct, setShowAct] = useState(false);
   const { isFull, license } = useLicense();
+
+  useEffect(() => onPrintRequest(() => setShowPrint(true)), []);
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);
 

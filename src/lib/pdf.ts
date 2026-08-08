@@ -64,45 +64,62 @@ export const downloadBlob = (blob: Blob, name: string) => {
 export const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality = 0.92) =>
   new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), type, quality));
 
+let printFrame: HTMLIFrameElement | null = null;
+
 export const printBlob = (blob: Blob, name = 'document.pdf') => {
+  // Убираем предыдущий скрытый лист, иначе диалог печати открывается дважды
+  if (printFrame) {
+    printFrame.remove();
+    printFrame = null;
+  }
+
   const url = URL.createObjectURL(blob);
-  const cleanup = () => setTimeout(() => URL.revokeObjectURL(url), 60000);
+  const release = () => setTimeout(() => URL.revokeObjectURL(url), 60000);
 
   const frame = document.createElement('iframe');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-  frame.src = url;
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0';
+  printFrame = frame;
 
-  let done = false;
-  const fallback = () => {
-    if (done) return;
-    done = true;
+  // settled = документ загрузился; сторожевой таймер после этого не срабатывает,
+  // иначе он открывал второе окно, пока пользователь стоял в диалоге печати.
+  let settled = false;
+
+  const openExternally = () => {
+    if (settled) return;
+    settled = true;
     frame.remove();
+    if (printFrame === frame) printFrame = null;
     const win = window.open(url, '_blank');
     if (!win) downloadBlob(blob, name);
-    cleanup();
+    release();
   };
 
   frame.onload = () => {
+    if (settled) return;
+    settled = true;
     setTimeout(() => {
       try {
         const w = frame.contentWindow;
         if (!w) throw new Error('no window');
         w.focus();
         w.print();
-        done = true;
-        setTimeout(() => {
-          frame.remove();
-          cleanup();
-        }, 60000);
       } catch {
-        fallback();
+        frame.remove();
+        if (printFrame === frame) printFrame = null;
+        const win = window.open(url, '_blank');
+        if (!win) downloadBlob(blob, name);
       }
-    }, 400);
+      release();
+    }, 350);
   };
-  frame.onerror = fallback;
+
+  frame.onerror = openExternally;
 
   document.body.appendChild(frame);
-  setTimeout(fallback, 4000);
+  frame.src = url;
+
+  // Сторожевой таймер только на случай, если лист вообще не загрузился
+  setTimeout(openExternally, 6000);
 };
 
 export const formatSize = (bytes: number) => {

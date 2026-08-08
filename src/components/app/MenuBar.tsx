@@ -3,7 +3,7 @@ import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
 import { downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
-import PrintDialog from '@/components/app/PrintDialog';
+import { requestPrint } from '@/lib/printBus';
 
 const MenuBar = () => {
   const {
@@ -30,7 +30,7 @@ const MenuBar = () => {
 
   const [menu, setMenu] = useState<'file' | 'edit' | null>(null);
   const [askName, setAskName] = useState(false);
-  const [showPrint, setShowPrint] = useState(false);
+
   const [draft, setDraft] = useState('');
   const openInput = useRef<HTMLInputElement>(null);
   const appendInput = useRef<HTMLInputElement>(null);
@@ -65,7 +65,7 @@ const MenuBar = () => {
 
   const print = () => {
     close();
-    setShowPrint(true);
+    requestPrint();
   };
 
   useEffect(() => {
@@ -82,7 +82,7 @@ const MenuBar = () => {
         e.shiftKey ? saveAs() : save();
       } else if (k === 'p' && has) {
         e.preventDefault();
-        setShowPrint(true);
+        requestPrint();
       } else if (k === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -212,7 +212,7 @@ const MenuBar = () => {
         }}
       />
 
-      {showPrint && <PrintDialog onClose={() => setShowPrint(false)} />}
+
 
       {askName && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">

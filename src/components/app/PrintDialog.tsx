@@ -92,8 +92,12 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
       const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
       const file = `${(name || 'document').replace(/\.pdf$/i, '')}-печать.pdf`;
       if (mode === 'print') {
-        printBlob(blob, file);
+        // Закрываем окно настроек до вызова печати: системный диалог блокирует
+        // страницу, и без этого настройки остаются висеть поверх него
+        onClose();
+        setTimeout(() => printBlob(blob, file), 60);
         toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });
+        return;
       } else {
         downloadBlob(blob, file);
         toast({ title: 'Выборка сохранена', description: `Страниц: ${list.length}` });
