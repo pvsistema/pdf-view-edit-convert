@@ -172,6 +172,76 @@ public class MainForm : Form
                     ? FormWindowState.Normal
                     : FormWindowState.Maximized;
             }
+            else if (type == "print")
+            {
+                string b64 = root.GetProperty("data").GetString() ?? "";
+                string fileName = root.TryGetProperty("name", out var n)
+                    ? (n.GetString() ?? "document.pdf")
+                    : "document.pdf";
+                _ = PrintPdfAsync(b64, fileName);
+            }
+        }
+        catch { }
+    }
+
+    // Печать в десктопной версии: скрытый iframe внутри WebView2 не может
+    // открыть системный диалог, поэтому сохраняем PDF во временный файл
+    // и печатаем его штатным средством Windows.
+    async Task PrintPdfAsync(string base64, string fileName)
+    {
+        string path = "";
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(base64);
+
+            string safe = string.Concat(fileName.Split(Path.GetInvalidFileNameChars()));
+            if (string.IsNullOrWhiteSpace(safe)) safe = "document.pdf";
+            if (!safe.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) safe += ".pdf";
+
+            string dir = Path.Combine(Path.GetTempPath(), "PVSPDF");
+            Directory.CreateDirectory(dir);
+            path = Path.Combine(dir, safe);
+            await File.WriteAllBytesAsync(path, bytes);
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                Verb = "print",
+                UseShellExecute = true,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch
+            {
+                // Нет программы с командой "печать" - открываем файл,
+                // пользователь напечатает из просмотрщика
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+            }
+
+            PostToPage(new { type = "printDone", ok = true });
+        }
+        catch (Exception ex)
+        {
+            PostToPage(new { type = "printDone", ok = false, error = ex.Message });
+            MessageBox.Show(
+                "Не удалось отправить документ на печать.\r\n\r\n" + ex.Message,
+                "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    void PostToPage(object msg)
+    {
+        try
+        {
+            _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
         }
         catch { }
     }

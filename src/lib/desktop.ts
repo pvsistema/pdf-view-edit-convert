@@ -25,6 +25,23 @@ export const nativeClose = () => send({ type: 'close' });
 export const nativeMinimize = () => send({ type: 'minimize' });
 export const nativeToggleMax = () => send({ type: 'toggleMax' });
 
+const toBase64 = (buf: ArrayBuffer) => {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+};
+
+// Печать средствами Windows: внутри десктопной оболочки скрытый лист
+// не может открыть системный диалог печати
+export const nativePrint = async (blob: Blob, name = 'document.pdf') => {
+  const data = toBase64(await blob.arrayBuffer());
+  send({ type: 'print', name, data });
+};
+
 export const onDesktopFile = (cb: (file: File) => void) => {
   const handler = (e: MessageEvent) => {
     try {

@@ -12,6 +12,7 @@ import { printBlob, downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
 import DraggableDialog from '@/components/app/DraggableDialog';
+import { isDesktop, nativePrint } from '@/lib/desktop';
 
 type Scope = 'all' | 'current' | 'range' | 'even' | 'odd';
 
@@ -95,8 +96,13 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
         // Закрываем окно настроек до вызова печати: системный диалог блокирует
         // страницу, и без этого настройки остаются висеть поверх него
         onClose();
-        setTimeout(() => printBlob(blob, file), 60);
-        toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });
+        if (isDesktop()) {
+          await nativePrint(blob, file);
+          toast({ title: 'Документ отправлен на печать', description: `Страниц: ${list.length}` });
+        } else {
+          setTimeout(() => printBlob(blob, file), 60);
+          toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });
+        }
         return;
       } else {
         downloadBlob(blob, file);
