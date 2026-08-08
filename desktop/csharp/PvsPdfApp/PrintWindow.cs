@@ -1,39 +1,34 @@
+using System.Drawing.Printing;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace PvsPdfApp;
 
-// Окно печати: показывает PDF во встроенном просмотрщике WebView2
-// и сразу открывает системный диалог выбора принтера.
+// Печать документа: невидимое окно загружает готовый PDF,
+// пользователь выбирает принтер в обычном окне Windows,
+// после чего документ печатается напрямую - без окон браузера.
 public class PrintWindow : Form
 {
     readonly WebView2 _web = new();
     readonly string _file;
     readonly CoreWebView2Environment _env;
-    bool _printed;
+    readonly Action<bool, string?> _done;
+    bool _started;
 
-    public PrintWindow(string file, CoreWebView2Environment env)
+    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done)
     {
         _file = file;
         _env = env;
+        _done = done;
 
-        Text = "Печать — " + Path.GetFileName(file).Split('_').Last();
-        Width = 900;
-        Height = 700;
-        MinimumSize = new Size(600, 450);
-        StartPosition = FormStartPosition.CenterParent;
-        BackColor = ColorTranslator.FromHtml("#F7F6F2");
+        // Окно нужно только для загрузки документа, пользователь его не видит
+        FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
-
-        try
-        {
-            string ico = Path.Combine(AppContext.BaseDirectory, "pvspdf.ico");
-            if (File.Exists(ico)) Icon = new Icon(ico);
-        }
-        catch { }
+        StartPosition = FormStartPosition.Manual;
+        Location = new Point(-32000, -32000);
+        Size = new Size(1000, 1200);
 
         _web.Dock = DockStyle.Fill;
-        _web.DefaultBackgroundColor = ColorTranslator.FromHtml("#F7F6F2");
         Controls.Add(_web);
 
         Load += async (s, e) => await StartAsync();
@@ -46,39 +41,92 @@ public class PrintWindow : Form
 
     async Task StartAsync()
     {
-        await _web.EnsureCoreWebView2Async(_env);
-
-        _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-        _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-
-        _web.CoreWebView2.NavigationCompleted += async (s, e) =>
+        try
         {
-            if (_printed) return;
-            _printed = true;
+            await _web.EnsureCoreWebView2Async(_env);
 
-            // Даём просмотрщику отрисовать страницы
-            await Task.Delay(400);
-            await ShowPrintDialogAsync();
-        };
+            _web.CoreWebView2.NavigationCompleted += async (s, e) =>
+            {
+                if (_started) return;
+                _started = true;
 
-        _web.CoreWebView2.Navigate(new Uri(_file).AbsoluteUri);
+                // Даём просмотрщику разложить страницы
+                await Task.Delay(500);
+                await PrintAsync();
+            };
+
+            _web.CoreWebView2.Navigate(new Uri(_file).AbsoluteUri);
+        }
+        catch (Exception ex)
+        {
+            Finish(false, ex.Message);
+        }
     }
 
-    async Task ShowPrintDialogAsync()
+    async Task PrintAsync()
     {
         try
         {
-            // Системный диалог печати Windows
-            _web.CoreWebView2.ShowPrintUI(CoreWebView2PrintDialogKind.System);
-        }
-        catch
-        {
-            try
+            using var dlg = new PrintDialog
             {
-                // Запасной путь для старых сборок WebView2
-                await _web.CoreWebView2.ExecuteScriptAsync("window.print()");
+                AllowSomePages = false,
+                AllowSelection = false,
+                AllowPrintToFile = false,
+                UseEXDialog = true
+            };
+
+            if (dlg.ShowDialog(Owner) != DialogResult.OK)
+            {
+                Finish(false, null);
+                return;
             }
-            catch { }
+
+            var ps = dlg.PrinterSettings;
+
+            var settings = _web.CoreWebView2.Environment.CreatePrintSettings();
+            settings.PrinterName = ps.PrinterName;
+            settings.Copies = Math.Max(1, ps.Copies);
+            settings.ShouldPrintBackgrounds = true;
+            settings.ShouldPrintHeaderAndFooter = false;
+
+            settings.Orientation = ps.DefaultPageSettings.Landscape
+                ? CoreWebView2PrintOrientation.Landscape
+                : CoreWebView2PrintOrientation.Portrait;
+
+            settings.ColorMode = ps.DefaultPageSettings.Color
+                ? CoreWebView2PrintColorMode.Color
+                : CoreWebView2PrintColorMode.Grayscale;
+
+            // Печатаем без полей: отступы уже заложены в самом документе
+            settings.MarginTop = 0;
+            settings.MarginBottom = 0;
+            settings.MarginLeft = 0;
+            settings.MarginRight = 0;
+
+            var status = await _web.CoreWebView2.PrintAsync(settings);
+
+            if (status == CoreWebView2PrintStatus.Succeeded)
+            {
+                Finish(true, ps.PrinterName);
+            }
+            else if (status == CoreWebView2PrintStatus.PrinterUnavailable)
+            {
+                Finish(false, "Принтер недоступен: " + ps.PrinterName);
+            }
+            else
+            {
+                Finish(false, "Принтер не принял документ");
+            }
         }
+        catch (Exception ex)
+        {
+            Finish(false, ex.Message);
+        }
+    }
+
+    void Finish(bool ok, string? info)
+    {
+        try { _done(ok, info); } catch { }
+        try { Close(); } catch { }
     }
 }

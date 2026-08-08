@@ -241,10 +241,8 @@ public class MainForm : Form
         catch { }
     }
 
-    // Печать: открываем PDF во втором окне со встроенным просмотрщиком
-    // WebView2 и вызываем системный диалог печати оттуда.
-    // Через ассоциацию файлов печатать нельзя - программа назначена
-    // просмотрщиком PDF и запускала бы саму себя.
+    // Печать: пользователь выбирает принтер в окне Windows,
+    // документ печатается напрямую, лишние окна не показываются
     async Task PrintPdfAsync(string base64, string fileName)
     {
         try
@@ -262,10 +260,27 @@ public class MainForm : Form
             string path = Path.Combine(dir, $"{Guid.NewGuid():N}_{safe}");
             await File.WriteAllBytesAsync(path, bytes);
 
-            var win = new PrintWindow(path, _web.CoreWebView2.Environment);
-            win.Show(this);
+            var win = new PrintWindow(path, _web.CoreWebView2.Environment, (ok, info) =>
+            {
+                if (ok)
+                {
+                    PostToPage(new { type = "printDone", ok = true, printer = info });
+                }
+                else if (info == null)
+                {
+                    PostToPage(new { type = "printDone", ok = false, cancelled = true });
+                }
+                else
+                {
+                    PostToPage(new { type = "printDone", ok = false, error = info });
+                    MessageBox.Show(
+                        "Не удалось напечатать документ.\r\n\r\n" + info,
+                        "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            });
 
-            PostToPage(new { type = "printDone", ok = true });
+            win.Owner = this;
+            win.Show();
         }
         catch (Exception ex)
         {

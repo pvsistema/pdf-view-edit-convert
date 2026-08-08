@@ -56,6 +56,25 @@ export const nativeSaveMany = async (items: { blob: Blob; name: string }[]) => {
   send({ type: 'saveFiles', files });
 };
 
+type PrintResult = { ok: boolean; cancelled?: boolean; printer?: string; error?: string };
+
+export const onPrintDone = (cb: (r: PrintResult) => void) => {
+  const handler = (e: MessageEvent) => {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d?.type === 'printDone') cb(d as PrintResult);
+    } catch {
+      /* игнорируем чужие сообщения */
+    }
+  };
+  window.chrome?.webview?.addEventListener?.('message', handler as EventListener);
+  window.addEventListener('message', handler);
+  return () => {
+    window.chrome?.webview?.removeEventListener?.('message', handler as EventListener);
+    window.removeEventListener('message', handler);
+  };
+};
+
 type SaveResult = {
   ok: boolean;
   cancelled?: boolean;

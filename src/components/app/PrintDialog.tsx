@@ -97,8 +97,8 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
         // страницу, и без этого настройки остаются висеть поверх него
         onClose();
         if (isDesktop()) {
+          // Итог печати покажем после ответа программы
           await nativePrint(blob, file);
-          toast({ title: 'Открываем окно печати', description: `Страниц: ${list.length}` });
         } else {
           setTimeout(() => printBlob(blob, file), 60);
           toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });

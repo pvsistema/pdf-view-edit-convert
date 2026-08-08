@@ -8,7 +8,7 @@ import Viewer, { type Tool } from "@/components/app/Viewer";
 import ToolsPanel from "@/components/app/ToolsPanel";
 import AppWindow from "@/components/app/AppWindow";
 import { LicenseProvider } from "@/context/LicenseContext";
-import { isDesktop, onDesktopFile, onSaveDone, setNativeTitle } from "@/lib/desktop";
+import { isDesktop, onDesktopFile, onPrintDone, onSaveDone, setNativeTitle } from "@/lib/desktop";
 import { toast } from "@/hooks/use-toast";
 import UpdateBanner from "@/components/app/UpdateBanner";
 import { useEffect } from "react";
@@ -19,6 +19,19 @@ const Workspace = () => {
   const [panel, setPanel] = useState<"pages" | "tools" | null>(null);
 
   useEffect(() => onDesktopFile((f) => open(f)), [open]);
+
+  useEffect(
+    () =>
+      onPrintDone((r) => {
+        if (r.cancelled) return;
+        if (r.ok) {
+          toast({ title: "Документ напечатан", description: r.printer || "" });
+        } else if (r.error) {
+          toast({ title: "Не удалось напечатать", description: r.error });
+        }
+      }),
+    [],
+  );
 
   useEffect(
     () =>
