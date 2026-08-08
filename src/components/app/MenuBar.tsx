@@ -4,6 +4,7 @@ import { useDoc } from '@/context/DocContext';
 import { downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
+import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 
 const MenuBar = () => {
   const {
@@ -30,6 +31,7 @@ const MenuBar = () => {
 
   const [menu, setMenu] = useState<'file' | 'edit' | null>(null);
   const [askName, setAskName] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
 
   const [draft, setDraft] = useState('');
   const openInput = useRef<HTMLInputElement>(null);
@@ -72,6 +74,13 @@ const MenuBar = () => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setShowKeys(true);
+        return;
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return;
 
       // Определяем клавишу по её месту на клавиатуре (e.code), а не по букве:
@@ -111,6 +120,14 @@ const MenuBar = () => {
     { icon: 'Save', label: 'Сохранить', hint: 'Ctrl+S', fn: save, on: has, sep: true },
     { icon: 'SaveAll', label: 'Сохранить как…', hint: 'Ctrl+Shift+S', fn: saveAs, on: has },
     { icon: 'Printer', label: 'Печать…', hint: 'Ctrl+P', fn: print, on: has, sep: true },
+    {
+      icon: 'Keyboard',
+      label: 'Горячие клавиши',
+      hint: 'F1',
+      fn: act(() => setShowKeys(true)),
+      on: true,
+      sep: true,
+    },
     { icon: 'X', label: 'Закрыть документ', fn: act(reset), on: has },
   ];
 
@@ -218,6 +235,8 @@ const MenuBar = () => {
       />
 
 
+
+      {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
 
       {askName && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">
