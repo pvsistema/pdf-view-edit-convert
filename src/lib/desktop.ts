@@ -43,6 +43,9 @@ export const savedPrinter = () => window.PVSPDF_PRINTER || '';
 // Принтеры, установленные в системе
 export const printerList = () => window.PVSPDF_PRINTERS || [];
 
+// Окно свойств принтера Windows: качество, лотки, двусторонняя печать
+export const openPrinterSetup = (printer = '') => send({ type: 'printerSetup', printer });
+
 // Печать на выбранный принтер: документ уходит сразу,
 // без дополнительных окон Windows
 export const nativePrint = async (blob: Blob, name = 'document.pdf', printer = '') => {

@@ -249,6 +249,13 @@ public class MainForm : Form
                     : "";
                 _ = PrintPdfAsync(b64, fileName, printer);
             }
+            else if (type == "printerSetup")
+            {
+                string p = root.TryGetProperty("printer", out var pn)
+                    ? (pn.GetString() ?? "")
+                    : "";
+                OpenPrinterSetup(p);
+            }
             else if (type == "saveFiles")
             {
                 var items = new List<(string Name, string Data)>();
@@ -268,6 +275,45 @@ public class MainForm : Form
                     : "document.pdf";
                 _ = SaveFileAsync(b64, fileName);
             }
+        }
+        catch { }
+    }
+
+    // Настройки принтера: открываем окно свойств драйвера Windows
+    void OpenPrinterSetup(string printer)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(printer))
+            {
+                OpenPrintersFolder();
+                return;
+            }
+
+            // Окно свойств выбранного принтера
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "rundll32.exe",
+                Arguments = $"printui.dll,PrintUIEntry /p /n \"{printer}\"",
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            OpenPrintersFolder();
+        }
+    }
+
+    static void OpenPrintersFolder()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "rundll32.exe",
+                Arguments = "shell32.dll,Control_RunDLL printers",
+                UseShellExecute = true
+            });
         }
         catch { }
     }

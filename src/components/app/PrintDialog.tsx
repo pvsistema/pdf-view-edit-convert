@@ -12,7 +12,7 @@ import { printBlob, downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
 import DraggableDialog from '@/components/app/DraggableDialog';
-import { isDesktop, nativePrint, printerList, savedPrinter } from '@/lib/desktop';
+import { isDesktop, nativePrint, openPrinterSetup, printerList, savedPrinter } from '@/lib/desktop';
 
 type Scope = 'all' | 'current' | 'range' | 'even' | 'odd';
 
@@ -198,32 +198,48 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
                       Принтер
                     </div>
                     {printers.length ? (
-                      <div className="relative">
-                        <Icon
-                          name="Printer"
-                          size={15}
-                          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                        />
-                        <select
-                          value={printer}
-                          onChange={(e) => setPrinter(e.target.value)}
-                          className="w-full appearance-none border border-border bg-card py-2.5 pl-9 pr-9 text-[0.86rem] outline-none transition-colors hover:border-foreground focus:border-foreground"
+                      <div className="flex gap-2">
+                        <div className="relative min-w-0 flex-1">
+                          <Icon
+                            name="Printer"
+                            size={15}
+                            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          />
+                          <select
+                            value={printer}
+                            onChange={(e) => setPrinter(e.target.value)}
+                            className="w-full appearance-none border border-border bg-card py-2.5 pl-9 pr-9 text-[0.86rem] outline-none transition-colors hover:border-foreground focus:border-foreground"
+                          >
+                            {printers.map((p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </select>
+                          <Icon
+                            name="ChevronDown"
+                            size={15}
+                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          />
+                        </div>
+                        <button
+                          onClick={() => openPrinterSetup(printer)}
+                          title="Настройки принтера: качество, лотки, двусторонняя печать"
+                          className="flex shrink-0 items-center gap-1.5 border border-border px-3 text-[0.78rem] transition-colors hover:border-foreground"
                         >
-                          {printers.map((p) => (
-                            <option key={p} value={p}>
-                              {p}
-                            </option>
-                          ))}
-                        </select>
-                        <Icon
-                          name="ChevronDown"
-                          size={15}
-                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                        />
+                          <Icon name="Settings2" size={15} />
+                          Настройки
+                        </button>
                       </div>
                     ) : (
-                      <div className="border border-border bg-card px-3 py-2.5 text-[0.82rem] text-muted-foreground">
-                        Принтеры не найдены
+                      <div className="flex items-center gap-2 border border-border bg-card px-3 py-2.5 text-[0.82rem] text-muted-foreground">
+                        <span className="flex-1">Принтеры не найдены</span>
+                        <button
+                          onClick={() => openPrinterSetup('')}
+                          className="shrink-0 font-head text-[0.7rem] font-bold uppercase tracking-[0.08em] text-primary hover:underline"
+                        >
+                          Добавить принтер
+                        </button>
                       </div>
                     )}
                   </div>
