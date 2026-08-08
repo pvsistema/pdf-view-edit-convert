@@ -112,6 +112,44 @@ public class MainForm : Form
                 await SendFileAsync(_openFile!);
             };
         }
+
+        StartPipeListener();
+    }
+
+    // Принимаем файлы от повторных запусков программы:
+    // документ откроется в этом окне вместо сообщения "уже запущена"
+    void StartPipeListener()
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!IsDisposed)
+            {
+                try
+                {
+                    using var pipe = new System.IO.Pipes.NamedPipeServerStream(
+                        Program.PipeName, System.IO.Pipes.PipeDirection.In);
+                    await pipe.WaitForConnectionAsync();
+
+                    using var reader = new StreamReader(pipe, System.Text.Encoding.UTF8);
+                    string path = (await reader.ReadToEndAsync()).Trim();
+
+                    BeginInvoke(new Action(async () =>
+                    {
+                        if (WindowState == FormWindowState.Minimized)
+                            WindowState = FormWindowState.Normal;
+                        Activate();
+                        BringToFront();
+
+                        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                            await SendFileAsync(path);
+                    }));
+                }
+                catch
+                {
+                    await Task.Delay(500);
+                }
+            }
+        });
     }
 
     static string AppVersion()
@@ -203,12 +241,12 @@ public class MainForm : Form
         catch { }
     }
 
-    // Печать в десктопной версии: скрытый iframe внутри WebView2 не может
-    // открыть системный диалог, поэтому сохраняем PDF во временный файл
-    // и печатаем его штатным средством Windows.
+    // Печать: открываем PDF во втором окне со встроенным просмотрщиком
+    // WebView2 и вызываем системный диалог печати оттуда.
+    // Через ассоциацию файлов печатать нельзя - программа назначена
+    // просмотрщиком PDF и запускала бы саму себя.
     async Task PrintPdfAsync(string base64, string fileName)
     {
-        string path = "";
         try
         {
             byte[] bytes = Convert.FromBase64String(base64);
@@ -219,31 +257,13 @@ public class MainForm : Form
 
             string dir = Path.Combine(Path.GetTempPath(), "PVSPDF");
             Directory.CreateDirectory(dir);
-            path = Path.Combine(dir, safe);
+            CleanupTemp(dir);
+
+            string path = Path.Combine(dir, $"{Guid.NewGuid():N}_{safe}");
             await File.WriteAllBytesAsync(path, bytes);
 
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = path,
-                Verb = "print",
-                UseShellExecute = true,
-                CreateNoWindow = true
-            };
-
-            try
-            {
-                System.Diagnostics.Process.Start(psi);
-            }
-            catch
-            {
-                // Нет программы с командой "печать" - открываем файл,
-                // пользователь напечатает из просмотрщика
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = path,
-                    UseShellExecute = true
-                });
-            }
+            var win = new PrintWindow(path, _web.CoreWebView2.Environment);
+            win.Show(this);
 
             PostToPage(new { type = "printDone", ok = true });
         }
@@ -254,6 +274,21 @@ public class MainForm : Form
                 "Не удалось отправить документ на печать.\r\n\r\n" + ex.Message,
                 "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    static void CleanupTemp(string dir)
+    {
+        try
+        {
+            foreach (var f in Directory.GetFiles(dir, "*.pdf"))
+            {
+                if (File.GetLastWriteTimeUtc(f) < DateTime.UtcNow.AddHours(-6))
+                {
+                    try { File.Delete(f); } catch { }
+                }
+            }
+        }
+        catch { }
     }
 
     // Сохранение через системное окно "Сохранить как" с выбором папки

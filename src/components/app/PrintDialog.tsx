@@ -98,7 +98,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
         onClose();
         if (isDesktop()) {
           await nativePrint(blob, file);
-          toast({ title: 'Документ отправлен на печать', description: `Страниц: ${list.length}` });
+          toast({ title: 'Открываем окно печати', description: `Страниц: ${list.length}` });
         } else {
           setTimeout(() => printBlob(blob, file), 60);
           toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });
