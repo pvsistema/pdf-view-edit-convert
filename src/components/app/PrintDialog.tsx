@@ -12,7 +12,7 @@ import { printBlob, downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
 import DraggableDialog from '@/components/app/DraggableDialog';
-import { isDesktop, nativePrint } from '@/lib/desktop';
+import { isDesktop, nativePrint, savedPrinter } from '@/lib/desktop';
 
 type Scope = 'all' | 'current' | 'range' | 'even' | 'odd';
 
@@ -80,7 +80,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
 
   const set = (patch: Partial<Layout>) => setLayout((l) => ({ ...l, ...patch }));
 
-  const run = async (mode: 'print' | 'save') => {
+  const run = async (mode: 'print' | 'save', choosePrinter = false) => {
     if (!indexes.length) {
       toast({ title: 'Страницы не выбраны', description: 'Проверьте указанный диапазон' });
       return;
@@ -98,7 +98,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
         onClose();
         if (isDesktop()) {
           // Итог печати покажем после ответа программы
-          await nativePrint(blob, file);
+          await nativePrint(blob, file, choosePrinter);
         } else {
           setTimeout(() => printBlob(blob, file), 60);
           toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });
@@ -122,8 +122,26 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
     { id: 'even', label: 'Чётные', note: '2, 4, 6…' },
   ];
 
+  const printer = isDesktop() ? savedPrinter() : '';
+
   const footer = (
-    <div className="flex gap-3 p-4">
+    <div className="p-4">
+      {printer && (
+        <div className="mb-3 flex items-center gap-2 border border-border bg-card px-3 py-2 text-[0.82rem]">
+          <Icon name="Printer" size={14} className="shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate" title={printer}>
+            {printer}
+          </span>
+          <button
+            className="shrink-0 font-head text-[0.7rem] font-bold uppercase tracking-[0.08em] text-primary hover:underline disabled:opacity-50"
+            onClick={() => run('print', true)}
+            disabled={busy || !indexes.length}
+          >
+            Сменить принтер
+          </button>
+        </div>
+      )}
+      <div className="flex gap-3">
       <button
         className="btn-block flex-1 justify-center disabled:opacity-50"
         onClick={() => run('print')}
@@ -146,6 +164,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
       >
         Отмена
       </button>
+      </div>
     </div>
   );
 

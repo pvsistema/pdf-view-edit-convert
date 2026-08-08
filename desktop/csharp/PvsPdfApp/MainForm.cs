@@ -100,7 +100,8 @@ public class MainForm : Form
         // Сообщаем странице, что она работает в десктопной версии
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
             "window.PVSPDF_DESKTOP = true;" +
-            "window.PVSPDF_VERSION = '" + AppVersion() + "';");
+            "window.PVSPDF_VERSION = '" + AppVersion() + "';" +
+            "window.PVSPDF_PRINTER = " + JsonSerializer.Serialize(Settings.Printer ?? "") + ";");
 
         core.Navigate("https://pvspdf.local/index.html");
 
@@ -216,7 +217,8 @@ public class MainForm : Form
                 string fileName = root.TryGetProperty("name", out var n)
                     ? (n.GetString() ?? "document.pdf")
                     : "document.pdf";
-                _ = PrintPdfAsync(b64, fileName);
+                bool choose = root.TryGetProperty("choose", out var c) && c.ValueKind == JsonValueKind.True;
+                _ = PrintPdfAsync(b64, fileName, choose);
             }
             else if (type == "saveFiles")
             {
@@ -243,7 +245,7 @@ public class MainForm : Form
 
     // Печать: пользователь выбирает принтер в окне Windows,
     // документ печатается напрямую, лишние окна не показываются
-    async Task PrintPdfAsync(string base64, string fileName)
+    async Task PrintPdfAsync(string base64, string fileName, bool choose = false)
     {
         try
         {
@@ -277,7 +279,7 @@ public class MainForm : Form
                         "Не удалось напечатать документ.\r\n\r\n" + info,
                         "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
-            });
+            }, choose);
 
             win.Owner = this;
             win.Show();

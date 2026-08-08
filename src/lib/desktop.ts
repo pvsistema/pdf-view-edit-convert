@@ -2,6 +2,7 @@ declare global {
   interface Window {
     PVSPDF_DESKTOP?: boolean;
     PVSPDF_VERSION?: string;
+    PVSPDF_PRINTER?: string;
     chrome?: {
       webview?: {
         postMessage: (m: unknown) => void;
@@ -35,11 +36,15 @@ const toBase64 = (buf: ArrayBuffer) => {
   return btoa(bin);
 };
 
+// Принтер, выбранный в прошлый раз
+export const savedPrinter = () => window.PVSPDF_PRINTER || '';
+
 // Печать средствами Windows: внутри десктопной оболочки скрытый лист
-// не может открыть системный диалог печати
-export const nativePrint = async (blob: Blob, name = 'document.pdf') => {
+// не может открыть системный диалог печати.
+// choose = true - показать выбор принтера, даже если он уже запомнен
+export const nativePrint = async (blob: Blob, name = 'document.pdf', choose = false) => {
   const data = toBase64(await blob.arrayBuffer());
-  send({ type: 'print', name, data });
+  send({ type: 'print', name, data, choose });
 };
 
 // Сохранение через системное окно "Сохранить как"
@@ -62,7 +67,9 @@ export const onPrintDone = (cb: (r: PrintResult) => void) => {
   const handler = (e: MessageEvent) => {
     try {
       const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-      if (d?.type === 'printDone') cb(d as PrintResult);
+      if (d?.type !== 'printDone') return;
+      if (d.printer) window.PVSPDF_PRINTER = d.printer as string;
+      cb(d as PrintResult);
     } catch {
       /* игнорируем чужие сообщения */
     }

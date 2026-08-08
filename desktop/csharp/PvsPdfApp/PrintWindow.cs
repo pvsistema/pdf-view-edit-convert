@@ -13,13 +13,16 @@ public class PrintWindow : Form
     readonly string _file;
     readonly CoreWebView2Environment _env;
     readonly Action<bool, string?> _done;
+    readonly bool _choose;
     bool _started;
 
-    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done)
+    // choose = true - принудительно показать выбор принтера
+    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done, bool choose = false)
     {
         _file = file;
         _env = env;
         _done = done;
+        _choose = choose;
 
         // Окно нужно только для загрузки документа, пользователь его не видит
         FormBorderStyle = FormBorderStyle.None;
@@ -67,21 +70,36 @@ public class PrintWindow : Form
     {
         try
         {
-            using var dlg = new PrintDialog
-            {
-                AllowSomePages = false,
-                AllowSelection = false,
-                AllowPrintToFile = false,
-                UseEXDialog = true
-            };
+            PrinterSettings ps;
+            string? saved = Settings.Printer;
 
-            if (dlg.ShowDialog(Owner) != DialogResult.OK)
+            // Печатаем сразу на запомненный принтер, если он на месте
+            if (!_choose && Settings.RememberPrinter && !string.IsNullOrEmpty(saved) && PrinterExists(saved))
             {
-                Finish(false, null);
-                return;
+                ps = new PrinterSettings { PrinterName = saved };
             }
+            else
+            {
+                using var dlg = new PrintDialog
+                {
+                    AllowSomePages = false,
+                    AllowSelection = false,
+                    AllowPrintToFile = false,
+                    UseEXDialog = true
+                };
 
-            var ps = dlg.PrinterSettings;
+                if (!string.IsNullOrEmpty(saved) && PrinterExists(saved))
+                    dlg.PrinterSettings.PrinterName = saved;
+
+                if (dlg.ShowDialog(Owner) != DialogResult.OK)
+                {
+                    Finish(false, null);
+                    return;
+                }
+
+                ps = dlg.PrinterSettings;
+                Settings.Printer = ps.PrinterName;
+            }
 
             var settings = _web.CoreWebView2.Environment.CreatePrintSettings();
             settings.PrinterName = ps.PrinterName;
@@ -122,6 +140,17 @@ public class PrintWindow : Form
         {
             Finish(false, ex.Message);
         }
+    }
+
+    static bool PrinterExists(string name)
+    {
+        try
+        {
+            foreach (string p in PrinterSettings.InstalledPrinters)
+                if (string.Equals(p, name, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        catch { }
+        return false;
     }
 
     void Finish(bool ok, string? info)
