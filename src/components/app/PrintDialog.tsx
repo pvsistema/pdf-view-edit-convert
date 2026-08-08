@@ -12,7 +12,7 @@ import { printBlob, downloadBlob } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
 import DraggableDialog from '@/components/app/DraggableDialog';
-import { isDesktop, nativePrint, savedPrinter } from '@/lib/desktop';
+import { isDesktop, nativePrint, printerList, savedPrinter } from '@/lib/desktop';
 
 type Scope = 'all' | 'current' | 'range' | 'even' | 'odd';
 
@@ -66,6 +66,12 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
   const [tab, setTab] = useState<'pages' | 'paper'>('pages');
   const [preview, setPreview] = useState(0);
 
+  const desktop = isDesktop();
+  const printers = useMemo(() => (desktop ? printerList() : []), [desktop]);
+  const [printer, setPrinter] = useState(() =>
+    desktop ? savedPrinter() || printerList()[0] || '' : '',
+  );
+
   const indexes = useMemo(() => {
     const total = pages.length;
     if (scope === 'all') return pages.map((_, i) => i);
@@ -80,7 +86,7 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
 
   const set = (patch: Partial<Layout>) => setLayout((l) => ({ ...l, ...patch }));
 
-  const run = async (mode: 'print' | 'save', choosePrinter = false) => {
+  const run = async (mode: 'print' | 'save') => {
     if (!indexes.length) {
       toast({ title: 'Страницы не выбраны', description: 'Проверьте указанный диапазон' });
       return;
@@ -96,9 +102,10 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
         // Закрываем окно настроек до вызова печати: системный диалог блокирует
         // страницу, и без этого настройки остаются висеть поверх него
         onClose();
-        if (isDesktop()) {
-          // Итог печати покажем после ответа программы
-          await nativePrint(blob, file, choosePrinter);
+        if (desktop) {
+          // Документ уходит сразу на выбранный принтер,
+          // итог печати покажем после ответа программы
+          await nativePrint(blob, file, printer);
         } else {
           setTimeout(() => printBlob(blob, file), 60);
           toast({ title: 'Готовим печать', description: `Страниц: ${list.length}` });
@@ -122,30 +129,14 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
     { id: 'even', label: 'Чётные', note: '2, 4, 6…' },
   ];
 
-  const printer = isDesktop() ? savedPrinter() : '';
-
   const footer = (
     <div className="p-4">
-      {printer && (
-        <div className="mb-3 flex items-center gap-2 border border-border bg-card px-3 py-2 text-[0.82rem]">
-          <Icon name="Printer" size={14} className="shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate" title={printer}>
-            {printer}
-          </span>
-          <button
-            className="shrink-0 font-head text-[0.7rem] font-bold uppercase tracking-[0.08em] text-primary hover:underline disabled:opacity-50"
-            onClick={() => run('print', true)}
-            disabled={busy || !indexes.length}
-          >
-            Сменить принтер
-          </button>
-        </div>
-      )}
       <div className="flex gap-3">
       <button
         className="btn-block flex-1 justify-center disabled:opacity-50"
         onClick={() => run('print')}
-        disabled={busy || !indexes.length}
+        disabled={busy || !indexes.length || (desktop && !printer)}
+        title={desktop && printer ? `Печать на ${printer}` : undefined}
       >
         <Icon name={busy ? 'LoaderCircle' : 'Printer'} size={16} className={busy ? 'animate-spin' : ''} />
         Печать
@@ -201,6 +192,43 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
 
             {tab === 'pages' ? (
               <>
+                {desktop && (
+                  <div className="mt-4 shrink-0">
+                    <div className="mb-1.5 font-head text-[0.68rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                      Принтер
+                    </div>
+                    {printers.length ? (
+                      <div className="relative">
+                        <Icon
+                          name="Printer"
+                          size={15}
+                          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        />
+                        <select
+                          value={printer}
+                          onChange={(e) => setPrinter(e.target.value)}
+                          className="w-full appearance-none border border-border bg-card py-2.5 pl-9 pr-9 text-[0.86rem] outline-none transition-colors hover:border-foreground focus:border-foreground"
+                        >
+                          {printers.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                        <Icon
+                          name="ChevronDown"
+                          size={15}
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        />
+                      </div>
+                    ) : (
+                      <div className="border border-border bg-card px-3 py-2.5 text-[0.82rem] text-muted-foreground">
+                        Принтеры не найдены
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-4 border-l border-t border-border">
                   {scopes.map((o) => (
                     <button

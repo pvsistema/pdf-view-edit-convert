@@ -101,7 +101,8 @@ public class MainForm : Form
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
             "window.PVSPDF_DESKTOP = true;" +
             "window.PVSPDF_VERSION = '" + AppVersion() + "';" +
-            "window.PVSPDF_PRINTER = " + JsonSerializer.Serialize(Settings.Printer ?? "") + ";");
+            "window.PVSPDF_PRINTER = " + JsonSerializer.Serialize(Settings.Printer ?? "") + ";" +
+            "window.PVSPDF_PRINTERS = " + JsonSerializer.Serialize(PrinterList()) + ";");
 
         core.Navigate("https://pvspdf.local/index.html");
 
@@ -151,6 +152,32 @@ public class MainForm : Form
                 }
             }
         });
+    }
+
+    // Список принтеров, установленных в Windows.
+    // Первым идёт принтер по умолчанию
+    static string[] PrinterList()
+    {
+        try
+        {
+            var all = System.Drawing.Printing.PrinterSettings.InstalledPrinters
+                .Cast<string>()
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct()
+                .ToList();
+
+            string def = "";
+            try { def = new System.Drawing.Printing.PrinterSettings().PrinterName ?? ""; } catch { }
+
+            return all
+                .OrderByDescending(p => string.Equals(p, def, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(p => p)
+                .ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     static string AppVersion()
@@ -217,8 +244,10 @@ public class MainForm : Form
                 string fileName = root.TryGetProperty("name", out var n)
                     ? (n.GetString() ?? "document.pdf")
                     : "document.pdf";
-                bool choose = root.TryGetProperty("choose", out var c) && c.ValueKind == JsonValueKind.True;
-                _ = PrintPdfAsync(b64, fileName, choose);
+                string printer = root.TryGetProperty("printer", out var pr)
+                    ? (pr.GetString() ?? "")
+                    : "";
+                _ = PrintPdfAsync(b64, fileName, printer);
             }
             else if (type == "saveFiles")
             {
@@ -245,7 +274,7 @@ public class MainForm : Form
 
     // Печать: пользователь выбирает принтер в окне Windows,
     // документ печатается напрямую, лишние окна не показываются
-    async Task PrintPdfAsync(string base64, string fileName, bool choose = false)
+    async Task PrintPdfAsync(string base64, string fileName, string printer = "")
     {
         try
         {
@@ -279,7 +308,7 @@ public class MainForm : Form
                         "Не удалось напечатать документ.\r\n\r\n" + info,
                         "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
-            }, choose);
+            }, printer);
 
             win.Owner = this;
             win.Show();
