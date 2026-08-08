@@ -103,7 +103,7 @@ public class PrintWindow : Form
 
             var settings = _web.CoreWebView2.Environment.CreatePrintSettings();
             settings.PrinterName = ps.PrinterName;
-            settings.Copies = Math.Max(1, ps.Copies);
+            settings.Copies = ps.Copies < 1 ? 1 : (int)ps.Copies;
             settings.ShouldPrintBackgrounds = true;
             settings.ShouldPrintHeaderAndFooter = false;
 
