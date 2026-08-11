@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { renderPage, pageText, screenDensity } from '@/lib/pdf';
+import { renderPage, pageText, screenDensity, prefetchPage } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 
 export type Tool = 'hand' | 'text' | 'block';
@@ -22,18 +22,31 @@ const Viewer = ({ tool, setTool }: Props) => {
     if (!page || !host.current) return;
     const doc = docOf(page);
     if (!doc) return;
-    setBusy(true);
-    renderPage(doc, page.src, zoom, page.rotation, screenDensity()).then((canvas) => {
+    const density = screenDensity();
+    // Готовую страницу показываем сразу, надпись "Обработка"
+    // появляется только если отрисовка действительно затянулась
+    const slow = setTimeout(() => !cancelled && setBusy(true), 180);
+    renderPage(doc, page.src, zoom, page.rotation, density).then((canvas) => {
+      clearTimeout(slow);
       if (cancelled || !host.current) return;
       host.current.innerHTML = '';
       canvas.className = 'block';
       host.current.appendChild(canvas);
       setBusy(false);
+
+      // Готовим соседние страницы заранее — переход к ним будет мгновенным
+      for (const step of [1, -1, 2, -2]) {
+        const near = pages[active + step];
+        if (!near) continue;
+        const nearDoc = docOf(near);
+        if (nearDoc) prefetchPage(nearDoc, near.src, zoom, near.rotation, density);
+      }
     });
     return () => {
       cancelled = true;
+      clearTimeout(slow);
     };
-  }, [page, zoom, docOf, version]);
+  }, [page, zoom, docOf, version, active, pages]);
 
   const search = async () => {
     const q = query.trim().toLowerCase();

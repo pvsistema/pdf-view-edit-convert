@@ -25,7 +25,110 @@ export const screenDensity = () => {
   return Math.min(3, Math.max(1, dpr));
 };
 
+// Память отрисованных страниц: листание вперёд-назад происходит мгновенно,
+// потому что страница берётся готовой, а не рисуется заново.
+// Храним ограниченное число страниц, самые старые вытесняются
+const CACHE_LIMIT = 40;
+const CACHE_PIXELS = 180_000_000;
+const renderCache = new Map<string, HTMLCanvasElement>();
+const renderQueue = new Map<string, Promise<HTMLCanvasElement>>();
+
+let docSeq = 0;
+const docKeys = new WeakMap<object, string>();
+const keyOfDoc = (doc: any) => {
+  let k = docKeys.get(doc);
+  if (!k) {
+    k = `d${++docSeq}`;
+    docKeys.set(doc, k);
+  }
+  return k;
+};
+
+export const clearPageCache = () => {
+  renderCache.clear();
+  renderQueue.clear();
+};
+
+const rememberCanvas = (key: string, canvas: HTMLCanvasElement) => {
+  renderCache.set(key, canvas);
+
+  let used = 0;
+  for (const c of renderCache.values()) used += c.width * c.height;
+
+  while (renderCache.size > 1 && (renderCache.size > CACHE_LIMIT || used > CACHE_PIXELS)) {
+    const oldest = renderCache.keys().next().value as string | undefined;
+    if (oldest === undefined || oldest === key) break;
+    const drop = renderCache.get(oldest)!;
+    used -= drop.width * drop.height;
+    renderCache.delete(oldest);
+  }
+};
+
 export const renderPage = async (
+  doc: any,
+  pageIndex: number,
+  scale: number,
+  extraRotation = 0,
+  sharpen = 1,
+): Promise<HTMLCanvasElement> => {
+  const key = `${keyOfDoc(doc)}|${pageIndex}|${scale}|${extraRotation}|${sharpen}`;
+
+  const ready = renderCache.get(key);
+  if (ready) {
+    // Освежаем позицию: недавно просмотренные страницы держим дольше
+    renderCache.delete(key);
+    renderCache.set(key, ready);
+    return copyCanvas(ready);
+  }
+
+  const running = renderQueue.get(key);
+  if (running) return running.then(copyCanvas);
+
+  const job = drawPage(doc, pageIndex, scale, extraRotation, sharpen)
+    .then((canvas) => {
+      rememberCanvas(key, canvas);
+      return canvas;
+    })
+    .finally(() => renderQueue.delete(key));
+
+  renderQueue.set(key, job);
+  return job.then(copyCanvas);
+};
+
+// Одну и ту же картинку нельзя показать сразу в двух местах,
+// поэтому отдаём быструю копию: она готовится мгновенно
+const copyCanvas = (src: HTMLCanvasElement) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = src.width;
+  canvas.height = src.height;
+  canvas.style.width = src.style.width;
+  canvas.style.height = src.style.height;
+  canvas.getContext('2d', { alpha: false })!.drawImage(src, 0, 0);
+  return canvas;
+};
+
+// Разовая отрисовка без запоминания: для экспорта и распознавания,
+// где страницы крупные и второй раз не понадобятся
+export const renderPageOnce = (
+  doc: any,
+  pageIndex: number,
+  scale: number,
+  extraRotation = 0,
+  sharpen = 1,
+) => drawPage(doc, pageIndex, scale, extraRotation, sharpen);
+
+// Готовим страницу заранее, не дожидаясь перехода на неё
+export const prefetchPage = (
+  doc: any,
+  pageIndex: number,
+  scale: number,
+  extraRotation = 0,
+  sharpen = 1,
+) => {
+  void renderPage(doc, pageIndex, scale, extraRotation, sharpen).catch(() => undefined);
+};
+
+const drawPage = async (
   doc: any,
   pageIndex: number,
   scale: number,

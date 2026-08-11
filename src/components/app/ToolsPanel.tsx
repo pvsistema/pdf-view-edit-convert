@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
-import { canvasToBlob, downloadBlob, pageText, renderPage } from '@/lib/pdf';
+import { canvasToBlob, downloadBlob, pageText, renderPageOnce } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { useLicense } from '@/context/LicenseContext';
 import ActivateDialog from '@/components/app/ActivateDialog';
@@ -105,7 +105,7 @@ const ToolsPanel = () => {
       for (let i = 0; i < pages.length; i++) {
         const doc = docOf(pages[i]);
         if (!doc) continue;
-        const canvas = await renderPage(doc, pages[i].src, 2, pages[i].rotation);
+        const canvas = await renderPageOnce(doc, pages[i].src, 2, pages[i].rotation);
         const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
         const file = `${baseName(name)}-${String(i + 1).padStart(3, '0')}.jpg`;
         setProgress(Math.round(((i + 1) / pages.length) * 100));
@@ -141,7 +141,7 @@ const ToolsPanel = () => {
       const p = pages[active];
       const doc = docOf(p);
       if (!doc) return;
-      const canvas = await renderPage(doc, p.src, 2, p.rotation);
+      const canvas = await renderPageOnce(doc, p.src, 2, p.rotation);
       // Модуль распознавания тяжёлый — подключаем только при запуске OCR
       const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('rus+eng', 1, {
