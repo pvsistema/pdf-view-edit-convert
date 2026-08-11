@@ -3,7 +3,6 @@ import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { canvasToBlob, downloadBlob, pageText, renderPage } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
-import { createWorker } from 'tesseract.js';
 import { useLicense } from '@/context/LicenseContext';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
@@ -143,6 +142,8 @@ const ToolsPanel = () => {
       const doc = docOf(p);
       if (!doc) return;
       const canvas = await renderPage(doc, p.src, 2, p.rotation);
+      // Модуль распознавания тяжёлый — подключаем только при запуске OCR
+      const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('rus+eng', 1, {
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') setProgress(Math.round(m.progress * 100));

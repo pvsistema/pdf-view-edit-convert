@@ -97,23 +97,26 @@ public class MainForm : Form
 
         core.WebMessageReceived += OnWebMessage;
 
-        // Сообщаем странице, что она работает в десктопной версии
+        // Сообщаем странице, что она работает в десктопной версии.
+        // Список принтеров сюда не кладём: опрос сетевых принтеров
+        // занимает секунды и задерживал бы запуск программы
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
             "window.PVSPDF_DESKTOP = true;" +
             "window.PVSPDF_VERSION = '" + AppVersion() + "';" +
             "window.PVSPDF_PRINTER = " + JsonSerializer.Serialize(Settings.Printer ?? "") + ";" +
-            "window.PVSPDF_PRINTERS = " + JsonSerializer.Serialize(PrinterList()) + ";");
+            "window.PVSPDF_PRINTERS = [];");
 
         core.Navigate("https://pvspdf.local/index.html");
 
-        if (!string.IsNullOrEmpty(_openFile))
+        core.NavigationCompleted += async (s, e) =>
         {
-            core.NavigationCompleted += async (s, e) =>
+            if (!string.IsNullOrEmpty(_openFile))
             {
-                await Task.Delay(300);
+                await Task.Delay(150);
                 await SendFileAsync(_openFile!);
-            };
-        }
+            }
+            SendPrintersAsync();
+        };
 
         StartPipeListener();
     }
@@ -151,6 +154,30 @@ public class MainForm : Form
                     await Task.Delay(500);
                 }
             }
+        });
+    }
+
+    // Принтеры ищем в фоне, чтобы окно открывалось сразу.
+    // Готовый список передаём в интерфейс отдельным сообщением
+    void SendPrintersAsync()
+    {
+        _ = Task.Run(() =>
+        {
+            string json = JsonSerializer.Serialize(PrinterList());
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        _web.CoreWebView2?.ExecuteScriptAsync(
+                            "window.PVSPDF_PRINTERS = " + json + ";" +
+                            "window.dispatchEvent(new CustomEvent('pvspdf-printers'));");
+                    }
+                    catch { }
+                }));
+            }
+            catch { }
         });
     }
 

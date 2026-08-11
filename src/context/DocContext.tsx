@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { PDFDocument, degrees } from 'pdf-lib';
 import { loadDoc, pdfjsLib } from '@/lib/pdf';
 
 export type PageMeta = {
@@ -310,6 +309,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const buildPdf = useCallback(
     async (subset?: PageMeta[], layout: Layout = DEFAULT_LAYOUT) => {
       const list = subset ?? pages;
+      // Сборщик PDF подключаем при сохранении, а не при запуске программы
+      const { PDFDocument, degrees } = await import('pdf-lib');
       const out = await PDFDocument.create();
       const cache = new Map<string, any>();
       for (const p of list) {

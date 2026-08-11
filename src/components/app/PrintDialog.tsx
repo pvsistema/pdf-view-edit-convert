@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import {
   useDoc,
@@ -67,10 +67,23 @@ const PrintDialog = ({ onClose }: { onClose: () => void }) => {
   const [preview, setPreview] = useState(0);
 
   const desktop = isDesktop();
-  const printers = useMemo(() => (desktop ? printerList() : []), [desktop]);
+  const [printers, setPrinters] = useState<string[]>(() => (desktop ? printerList() : []));
   const [printer, setPrinter] = useState(() =>
     desktop ? savedPrinter() || printerList()[0] || '' : '',
   );
+
+  // Программа ищет принтеры в фоне — подхватываем список, когда он готов
+  useEffect(() => {
+    if (!desktop) return;
+    const sync = () => {
+      const list = printerList();
+      setPrinters(list);
+      setPrinter((p) => (p && list.includes(p) ? p : savedPrinter() || list[0] || ''));
+    };
+    sync();
+    window.addEventListener('pvspdf-printers', sync);
+    return () => window.removeEventListener('pvspdf-printers', sync);
+  }, [desktop]);
 
   const indexes = useMemo(() => {
     const total = pages.length;

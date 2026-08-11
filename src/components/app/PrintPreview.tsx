@@ -17,9 +17,9 @@ const PrintPreview = ({ page, layout, index, total }: Props) => {
     const doc = docOf(page);
     if (!doc) return;
     setReady(false);
-    renderPage(doc, page.src, 0.5, page.rotation).then((canvas) => {
+    renderPage(doc, page.src, 0.5, page.rotation, 2).then((canvas) => {
       if (cancelled || !host.current) return;
-      setSrcSize([canvas.width, canvas.height]);
+      setSrcSize([canvas.width / 2, canvas.height / 2]);
       host.current.innerHTML = '';
       canvas.style.display = 'block';
       canvas.style.width = '100%';

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { renderPage } from '@/lib/pdf';
+import { renderPage, screenDensity } from '@/lib/pdf';
 import type { PageMeta } from '@/context/DocContext';
 import { useDoc } from '@/context/DocContext';
 
@@ -19,10 +19,12 @@ const PageThumb = ({ page, scale = 0.28, className = '' }: Props) => {
     const doc = docOf(page);
     if (!doc || !box.current) return;
     setReady(false);
-    renderPage(doc, page.src, scale, page.rotation).then((canvas) => {
+    renderPage(doc, page.src, scale, page.rotation, screenDensity() * 1.6).then((canvas) => {
       if (cancelled || !box.current) return;
       box.current.innerHTML = '';
       canvas.className = 'block h-auto w-full';
+      canvas.style.width = '';
+      canvas.style.height = '';
       box.current.appendChild(canvas);
       setReady(true);
     });

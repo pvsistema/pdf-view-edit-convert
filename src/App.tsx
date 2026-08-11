@@ -5,9 +5,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import { isDesktop } from "@/lib/desktop";
+import { lazy, Suspense } from "react";
 import Index from "./pages/Index";
-import Admin from "./pages/Admin";
-import NotFound from "./pages/NotFound";
+
+const Admin = lazy(() => import("./pages/Admin"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -19,12 +21,14 @@ const App = () => (
       <Toaster />
       <Sonner />
       <Router>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/admin" element={<Admin />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/admin" element={<Admin />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
       </Router>
     </TooltipProvider>
   </QueryClientProvider>

@@ -29,5 +29,20 @@ export default defineConfig({
     outDir: 'dist-desktop',
     emptyOutDir: true,
     chunkSizeWarningLimit: 4000,
+    // Разделяем код: при запуске грузится только оболочка и просмотрщик,
+    // тяжёлые модули подключаются, когда действительно нужны
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('tesseract')) return 'ocr';
+          if (id.includes('pdfjs-dist')) return 'pdfjs';
+          if (id.includes('pdf-lib')) return 'pdflib';
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler'))
+            return 'react';
+          return 'vendor';
+        },
+      },
+    },
   },
 });

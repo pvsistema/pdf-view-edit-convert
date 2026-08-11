@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { renderPage, pageText } from '@/lib/pdf';
+import { renderPage, pageText, screenDensity } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 
 export type Tool = 'hand' | 'text' | 'block';
@@ -23,10 +23,10 @@ const Viewer = ({ tool, setTool }: Props) => {
     const doc = docOf(page);
     if (!doc) return;
     setBusy(true);
-    renderPage(doc, page.src, zoom, page.rotation).then((canvas) => {
+    renderPage(doc, page.src, zoom, page.rotation, screenDensity()).then((canvas) => {
       if (cancelled || !host.current) return;
       host.current.innerHTML = '';
-      canvas.className = 'block h-auto max-w-full';
+      canvas.className = 'block';
       host.current.appendChild(canvas);
       setBusy(false);
     });

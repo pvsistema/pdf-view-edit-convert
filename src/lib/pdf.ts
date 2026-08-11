@@ -18,21 +18,36 @@ export const loadDoc = async (data: ArrayBuffer) => {
   return task.promise;
 };
 
+// Плотность точек экрана: на мониторах с масштабом Windows 125-150%
+// рисуем страницу крупнее, иначе текст выглядит мыльным
+export const screenDensity = () => {
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  return Math.min(3, Math.max(1, dpr));
+};
+
 export const renderPage = async (
   doc: any,
   pageIndex: number,
   scale: number,
   extraRotation = 0,
+  sharpen = 1,
 ): Promise<HTMLCanvasElement> => {
   const page = await doc.getPage(pageIndex + 1);
-  const viewport = page.getViewport({
-    scale,
-    rotation: (page.rotate + extraRotation) % 360,
-  });
+  const rotation = (page.rotate + extraRotation) % 360;
+
+  // Размер на экране остаётся прежним, а точек внутри становится больше
+  const view = page.getViewport({ scale, rotation });
+  const viewport = page.getViewport({ scale: scale * sharpen, rotation });
+
   const canvas = document.createElement('canvas');
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
-  const ctx = canvas.getContext('2d')!;
+  canvas.style.width = `${Math.floor(view.width)}px`;
+  canvas.style.height = `${Math.floor(view.height)}px`;
+
+  const ctx = canvas.getContext('2d', { alpha: false })!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvasContext: ctx, viewport }).promise;
   return canvas;
 };
