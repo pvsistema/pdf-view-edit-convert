@@ -65,7 +65,7 @@ type Ctx = {
   name: string;
   loading: boolean;
   active: number;
-  setActive: (i: number) => void;
+  setActive: React.Dispatch<React.SetStateAction<number>>;
   open: (file: File) => Promise<void>;
   append: (file: File) => Promise<void>;
   rotate: (uid: string, dir: number) => void;

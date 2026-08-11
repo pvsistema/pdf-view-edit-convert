@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { renderPage, pageText, screenDensity, prefetchPage } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
@@ -10,6 +10,8 @@ type Props = { tool: Tool; setTool: (t: Tool) => void };
 const Viewer = ({ tool, setTool }: Props) => {
   const { pages, active, setActive, docOf, rotate, version, annots, addAnnot, removeAnnot } = useDoc();
   const host = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const flipAt = useRef(0);
   const [zoom, setZoom] = useState(1.2);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -47,6 +49,93 @@ const Viewer = ({ tool, setTool }: Props) => {
       clearTimeout(slow);
     };
   }, [page, zoom, docOf, version, active, pages]);
+
+  const go = useCallback(
+    (step: number) => {
+      setActive((i: number) => Math.min(pages.length - 1, Math.max(0, i + step)));
+    },
+    [pages.length, setActive],
+  );
+
+  // Управление с клавиатуры: стрелки и PageUp/PageDown листают страницы,
+  // Ctrl и + / - меняют масштаб, Home и End — первая и последняя страница
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      if (typing) return;
+
+      // Пока открыто окно печати или другое диалоговое окно, клавиши не трогаем
+      if (document.querySelector('.fixed.inset-0')) return;
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)));
+        } else if (e.key === '-') {
+          e.preventDefault();
+          setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)));
+        } else if (e.key === '0') {
+          e.preventDefault();
+          setZoom(1.2);
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        go(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        go(-1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setActive(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setActive(pages.length - 1);
+      }
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go, pages.length, setActive]);
+
+  // Колесо мыши: прокрутка листает страницы, а с Ctrl меняет масштаб
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        setZoom((z) =>
+          e.deltaY > 0 ? Math.max(0.4, +(z - 0.2).toFixed(2)) : Math.min(3, +(z + 0.2).toFixed(2)),
+        );
+        return;
+      }
+
+      // Пока страница не прокручена до края, крутим её саму
+      const atTop = box.scrollTop <= 0;
+      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 1;
+      const now = Date.now();
+      if (now - flipAt.current < 280) return;
+
+      if (e.deltaY > 0 && atBottom && active < pages.length - 1) {
+        flipAt.current = now;
+        go(1);
+        requestAnimationFrame(() => (box.scrollTop = 0));
+      } else if (e.deltaY < 0 && atTop && active > 0) {
+        flipAt.current = now;
+        go(-1);
+        requestAnimationFrame(() => (box.scrollTop = box.scrollHeight));
+      }
+    };
+
+    box.addEventListener('wheel', onWheel, { passive: false });
+    return () => box.removeEventListener('wheel', onWheel);
+  }, [active, pages.length, go]);
 
   const search = async () => {
     const q = query.trim().toLowerCase();
@@ -103,7 +192,7 @@ const Viewer = ({ tool, setTool }: Props) => {
             className="px-3 py-2 hover:bg-card disabled:opacity-30"
             onClick={() => setActive(Math.max(0, active - 1))}
             disabled={active === 0}
-            title="Предыдущая страница"
+            title="Предыдущая страница (стрелка влево)"
           >
             <Icon name="ChevronLeft" size={16} />
           </button>
@@ -114,7 +203,7 @@ const Viewer = ({ tool, setTool }: Props) => {
             className="px-3 py-2 hover:bg-card disabled:opacity-30"
             onClick={() => setActive(Math.min(pages.length - 1, active + 1))}
             disabled={active === pages.length - 1}
-            title="Следующая страница"
+            title="Следующая страница (стрелка вправо)"
           >
             <Icon name="ChevronRight" size={16} />
           </button>
@@ -124,15 +213,21 @@ const Viewer = ({ tool, setTool }: Props) => {
           <button
             className="px-3 py-2 hover:bg-card"
             onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)))}
-            title="Уменьшить"
+            title="Уменьшить (Ctrl и колесо мыши)"
           >
             <Icon name="Minus" size={16} />
           </button>
-          <span className="px-2 font-head text-[0.82rem] font-bold">{Math.round(zoom * 100)}%</span>
+          <button
+            className="px-2 font-head text-[0.82rem] font-bold hover:bg-card"
+            onClick={() => setZoom(1.2)}
+            title="Обычный масштаб (Ctrl и 0)"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
           <button
             className="px-3 py-2 hover:bg-card"
             onClick={() => setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)))}
-            title="Увеличить"
+            title="Увеличить (Ctrl и колесо мыши)"
           >
             <Icon name="Plus" size={16} />
           </button>
@@ -175,7 +270,7 @@ const Viewer = ({ tool, setTool }: Props) => {
         </div>
       )}
 
-      <div className="relative flex-1 overflow-auto bg-muted p-6">
+      <div ref={scroller} className="relative flex-1 overflow-auto bg-muted p-6">
         {busy && (
           <div className="absolute right-6 top-6 z-20 flex items-center gap-2 border border-border bg-background px-3 py-2 text-[0.8rem]">
             <Icon name="LoaderCircle" size={14} className="animate-spin text-primary" />
