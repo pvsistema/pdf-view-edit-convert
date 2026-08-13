@@ -3,6 +3,7 @@ import Icon from '@/components/ui/icon';
 import { checkUpdate, type UpdateInfo } from '@/lib/adminApi';
 import { desktopVersion } from '@/lib/desktop';
 import { APP_VERSION } from '@/lib/brand';
+import { readUpdateInfo, saveUpdateInfo, updateCheckDue } from '@/lib/updateStore';
 
 const SKIP_KEY = 'pv_skip_version';
 
@@ -12,17 +13,38 @@ const UpdateBanner = () => {
 
   useEffect(() => {
     const current = desktopVersion() || APP_VERSION;
+
+    const show = (r: UpdateInfo) => {
+      if (!r.update_available || r.latest === current) return;
+      if (!r.required && localStorage.getItem(SKIP_KEY) === r.latest) return;
+      setInfo(r);
+      setOpen(true);
+    };
+
+    // Показываем ранее найденное обновление сразу, без обращения к серверу
+    const saved = readUpdateInfo();
+    if (saved) show(saved);
+
+    // Сведения могли прийти вместе с проверкой лицензии
+    const onInfo = (e: Event) => show((e as CustomEvent).detail as UpdateInfo);
+    window.addEventListener('pvspdf-update', onInfo);
+
+    // Спрашиваем сервер, только если за сутки о версии ещё не узнали.
+    // У активированных программ ответ обычно уже пришёл вместе с лицензией
     const timer = setTimeout(() => {
+      if (!updateCheckDue()) return;
       checkUpdate(current)
         .then((r) => {
-          if (!r.update_available) return;
-          if (!r.required && localStorage.getItem(SKIP_KEY) === r.latest) return;
-          setInfo(r);
-          setOpen(true);
+          saveUpdateInfo(r);
+          show(r);
         })
         .catch(() => undefined);
-    }, 2500);
-    return () => clearTimeout(timer);
+    }, 6000);
+
+    return () => {
+      window.removeEventListener('pvspdf-update', onInfo);
+      clearTimeout(timer);
+    };
   }, []);
 
   if (!info || !open) return null;

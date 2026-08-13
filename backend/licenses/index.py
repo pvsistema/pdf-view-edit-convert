@@ -43,6 +43,41 @@ def _auth(cur, event, body) -> bool:
     return cur.fetchone() is not None
 
 
+def _ver_num(v: str):
+    parts = (v or '0.0.0').split('.')
+    out = []
+    for p in parts[:3]:
+        try:
+            out.append(int(p))
+        except ValueError:
+            out.append(0)
+    while len(out) < 3:
+        out.append(0)
+    return tuple(out)
+
+
+def _latest_release(cur, current: str) -> dict:
+    '''Сведения о новой версии программы — отдаются вместе с проверкой ключа'''
+    cur.execute(
+        f"SELECT version, download_url, notes, is_required, published_at "
+        f"FROM {SCHEMA}.app_releases WHERE is_published = TRUE "
+        f"ORDER BY published_at DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    if not row:
+        return {'update_available': False, 'latest': current}
+    version, url, notes, required, published = row
+    newer = _ver_num(version) > _ver_num(current)
+    return {
+        'update_available': newer,
+        'latest': version,
+        'download_url': url or '',
+        'notes': notes or '',
+        'required': bool(required) and newer,
+        'published_at': published.strftime('%Y-%m-%d') if published else '',
+    }
+
+
 def _row(r) -> dict:
     return {
         'id': r[0],
@@ -83,6 +118,10 @@ def handler(event, context):
         ip = _esc((event.get('requestContext') or {}).get('identity', {}).get('sourceIp', ''))[:60]
         agent = _esc(headers.get('User-Agent') or headers.get('user-agent') or '')[:240]
 
+        # Программа может спросить о новой версии тем же запросом —
+        # это вдвое сокращает число обращений при запуске
+        app_ver = str(body.get('app_version') or params.get('app_version', '')).strip()
+
         if not key:
             cur.close()
             conn.close()
@@ -102,9 +141,12 @@ def handler(event, context):
 
         if not row:
             log(None, 'not_found')
+            result = {'valid': False, 'reason': 'Ключ не найден'}
+            if app_ver:
+                result['update'] = _latest_release(cur, app_ver)
             cur.close()
             conn.close()
-            return _resp(200, {'valid': False, 'reason': 'Ключ не найден'})
+            return _resp(200, result)
 
         lic_id, org, until, status = row
         today = datetime.utcnow().date()
@@ -120,6 +162,10 @@ def handler(event, context):
             cur.execute(
                 f"UPDATE {SCHEMA}.licenses SET activations = activations + 1, last_check_at = NOW() WHERE license_key = '{key}'"
             )
+
+        if app_ver:
+            result['update'] = _latest_release(cur, app_ver)
+
         cur.close()
         conn.close()
         return _resp(200, result)

@@ -23,6 +23,15 @@ export type License = {
 
 export type Stats = { total: number; active: number; expired: number; blocked: number };
 
+export type UpdateInfo = {
+  update_available: boolean;
+  latest: string;
+  download_url?: string;
+  notes?: string;
+  required?: boolean;
+  published_at?: string;
+};
+
 const post = async (url: string, body: Record<string, unknown>) => {
   const res = await fetch(url, {
     method: 'POST',
@@ -73,13 +82,14 @@ export const listHistory = (id = 0, limit = 200) =>
     by_result: Record<string, number>;
   }>;
 
-export const verifyKey = (key: string) =>
-  post(LIC_URL, { action: 'verify', key }) as Promise<{
+export const verifyKey = (key: string, appVersion = '') =>
+  post(LIC_URL, { action: 'verify', key, app_version: appVersion }) as Promise<{
     valid: boolean;
     reason?: string;
     org_name?: string;
     valid_until?: string;
     days_left?: number;
+    update?: UpdateInfo;
   }>;
 export type Release = {
   id: number;
@@ -89,15 +99,6 @@ export type Release = {
   is_required: boolean;
   is_published: boolean;
   published_at: string;
-};
-
-export type UpdateInfo = {
-  update_available: boolean;
-  latest: string;
-  download_url?: string;
-  notes?: string;
-  required?: boolean;
-  published_at?: string;
 };
 
 export const checkUpdate = (version: string) =>

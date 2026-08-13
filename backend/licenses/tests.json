@@ -21,6 +21,19 @@
       "expectedStatus": 200,
       "expectedBody": { "valid": false },
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Проверка ключа вместе с версией одним запросом",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "verify",
+        "key": "PVPDF-XXXXX-XXXXX-XXXXX-XXXXX",
+        "app_version": "1.0.0"
+      },
+      "expectedStatus": 200,
+      "expectedBody": { "valid": false, "update": { "latest": "string" } },
+      "bodyMatcher": "partial"
     }
   ]
 }

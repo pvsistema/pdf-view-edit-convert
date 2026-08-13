@@ -1,7 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { verifyKey } from '@/lib/adminApi';
+import { desktopVersion } from '@/lib/desktop';
+import { APP_VERSION } from '@/lib/brand';
+import { saveUpdateInfo } from '@/lib/updateStore';
 
 const STORE = 'pv_license';
+const CHECKED_AT = 'pv_license_checked';
+
+// Лицензия проверяется на сервере не чаще раза в сутки:
+// программу открывают много раз в день, а срок действия за час не меняется
+const CHECK_EVERY = 24 * 60 * 60 * 1000;
 
 export type LicenseState = {
   key: string;
@@ -33,8 +41,21 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
     try {
       const saved = JSON.parse(raw) as LicenseState;
       setLicense(saved);
-      verifyKey(saved.key)
+
+      // Пока срок действия не истёк и с прошлой проверки прошло меньше суток,
+      // работаем по сохранённым данным — обращение к серверу не нужно
+      const last = Number(localStorage.getItem(CHECKED_AT) || 0);
+      const notExpired = !saved.validUntil || new Date(saved.validUntil) > new Date();
+      if (notExpired && Date.now() - last < CHECK_EVERY) {
+        setChecking(false);
+        return;
+      }
+
+      // Одним запросом узнаём и о лицензии, и о новой версии программы
+      verifyKey(saved.key, desktopVersion() || APP_VERSION)
         .then((r) => {
+          localStorage.setItem(CHECKED_AT, String(Date.now()));
+          if (r.update) saveUpdateInfo(r.update);
           if (r.valid) {
             const next = {
               key: saved.key,
@@ -46,6 +67,7 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
             localStorage.setItem(STORE, JSON.stringify(next));
           } else {
             localStorage.removeItem(STORE);
+            localStorage.removeItem(CHECKED_AT);
             setLicense(null);
           }
         })
@@ -61,7 +83,8 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
     const clean = key.trim().toUpperCase();
     if (!clean) return { ok: false, message: 'Введите ключ активации' };
     try {
-      const r = await verifyKey(clean);
+      const r = await verifyKey(clean, desktopVersion() || APP_VERSION);
+      if (r.update) saveUpdateInfo(r.update);
       if (!r.valid) return { ok: false, message: r.reason || 'Ключ недействителен' };
       const next: LicenseState = {
         key: clean,
@@ -71,6 +94,7 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
       };
       setLicense(next);
       localStorage.setItem(STORE, JSON.stringify(next));
+      localStorage.setItem(CHECKED_AT, String(Date.now()));
       return { ok: true, message: `Полная версия активирована для «${next.org}»` };
     } catch {
       return { ok: false, message: 'Не удалось проверить ключ. Проверьте подключение к интернету' };
@@ -79,6 +103,7 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
 
   const deactivate = useCallback(() => {
     localStorage.removeItem(STORE);
+    localStorage.removeItem(CHECKED_AT);
     setLicense(null);
   }, []);
 

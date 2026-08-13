@@ -6,7 +6,6 @@ import LicenseForm from "@/components/admin/LicenseForm";
 import HistoryPanel from "@/components/admin/HistoryPanel";
 import ReleasesPanel from "@/components/admin/ReleasesPanel";
 import {
-  checkSession,
   clearToken,
   deleteLicense,
   getToken,
@@ -54,28 +53,33 @@ const Admin = () => {
       const res = await listLicenses(q);
       setItems(res.items.filter((i) => i.status !== "deleted"));
       setStats(res.stats);
+      return true;
     } catch {
       toast({ title: "Не удалось загрузить список" });
+      return false;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Отдельная проверка входа не нужна: загрузка списка сама покажет,
+  // действует ли вход. Это экономит один запрос при каждом открытии
   useEffect(() => {
     if (!getToken()) {
       setAuthed(false);
       return;
     }
-    checkSession()
-      .then(() => {
+    listLicenses("")
+      .then((res) => {
+        setItems(res.items.filter((i) => i.status !== "deleted"));
+        setStats(res.stats);
         setAuthed(true);
-        load();
       })
       .catch(() => {
         clearToken();
         setAuthed(false);
       });
-  }, [load]);
+  }, []);
 
   const remove = async (l: License) => {
     if (!window.confirm(`Удалить лицензию «${l.org_name}»?`)) return;
