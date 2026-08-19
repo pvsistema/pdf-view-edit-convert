@@ -185,7 +185,7 @@ const Viewer = ({ tool, setTool }: Props) => {
   );
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div className="flex h-full min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
         <div className="flex items-center border border-border bg-background">
           <button
@@ -270,16 +270,18 @@ const Viewer = ({ tool, setTool }: Props) => {
         </div>
       )}
 
-      <div ref={scroller} className="relative flex-1 overflow-auto bg-muted p-6">
+      <div ref={scroller} className="relative flex flex-1 overflow-auto bg-muted">
         {busy && (
           <div className="absolute right-6 top-6 z-20 flex items-center gap-2 border border-border bg-background px-3 py-2 text-[0.8rem]">
             <Icon name="LoaderCircle" size={14} className="animate-spin text-primary" />
             Обработка
           </div>
         )}
-        <div className="mx-auto w-fit">
+        {/* Страница стоит по центру окна, а при увеличении
+            остаётся доступной прокрутка во все стороны */}
+        <div className="m-auto p-6">
           <div
-            className={`relative ${tool === 'hand' ? '' : 'cursor-crosshair'}`}
+            className={`relative shadow-[0_2px_14px_rgba(20,24,28,0.16)] ${tool === 'hand' ? '' : 'cursor-crosshair'}`}
             onClick={place}
           >
             <div ref={host} />
