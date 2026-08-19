@@ -30,6 +30,12 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Что именно ищем сейчас — по нему подсвечиваем найденное на странице
   const [found, setFound] = useState('');
   const [spots, setSpots] = useState<TextHit[]>([]);
+  // Направление перелистывания: лист мягко въезжает сверху или снизу
+  const slide = useRef<'none' | 'down' | 'up'>('none');
+  const sheet = useRef<HTMLDivElement>(null);
+  const setSlide = (dir: 'none' | 'down' | 'up') => {
+    slide.current = dir;
+  };
 
   const page = pages[active];
 
@@ -67,6 +73,21 @@ const Viewer = ({ tool, setTool }: Props) => {
       host.current.appendChild(canvas);
       setBusy(false);
 
+      // Новый лист мягко въезжает с той стороны, куда листали,
+      // поэтому переход не выглядит внезапной подменой картинки
+      const dir = slide.current;
+      slide.current = 'none';
+      const el = sheet.current;
+      if (dir !== 'none' && el) {
+        el.animate(
+          [
+            { transform: `translateY(${dir === 'down' ? 26 : -26}px)`, opacity: 0.35 },
+            { transform: 'translateY(0)', opacity: 1 },
+          ],
+          { duration: 240, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
+        );
+      }
+
       // Готовим соседние страницы заранее — переход к ним будет мгновенным
       for (const step of [1, -1, 2, -2]) {
         const near = pages[active + step];
@@ -86,6 +107,15 @@ const Viewer = ({ tool, setTool }: Props) => {
       setActive((i: number) => Math.min(pages.length - 1, Math.max(0, i + step)));
     },
     [pages.length, setActive],
+  );
+
+  // Листание с показом направления перехода
+  const goSmooth = useCallback(
+    (step: number) => {
+      setSlide(step > 0 ? 'down' : 'up');
+      go(step);
+    },
+    [go],
   );
 
   // Управление с клавиатуры: стрелки и PageUp/PageDown листают страницы,
@@ -143,10 +173,10 @@ const Viewer = ({ tool, setTool }: Props) => {
 
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') {
         e.preventDefault();
-        go(1);
+        goSmooth(1);
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
         e.preventDefault();
-        go(-1);
+        goSmooth(-1);
       } else if (e.key === 'Home') {
         e.preventDefault();
         setActive(0);
@@ -158,7 +188,7 @@ const Viewer = ({ tool, setTool }: Props) => {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, pages.length, setActive]);
+  }, [goSmooth, pages.length, setActive]);
 
   // Колесо мыши: прокрутка листает страницы, а с Ctrl меняет масштаб
   useEffect(() => {
@@ -178,14 +208,19 @@ const Viewer = ({ tool, setTool }: Props) => {
       const atTop = box.scrollTop <= 0;
       const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 1;
       const now = Date.now();
-      if (now - flipAt.current < 280) return;
+      if (now - flipAt.current < 420) return;
 
+      // Лист меняется не мгновенно: новый мягко въезжает с той стороны,
+      // куда крутят колесо, — сразу понятно, что произошёл переход
       if (e.deltaY > 0 && atBottom && active < pages.length - 1) {
         flipAt.current = now;
+        setSlide('down');
         go(1);
+        // Новый лист показываем с начала, старый уже прокручен до конца
         requestAnimationFrame(() => (box.scrollTop = 0));
       } else if (e.deltaY < 0 && atTop && active > 0) {
         flipAt.current = now;
+        setSlide('up');
         go(-1);
         requestAnimationFrame(() => (box.scrollTop = box.scrollHeight));
       }
@@ -380,7 +415,11 @@ const Viewer = ({ tool, setTool }: Props) => {
         </div>
       )}
 
-      <div ref={scroller} className="relative flex flex-1 overflow-auto bg-muted">
+      <div
+        ref={scroller}
+        className="relative flex flex-1 overflow-auto overscroll-contain bg-muted"
+        style={{ scrollBehavior: 'auto' }}
+      >
         {busy && (
           <div className="absolute right-6 top-6 z-20 flex items-center gap-2 border border-border bg-background px-3 py-2 text-[0.8rem]">
             <Icon name="LoaderCircle" size={14} className="animate-spin text-primary" />
@@ -391,6 +430,7 @@ const Viewer = ({ tool, setTool }: Props) => {
             остаётся доступной прокрутка во все стороны */}
         <div className="m-auto p-6">
           <div
+            ref={sheet}
             className={`relative shadow-[0_2px_14px_rgba(20,24,28,0.16)] ${tool === 'hand' ? '' : 'cursor-crosshair'}`}
             onClick={place}
           >
