@@ -247,6 +247,80 @@ export const pageText = async (doc: any, pageIndex: number) => {
   return text;
 };
 
+// Места на странице, где встретилось искомое. Доли от размера страницы,
+// поэтому подсветка правильно ложится при любом увеличении
+export type TextHit = { x: number; y: number; w: number; h: number };
+
+export const findOnPage = async (
+  doc: any,
+  pageIndex: number,
+  needle: string,
+  extraRotation = 0,
+): Promise<TextHit[]> => {
+  const q = needle.trim().toLowerCase();
+  if (!q) return [];
+
+  const page = await doc.getPage(pageIndex + 1);
+  const rotation = (page.rotate + extraRotation) % 360;
+  const viewport = page.getViewport({ scale: 1, rotation });
+  const content = await page.getTextContent();
+
+  const out: TextHit[] = [];
+
+  // Если ищут целую фразу, она может быть разбита на части.
+  // Тогда подсвечиваем каждое слово отдельно
+  const words = q.split(/\s+/).filter((w) => w.length > 1);
+  const targets = words.length > 1 ? [q, ...words] : [q];
+
+  const markItem = (item: any, needleText: string) => {
+    const str = String(item.str || '');
+    const low = str.toLowerCase();
+    if (!low.includes(needleText)) return false;
+
+    // Положение и наклон куска текста на странице
+    const tr = pdfjsLib.Util.transform(viewport.transform, item.transform);
+    const height = Math.hypot(tr[2], tr[3]) || 10;
+    const dirX = Math.hypot(tr[0], tr[1]) || 1;
+    const fullW = (item.width || 0) * (viewport.scale || 1) || dirX * str.length * 0.5;
+    const perChar = fullW / Math.max(1, str.length);
+
+    let from = 0;
+    let hit = false;
+    for (;;) {
+      const at = low.indexOf(needleText, from);
+      if (at < 0) break;
+      hit = true;
+
+      const x = tr[4] + perChar * at;
+      const y = tr[5] - height;
+
+      out.push({
+        x: x / viewport.width,
+        y: y / viewport.height,
+        w: (perChar * needleText.length) / viewport.width,
+        h: height / viewport.height,
+      });
+      from = at + needleText.length;
+    }
+    return hit;
+  };
+
+  for (const item of content.items as any[]) {
+    // Сначала пробуем найти запрос целиком, потом по словам
+    for (const t of targets) {
+      if (markItem(item, t)) break;
+    }
+  }
+
+  try {
+    page.cleanup();
+  } catch {
+    /* страница уже освобождена */
+  }
+
+  return out;
+};
+
 export const downloadBlob = (blob: Blob, name: string) => {
   // В десктопной версии открываем системное окно "Сохранить как" с выбором папки
   if (isDesktop()) {

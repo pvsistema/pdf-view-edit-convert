@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { renderPage, pageText, screenDensity, prefetchPage, PRIORITY } from '@/lib/pdf';
+import {
+  renderPage,
+  pageText,
+  screenDensity,
+  prefetchPage,
+  findOnPage,
+  PRIORITY,
+  type TextHit,
+} from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 
 export type Tool = 'hand' | 'text' | 'block';
@@ -16,8 +24,28 @@ const Viewer = ({ tool, setTool }: Props) => {
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<number[] | null>(null);
+  // Что именно ищем сейчас — по нему подсвечиваем найденное на странице
+  const [found, setFound] = useState('');
+  const [spots, setSpots] = useState<TextHit[]>([]);
 
   const page = pages[active];
+
+  // Подсвечиваем найденные слова на открытой странице
+  useEffect(() => {
+    let cancelled = false;
+    if (!found || !page) {
+      setSpots([]);
+      return;
+    }
+    const doc = docOf(page);
+    if (!doc) return;
+    findOnPage(doc, page.src, found, page.rotation)
+      .then((list) => !cancelled && setSpots(list))
+      .catch(() => !cancelled && setSpots([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [found, page, docOf]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,22 +166,33 @@ const Viewer = ({ tool, setTool }: Props) => {
   }, [active, pages.length, go]);
 
   const search = async () => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) {
       setHits(null);
+      setFound('');
       return;
     }
     setBusy(true);
-    const found: number[] = [];
+    const low = q.toLowerCase();
+    const list: number[] = [];
     for (let i = 0; i < pages.length; i++) {
       const doc = docOf(pages[i]);
       if (!doc) continue;
       const text = (await pageText(doc, pages[i].src)).toLowerCase();
-      if (text.includes(q)) found.push(i);
+      if (text.includes(low)) list.push(i);
     }
-    setHits(found);
+    setHits(list);
+    setFound(list.length ? q : '');
     setBusy(false);
-    if (found.length) setActive(found[0]);
+    if (list.length) setActive(list[0]);
+  };
+
+  // Переход к следующей или предыдущей найденной странице
+  const jumpHit = (dir: number) => {
+    if (!hits?.length) return;
+    const at = hits.indexOf(active);
+    const next = at < 0 ? hits[0] : hits[(at + dir + hits.length) % hits.length];
+    setActive(next);
   };
 
   const place = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -263,10 +302,45 @@ const Viewer = ({ tool, setTool }: Props) => {
       </div>
 
       {hits && (
-        <div className="border-b border-border bg-background px-4 py-2 text-[0.8rem] text-muted-foreground">
-          {hits.length
-            ? `Найдено на страницах: ${hits.map((h) => h + 1).join(', ')}`
-            : 'Совпадений не найдено'}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background px-4 py-2 text-[0.8rem] text-muted-foreground">
+          {hits.length ? (
+            <>
+              <Icon name="Search" size={14} className="text-primary" />
+              <span>
+                Найдено на {hits.length} стр.
+                {spots.length ? ` · на этой странице ${spots.length}` : ''}
+              </span>
+              <div className="ml-auto flex items-center gap-1">
+                <button
+                  onClick={() => jumpHit(-1)}
+                  className="border border-border px-2 py-1 hover:border-foreground"
+                  title="Предыдущая найденная страница"
+                >
+                  <Icon name="ChevronUp" size={13} />
+                </button>
+                <button
+                  onClick={() => jumpHit(1)}
+                  className="border border-border px-2 py-1 hover:border-foreground"
+                  title="Следующая найденная страница"
+                >
+                  <Icon name="ChevronDown" size={13} />
+                </button>
+                <button
+                  onClick={() => {
+                    setHits(null);
+                    setFound('');
+                    setQuery('');
+                  }}
+                  className="border border-border px-2 py-1 hover:border-destructive hover:text-destructive"
+                  title="Сбросить поиск"
+                >
+                  <Icon name="X" size={13} />
+                </button>
+              </div>
+            </>
+          ) : (
+            'Совпадений не найдено'
+          )}
         </div>
       )}
 
@@ -285,6 +359,21 @@ const Viewer = ({ tool, setTool }: Props) => {
             onClick={place}
           >
             <div ref={host} />
+
+            {/* Жёлтая заливка поверх найденных слов */}
+            {spots.map((s, i) => (
+              <div
+                key={`hit-${i}`}
+                className="pointer-events-none absolute bg-yellow-300/50 mix-blend-multiply"
+                style={{
+                  left: `${s.x * 100}%`,
+                  top: `${s.y * 100}%`,
+                  width: `${s.w * 100}%`,
+                  height: `${s.h * 100}%`,
+                }}
+              />
+            ))}
+
             {marks.map((m) => (
               <div
                 key={m.id}

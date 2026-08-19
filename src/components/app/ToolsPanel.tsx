@@ -31,6 +31,10 @@ const ToolsPanel = () => {
     }
   };
 
+  // Короткая пауза, чтобы окно успевало перерисоваться:
+  // без неё полоска выполнения замирает на долгих документах
+  const breathe = () => new Promise((r) => setTimeout(r, 0));
+
   const collectText = async () => {
     const chunks: string[] = [];
     for (let i = 0; i < pages.length; i++) {
@@ -38,6 +42,7 @@ const ToolsPanel = () => {
       if (!doc) continue;
       chunks.push(await pageText(doc, pages[i].src));
       setProgress(Math.round(((i + 1) / pages.length) * 100));
+      if (i % 5 === 4) await breathe();
     }
     return chunks;
   };
@@ -112,6 +117,7 @@ const ToolsPanel = () => {
 
         if (desktop) {
           items.push({ blob, name: file });
+          if (i % 3 === 2) await breathe();
         } else {
           downloadBlob(blob, file);
           await new Promise((r) => setTimeout(r, 250));
@@ -200,10 +206,20 @@ const ToolsPanel = () => {
               <span className="mt-0.5 block text-[0.8rem] text-muted-foreground">
                 {locked ? 'Доступно в полной версии' : t.note}
               </span>
-              {busy === t.key && progress > 0 && (
-                <span className="mt-2 block h-1 w-full bg-border">
-                  <span className="block h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-                </span>
+              {busy === t.key && (
+                <>
+                  <span className="mt-2 block h-1 w-full bg-border">
+                    <span
+                      className="block h-full bg-primary transition-all"
+                      style={{ width: `${Math.max(3, progress)}%` }}
+                    />
+                  </span>
+                  <span className="mt-1 block text-[0.75rem] text-muted-foreground">
+                    {progress > 0
+                      ? `Обработано ${Math.round((progress / 100) * pages.length)} из ${pages.length} стр.`
+                      : 'Подготовка'}
+                  </span>
+                </>
               )}
             </span>
           </button>

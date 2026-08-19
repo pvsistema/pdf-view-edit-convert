@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import Icon from '@/components/ui/icon';
-import PageThumb from '@/components/app/PageThumb';
+import PageRow from '@/components/app/PageRow';
 import { useDoc } from '@/context/DocContext';
 import { toast } from '@/hooks/use-toast';
 
@@ -36,40 +36,17 @@ const PagesPanel = () => {
 
       <div className="flex-1 overflow-y-auto p-3">
         {pages.map((p, i) => (
-          <div
+          <PageRow
             key={p.uid}
-            className={`group mb-3 border p-2 transition-colors ${
-              i === active ? 'border-primary bg-background' : 'border-border bg-background/60 hover:border-foreground'
-            }`}
-          >
-            <button className="block w-full" onClick={() => setActive(i)}>
-              <PageThumb page={p} />
-            </button>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="font-head text-[0.72rem] font-bold text-muted-foreground">
-                Стр. {i + 1}
-              </span>
-              <div className="flex items-center gap-0.5">
-                <button className="p-1 hover:text-primary" title="Вверх" onClick={() => move(p.uid, -1)}>
-                  <Icon name="ArrowUp" size={13} />
-                </button>
-                <button className="p-1 hover:text-primary" title="Вниз" onClick={() => move(p.uid, 1)}>
-                  <Icon name="ArrowDown" size={13} />
-                </button>
-                <button className="p-1 hover:text-primary" title="Повернуть" onClick={() => rotate(p.uid, 90)}>
-                  <Icon name="RotateCw" size={13} />
-                </button>
-                <button
-                  className="p-1 hover:text-destructive"
-                  title="Удалить страницу"
-                  onClick={() => remove(p.uid)}
-                  disabled={pages.length === 1}
-                >
-                  <Icon name="Trash2" size={13} />
-                </button>
-              </div>
-            </div>
-          </div>
+            page={p}
+            index={i}
+            activeRow={i === active}
+            last={pages.length === 1}
+            onSelect={setActive}
+            onRotate={rotate}
+            onRemove={remove}
+            onMove={move}
+          />
         ))}
       </div>
     </aside>
