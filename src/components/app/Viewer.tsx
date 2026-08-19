@@ -19,7 +19,10 @@ const Viewer = ({ tool, setTool }: Props) => {
   const { pages, active, setActive, docOf, rotate, version, annots, addAnnot, removeAnnot } = useDoc();
   const host = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const searchBox = useRef<HTMLInputElement>(null);
   const flipAt = useRef(0);
+  // Через эту ссылку клавиша F3 попадает к переходу по находкам
+  const jumpRef = useRef<(dir: number) => void>(() => undefined);
   const [zoom, setZoom] = useState(1.2);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -92,10 +95,37 @@ const Viewer = ({ tool, setTool }: Props) => {
       const el = e.target as HTMLElement | null;
       const typing =
         el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
-      if (typing) return;
 
       // Пока открыто окно печати или другое диалоговое окно, клавиши не трогаем
       if (document.querySelector('.fixed.inset-0')) return;
+
+      // Ctrl+F ставит курсор в поле поиска и выделяет прежний запрос,
+      // чтобы сразу можно было набрать новый
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F' || e.key === 'а' || e.key === 'А')) {
+        e.preventDefault();
+        searchBox.current?.focus();
+        searchBox.current?.select();
+        return;
+      }
+
+      // Escape в поле поиска убирает подсветку и возвращает управление документу
+      if (e.key === 'Escape' && typing) {
+        e.preventDefault();
+        setHits(null);
+        setFound('');
+        setQuery('');
+        searchBox.current?.blur();
+        return;
+      }
+
+      // F3 — переход к следующей найденной странице
+      if (e.key === 'F3') {
+        e.preventDefault();
+        jumpRef.current(e.shiftKey ? -1 : 1);
+        return;
+      }
+
+      if (typing) return;
 
       if (e.ctrlKey || e.metaKey) {
         if (e.key === '+' || e.key === '=') {
@@ -194,6 +224,7 @@ const Viewer = ({ tool, setTool }: Props) => {
     const next = at < 0 ? hits[0] : hits[(at + dir + hits.length) % hits.length];
     setActive(next);
   };
+  jumpRef.current = jumpHit;
 
   const place = (e: React.MouseEvent<HTMLDivElement>) => {
     if (tool === 'hand' || !page) return;
@@ -289,13 +320,18 @@ const Viewer = ({ tool, setTool }: Props) => {
 
         <div className="ml-auto flex items-center border border-border bg-background">
           <input
+            ref={searchBox}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && search()}
-            placeholder="Поиск по документу"
+            placeholder="Поиск (Ctrl+F)"
             className="w-[180px] bg-transparent px-3 py-2 text-[0.86rem] outline-none"
           />
-          <button className="px-3 py-2 text-primary hover:bg-card" onClick={search} title="Найти">
+          <button
+            className="px-3 py-2 text-primary hover:bg-card"
+            onClick={search}
+            title="Найти (Enter), следующее совпадение — F3"
+          >
             <Icon name="Search" size={16} />
           </button>
         </div>
@@ -314,14 +350,14 @@ const Viewer = ({ tool, setTool }: Props) => {
                 <button
                   onClick={() => jumpHit(-1)}
                   className="border border-border px-2 py-1 hover:border-foreground"
-                  title="Предыдущая найденная страница"
+                  title="Предыдущая найденная страница (Shift+F3)"
                 >
                   <Icon name="ChevronUp" size={13} />
                 </button>
                 <button
                   onClick={() => jumpHit(1)}
                   className="border border-border px-2 py-1 hover:border-foreground"
-                  title="Следующая найденная страница"
+                  title="Следующая найденная страница (F3)"
                 >
                   <Icon name="ChevronDown" size={13} />
                 </button>
@@ -332,7 +368,7 @@ const Viewer = ({ tool, setTool }: Props) => {
                     setQuery('');
                   }}
                   className="border border-border px-2 py-1 hover:border-destructive hover:text-destructive"
-                  title="Сбросить поиск"
+                  title="Сбросить поиск (Esc)"
                 >
                   <Icon name="X" size={13} />
                 </button>
