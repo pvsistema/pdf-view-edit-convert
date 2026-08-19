@@ -27,3 +27,13 @@ export const readUpdateInfo = (): UpdateInfo | null => {
 
 export const updateCheckDue = () =>
   Date.now() - Number(localStorage.getItem(UPDATE_CHECKED_AT) || 0) >= UPDATE_EVERY;
+
+// Пока идёт проверка лицензии, сведения о версии придут вместе с ней —
+// отдельный запрос в этот момент не нужен
+let licenseAsking = false;
+
+export const setLicenseAsking = (v: boolean) => {
+  licenseAsking = v;
+};
+
+export const isLicenseAsking = () => licenseAsking;

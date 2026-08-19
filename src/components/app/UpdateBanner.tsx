@@ -3,7 +3,12 @@ import Icon from '@/components/ui/icon';
 import { checkUpdate, type UpdateInfo } from '@/lib/adminApi';
 import { desktopVersion } from '@/lib/desktop';
 import { APP_VERSION } from '@/lib/brand';
-import { readUpdateInfo, saveUpdateInfo, updateCheckDue } from '@/lib/updateStore';
+import {
+  isLicenseAsking,
+  readUpdateInfo,
+  saveUpdateInfo,
+  updateCheckDue,
+} from '@/lib/updateStore';
 
 const SKIP_KEY = 'pv_skip_version';
 
@@ -32,7 +37,7 @@ const UpdateBanner = () => {
     // Спрашиваем сервер, только если за сутки о версии ещё не узнали.
     // У активированных программ ответ обычно уже пришёл вместе с лицензией
     const timer = setTimeout(() => {
-      if (!updateCheckDue()) return;
+      if (!updateCheckDue() || isLicenseAsking()) return;
       checkUpdate(current)
         .then((r) => {
           saveUpdateInfo(r);

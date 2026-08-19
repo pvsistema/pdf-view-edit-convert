@@ -2,14 +2,20 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { verifyKey } from '@/lib/adminApi';
 import { desktopVersion } from '@/lib/desktop';
 import { APP_VERSION } from '@/lib/brand';
-import { saveUpdateInfo } from '@/lib/updateStore';
+import { saveUpdateInfo, setLicenseAsking } from '@/lib/updateStore';
 
 const STORE = 'pv_license';
 const CHECKED_AT = 'pv_license_checked';
 
-// Лицензия проверяется на сервере не чаще раза в сутки:
-// программу открывают много раз в день, а срок действия за час не меняется
-const CHECK_EVERY = 24 * 60 * 60 * 1000;
+// После активации лицензия перепроверяется на сервере раз в месяц:
+// срок действия и статус ключа за это время практически не меняются.
+// Досрочная проверка запускается, если подходит конец срока
+const CHECK_EVERY = 30 * 24 * 60 * 60 * 1000;
+
+// Когда до конца срока остаётся меньше недели, проверяем чаще —
+// раз в сутки, чтобы вовремя увидеть продление лицензии
+const RENEW_SOON_DAYS = 7;
+const CHECK_WHEN_SOON = 24 * 60 * 60 * 1000;
 
 export type LicenseState = {
   key: string;
@@ -42,16 +48,20 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
       const saved = JSON.parse(raw) as LicenseState;
       setLicense(saved);
 
-      // Пока срок действия не истёк и с прошлой проверки прошло меньше суток,
-      // работаем по сохранённым данным — обращение к серверу не нужно
+      // Работаем по сохранённым данным, пока не пришёл срок перепроверки
       const last = Number(localStorage.getItem(CHECKED_AT) || 0);
-      const notExpired = !saved.validUntil || new Date(saved.validUntil) > new Date();
-      if (notExpired && Date.now() - last < CHECK_EVERY) {
+      const until = saved.validUntil ? new Date(saved.validUntil).getTime() : 0;
+      const expired = !!until && until < Date.now();
+      const endsSoon = !!until && until - Date.now() < RENEW_SOON_DAYS * 24 * 60 * 60 * 1000;
+      const period = endsSoon ? CHECK_WHEN_SOON : CHECK_EVERY;
+
+      if (!expired && Date.now() - last < period) {
         setChecking(false);
         return;
       }
 
       // Одним запросом узнаём и о лицензии, и о новой версии программы
+      setLicenseAsking(true);
       verifyKey(saved.key, desktopVersion() || APP_VERSION)
         .then((r) => {
           localStorage.setItem(CHECKED_AT, String(Date.now()));
@@ -72,7 +82,10 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
           }
         })
         .catch(() => undefined)
-        .finally(() => setChecking(false));
+        .finally(() => {
+          setLicenseAsking(false);
+          setChecking(false);
+        });
     } catch {
       localStorage.removeItem(STORE);
       setChecking(false);
@@ -107,9 +120,21 @@ export const LicenseProvider = ({ children }: { children: React.ReactNode }) => 
     setLicense(null);
   }, []);
 
+  // Остаток дней считаем по дате окончания, а не по данным последней
+  // проверки: между обращениями к серверу проходит до месяца
+  const shown = useMemo(() => {
+    if (!license) return null;
+    if (!license.validUntil) return license;
+    const days = Math.ceil((new Date(license.validUntil).getTime() - Date.now()) / 86_400_000);
+    return { ...license, daysLeft: Math.max(0, days) };
+  }, [license]);
+
+  // Когда срок истёк, полные возможности отключаются даже без связи с сервером
+  const isFull = !!shown && (!shown.validUntil || shown.daysLeft > 0);
+
   const value = useMemo(
-    () => ({ license, isFull: !!license, checking, activate, deactivate }),
-    [license, checking, activate, deactivate],
+    () => ({ license: shown, isFull, checking, activate, deactivate }),
+    [shown, isFull, checking, activate, deactivate],
   );
 
   return <LicCtx.Provider value={value}>{children}</LicCtx.Provider>;

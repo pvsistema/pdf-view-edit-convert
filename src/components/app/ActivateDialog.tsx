@@ -19,6 +19,13 @@ const mask = (v: string) => {
   return ['PVPDF', ...groups.slice(0, 4)].join('-');
 };
 
+// Ключ сверяется с сервером раз в месяц — показываем, когда это произойдёт
+const nextCheck = () => {
+  const last = Number(localStorage.getItem('pv_license_checked') || 0);
+  if (!last) return 'при следующем запуске';
+  return new Date(last + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('ru-RU');
+};
+
 const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
   const { license, isFull, activate, deactivate } = useLicense();
   const [key, setKey] = useState(license?.key ?? 'PVPDF-');
@@ -67,6 +74,7 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
                 ['Организация', license?.org],
                 ['Действует до', license?.validUntil],
                 ['Осталось дней', String(license?.daysLeft ?? '')],
+                ['Следующая сверка', nextCheck()],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-baseline justify-between border-b border-r border-border px-4 py-3">
                   <span className="text-[0.82rem] uppercase tracking-[0.08em] text-muted-foreground">{k}</span>
