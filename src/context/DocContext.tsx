@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { clearPageCache, loadDoc, pdfjsLib } from '@/lib/pdf';
+import { clearPageCache, closeDoc, loadDoc, pdfjsLib } from '@/lib/pdf';
 
 export type PageMeta = {
   uid: string;
@@ -201,8 +201,9 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     async (file: File) => {
       setLoading(true);
       try {
-        // Освобождаем память от страниц прошлого документа
+        // Освобождаем память от прошлого документа
         clearPageCache();
+        filesRef.current.forEach((f) => closeDoc(f.doc));
         const { entry, list } = await readFile(file);
         filesRef.current = [entry];
         pagesRef.current = list;
@@ -291,6 +292,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
 
   const reset = useCallback(() => {
     clearPageCache();
+    filesRef.current.forEach((f) => closeDoc(f.doc));
     filesRef.current = [];
     pagesRef.current = [];
     annotsRef.current = [];

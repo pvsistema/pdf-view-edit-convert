@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { renderPage, pageText, screenDensity, prefetchPage } from '@/lib/pdf';
+import { renderPage, pageText, screenDensity, prefetchPage, PRIORITY } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 
 export type Tool = 'hand' | 'text' | 'block';
@@ -28,7 +28,7 @@ const Viewer = ({ tool, setTool }: Props) => {
     // Готовую страницу показываем сразу, надпись "Обработка"
     // появляется только если отрисовка действительно затянулась
     const slow = setTimeout(() => !cancelled && setBusy(true), 180);
-    renderPage(doc, page.src, zoom, page.rotation, density).then((canvas) => {
+    renderPage(doc, page.src, zoom, page.rotation, density, PRIORITY.view).then((canvas) => {
       clearTimeout(slow);
       if (cancelled || !host.current) return;
       host.current.innerHTML = '';

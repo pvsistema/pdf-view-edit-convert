@@ -14,8 +14,20 @@ export type PageMeta = {
 };
 
 export const loadDoc = async (data: ArrayBuffer) => {
+  // Копия нужна: просмотрщик забирает буфер себе, а исходные байты
+  // ещё понадобятся при сохранении и печати
   const task = pdfjsLib.getDocument({ data: data.slice(0) });
   return task.promise;
+};
+
+// Закрываем документ и освобождаем занятую им память
+export const closeDoc = (doc: any) => {
+  try {
+    doc?.cleanup?.();
+    doc?.destroy?.();
+  } catch {
+    /* документ уже закрыт */
+  }
 };
 
 // Плотность точек экрана: на мониторах с масштабом Windows 125-150%
@@ -29,9 +41,15 @@ export const screenDensity = () => {
 // потому что страница берётся готовой, а не рисуется заново.
 // Храним ограниченное число страниц, самые старые вытесняются
 const CACHE_LIMIT = 40;
-const CACHE_PIXELS = 180_000_000;
+// Примерно 250 МБ картинок — достаточно для быстрого листания
+// и безопасно для компьютеров с небольшой памятью
+const CACHE_PIXELS = 64_000_000;
 const renderCache = new Map<string, HTMLCanvasElement>();
 const renderQueue = new Map<string, Promise<HTMLCanvasElement>>();
+
+// Текст страниц запоминаем: повторный поиск и выгрузка в Word
+// больше не перечитывают документ целиком
+const textCache = new Map<string, string>();
 
 let docSeq = 0;
 const docKeys = new WeakMap<object, string>();
@@ -44,9 +62,48 @@ const keyOfDoc = (doc: any) => {
   return k;
 };
 
+// Одновременно рисуем не больше двух страниц. Раньше при открытии
+// документа стартовали все миниатюры сразу и программа замирала:
+// сотни отрисовок соперничали за один и тот же поток
+const MAX_PARALLEL = 2;
+let running = 0;
+type Job = { run: () => void; priority: number };
+const waiting: Job[] = [];
+
+const pump = () => {
+  while (running < MAX_PARALLEL && waiting.length) {
+    // Сначала то, что пользователь видит прямо сейчас
+    let best = 0;
+    for (let i = 1; i < waiting.length; i++) {
+      if (waiting[i].priority > waiting[best].priority) best = i;
+    }
+    const job = waiting.splice(best, 1)[0];
+    running++;
+    job.run();
+  }
+};
+
+const schedule = <T>(priority: number, task: () => Promise<T>): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    waiting.push({
+      priority,
+      run: () => {
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            running--;
+            pump();
+          });
+      },
+    });
+    pump();
+  });
+
 export const clearPageCache = () => {
   renderCache.clear();
   renderQueue.clear();
+  textCache.clear();
+  waiting.length = 0;
 };
 
 const rememberCanvas = (key: string, canvas: HTMLCanvasElement) => {
@@ -70,6 +127,7 @@ export const renderPage = async (
   scale: number,
   extraRotation = 0,
   sharpen = 1,
+  priority = 0,
 ): Promise<HTMLCanvasElement> => {
   const key = `${keyOfDoc(doc)}|${pageIndex}|${scale}|${extraRotation}|${sharpen}`;
 
@@ -81,10 +139,10 @@ export const renderPage = async (
     return copyCanvas(ready);
   }
 
-  const running = renderQueue.get(key);
-  if (running) return running.then(copyCanvas);
+  const started = renderQueue.get(key);
+  if (started) return started.then(copyCanvas);
 
-  const job = drawPage(doc, pageIndex, scale, extraRotation, sharpen)
+  const job = schedule(priority, () => drawPage(doc, pageIndex, scale, extraRotation, sharpen))
     .then((canvas) => {
       rememberCanvas(key, canvas);
       return canvas;
@@ -117,7 +175,8 @@ export const renderPageOnce = (
   sharpen = 1,
 ) => drawPage(doc, pageIndex, scale, extraRotation, sharpen);
 
-// Готовим страницу заранее, не дожидаясь перехода на неё
+// Готовим страницу заранее, не дожидаясь перехода на неё.
+// Приоритет ниже, чем у того, что пользователь смотрит сейчас
 export const prefetchPage = (
   doc: any,
   pageIndex: number,
@@ -125,8 +184,12 @@ export const prefetchPage = (
   extraRotation = 0,
   sharpen = 1,
 ) => {
-  void renderPage(doc, pageIndex, scale, extraRotation, sharpen).catch(() => undefined);
+  void renderPage(doc, pageIndex, scale, extraRotation, sharpen, PRIORITY.prefetch).catch(
+    () => undefined,
+  );
 };
+
+export const PRIORITY = { view: 100, prefetch: 50, thumb: 10 };
 
 const drawPage = async (
   doc: any,
@@ -156,6 +219,10 @@ const drawPage = async (
 };
 
 export const pageText = async (doc: any, pageIndex: number) => {
+  const key = `${keyOfDoc(doc)}|${pageIndex}`;
+  const ready = textCache.get(key);
+  if (ready !== undefined) return ready;
+
   const page = await doc.getPage(pageIndex + 1);
   const content = await page.getTextContent();
   let out = '';
@@ -166,7 +233,18 @@ export const pageText = async (doc: any, pageIndex: number) => {
     out += item.str;
     lastY = y;
   }
-  return out.trim();
+  const text = out.trim();
+
+  // Освобождаем внутренние данные страницы — их держит просмотрщик
+  try {
+    page.cleanup();
+  } catch {
+    /* страница уже освобождена */
+  }
+
+  if (textCache.size > 2000) textCache.clear();
+  textCache.set(key, text);
+  return text;
 };
 
 export const downloadBlob = (blob: Blob, name: string) => {

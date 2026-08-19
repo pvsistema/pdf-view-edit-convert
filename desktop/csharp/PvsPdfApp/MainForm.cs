@@ -9,6 +9,7 @@ public class MainForm : Form
     readonly WebView2 _web = new();
     readonly string? _openFile;
     string _webRoot = "";
+    string _openDir = "";
 
     public MainForm(string? openFile = null)
     {
@@ -79,6 +80,15 @@ public class MainForm : Form
         // Локальные файлы интерфейса отдаются как https://pvspdf.local/
         core.SetVirtualHostNameToFolderMapping(
             "pvspdf.local", _webRoot, CoreWebView2HostResourceAccessKind.Allow);
+
+        // Открываемые документы отдаются как https://pvspdf.file/ — программа
+        // читает их напрямую, без перекодирования: большой файл открывается
+        // в разы быстрее и не занимает лишнюю память
+        _openDir = Path.Combine(Program.InstallDir, "open");
+        Directory.CreateDirectory(_openDir);
+        CleanOpenDir();
+        core.SetVirtualHostNameToFolderMapping(
+            "pvspdf.file", _openDir, CoreWebView2HostResourceAccessKind.Allow);
 
         // Открывать внешние ссылки в системном браузере
         core.NewWindowRequested += (s, e) =>
@@ -218,16 +228,40 @@ public class MainForm : Form
         return "1.0.0";
     }
 
+    // Убираем документы, оставшиеся от прошлых запусков
+    void CleanOpenDir()
+    {
+        try
+        {
+            foreach (string f in Directory.GetFiles(_openDir))
+            {
+                try { File.Delete(f); } catch { }
+            }
+        }
+        catch { }
+    }
+
     async Task SendFileAsync(string path)
     {
         try
         {
-            byte[] bytes = await File.ReadAllBytesAsync(path);
+            // Кладём копию документа в служебную папку и сообщаем адрес.
+            // Интерфейс скачивает файл напрямую — это заметно быстрее
+            // прежней передачи текстом, особенно на файлах в десятки мегабайт
+            string name = Path.GetFileName(path);
+            string temp = Path.Combine(_openDir, "doc_" + DateTime.Now.Ticks + ".pdf");
+
+            using (var src = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, true))
+            using (var dst = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, true))
+            {
+                await src.CopyToAsync(dst);
+            }
+
             var msg = new
             {
                 type = "openFile",
-                name = Path.GetFileName(path),
-                data = Convert.ToBase64String(bytes)
+                name,
+                url = "https://pvspdf.file/" + Path.GetFileName(temp)
             };
             _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
         }

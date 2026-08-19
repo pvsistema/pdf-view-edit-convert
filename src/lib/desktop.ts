@@ -118,10 +118,23 @@ export const onDesktopFile = (cb: (file: File) => void) => {
     try {
       const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
       if (!data || data.type !== 'openFile') return;
+      const name = data.name || 'document.pdf';
+
+      // Программа сообщает адрес документа — читаем файл напрямую.
+      // Это быстрее и не требует лишней памяти на больших файлах
+      if (data.url) {
+        void fetch(data.url as string)
+          .then((r) => r.blob())
+          .then((b) => cb(new File([b], name, { type: 'application/pdf' })))
+          .catch(() => undefined);
+        return;
+      }
+
+      // Запасной путь для прежнего способа передачи
       const bin = atob(data.data as string);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      cb(new File([bytes], data.name || 'document.pdf', { type: 'application/pdf' }));
+      cb(new File([bytes], name, { type: 'application/pdf' }));
     } catch {
       /* игнорируем чужие сообщения */
     }
