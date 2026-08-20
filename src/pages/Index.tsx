@@ -18,7 +18,16 @@ const Workspace = () => {
   const [tool, setTool] = useState<Tool>("hand");
   const [panel, setPanel] = useState<"pages" | "tools" | null>(null);
 
-  useEffect(() => onDesktopFile((f) => open(f)), [open]);
+  // Документ от программы: если он доступен по адресу, открываем прямо
+  // по нему — файл не приходится загружать в память целиком
+  useEffect(
+    () =>
+      onDesktopFile((d) => {
+        if (d.url) void open({ name: d.name, url: d.url, size: d.size });
+        else if (d.file) void open(d.file);
+      }),
+    [open],
+  );
 
   useEffect(
     () =>

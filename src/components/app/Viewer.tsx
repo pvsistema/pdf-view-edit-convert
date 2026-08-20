@@ -36,6 +36,26 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Пока режим включён, масштаб пересчитывается при смене размера окна
   const [fit, setFit] = useState<'none' | 'width' | 'page'>('none');
 
+  // Размер первой страницы — ориентир для всей ленты. Благодаря ему полоса
+  // прокрутки сразу верной длины, а файл не читается целиком ради размеров
+  const [hint, setHint] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    let off = false;
+    const first = pages[0];
+    const doc = first && docOf(first);
+    if (!doc) {
+      setHint(null);
+      return;
+    }
+    pageSize(doc, first.src, first.rotation)
+      .then((s) => !off && setHint(s))
+      .catch(() => undefined);
+    return () => {
+      off = true;
+    };
+  }, [pages, docOf]);
+
   // Как только масштаб меняют вручную, подгонка выключается
   const setZoom: typeof setZoomRaw = (v) => {
     setFit('none');
@@ -514,6 +534,7 @@ const Viewer = ({ tool, setTool }: Props) => {
                   tool={tool}
                   marks={annots.filter((a) => a.pageUid === p.uid)}
                   found={found}
+                  hint={hint}
                   onPlace={place}
                   onRemoveMark={removeAnnot}
                 />

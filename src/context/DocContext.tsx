@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { clearPageCache, closeDoc, loadDoc } from '@/lib/pdf';
+import { clearPageCache, closeDoc, loadDocFromBytes, loadDocFromUrl } from '@/lib/pdf';
 
 export type PageMeta = {
   uid: string;
@@ -19,12 +19,18 @@ export type Annot = {
   kind: 'text' | 'block';
 };
 
+// Документ, который уже доступен по адресу — так его передаёт программа
+export type DocSource = { name: string; url: string; size?: number };
+
 export type SourceFile = {
   id: string;
   name: string;
-  bytes: ArrayBuffer;
+  // Байты подтягиваются только при сохранении или печати: для просмотра
+  // достаточно читать нужные куски файла с диска
+  bytes: () => Promise<ArrayBuffer>;
   doc: any;
   size: number;
+  release?: () => void;
 };
 
 type Snapshot = { pages: PageMeta[]; annots: Annot[]; label: string };
@@ -66,7 +72,7 @@ type Ctx = {
   loading: boolean;
   active: number;
   setActive: React.Dispatch<React.SetStateAction<number>>;
-  open: (file: File) => Promise<void>;
+  open: (file: File | DocSource) => Promise<void>;
   append: (file: File) => Promise<void>;
   rotate: (uid: string, dir: number) => void;
   remove: (uid: string) => void;
@@ -183,11 +189,48 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     apply('очистку пометок', { annots: [] });
   }, [apply]);
 
-  const readFile = useCallback(async (file: File) => {
-    const bytes = await file.arrayBuffer();
-    const doc = await loadDoc(bytes);
+  const readFile = useCallback(async (input: File | DocSource) => {
     const id = `f${++seq}`;
-    const entry: SourceFile = { id, name: file.name, bytes, doc, size: file.size };
+    const file = input instanceof File ? input : undefined;
+    const name = file ? file.name : (input as DocSource).name;
+
+    // Документ открывается по адресу: просмотрщик читает только те куски,
+    // которые нужны для показываемых страниц. Первая страница появляется
+    // сразу, не дожидаясь чтения файла целиком
+    const own = !!file;
+    const url = file ? URL.createObjectURL(file) : (input as DocSource).url;
+
+    let doc: any;
+    let openedByUrl = true;
+    try {
+      doc = await loadDocFromUrl(url);
+    } catch {
+      // Запасной путь: читаем документ целиком, как раньше
+      openedByUrl = false;
+      if (own) URL.revokeObjectURL(url);
+      const raw = file ? await file.arrayBuffer() : await fetch(url).then((r) => r.arrayBuffer());
+      doc = await loadDocFromBytes(raw);
+    }
+
+    // Байты нужны только при сохранении и печати — читаем их тогда,
+    // и запоминаем, чтобы второй раз не перечитывать
+    let cached: Promise<ArrayBuffer> | null = null;
+    const bytes = () => {
+      if (!cached) {
+        cached = file ? file.arrayBuffer() : fetch(url).then((r) => r.arrayBuffer());
+      }
+      return cached;
+    };
+
+    const entry: SourceFile = {
+      id,
+      name,
+      bytes,
+      doc,
+      size: file ? file.size : ((input as DocSource).size ?? 0),
+      release: own && openedByUrl ? () => URL.revokeObjectURL(url) : undefined,
+    };
+
     const list: PageMeta[] = Array.from({ length: doc.numPages }, (_, i) => ({
       uid: nextId(),
       src: i,
@@ -198,12 +241,15 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const open = useCallback(
-    async (file: File) => {
+    async (file: File | DocSource) => {
       setLoading(true);
       try {
         // Освобождаем память от прошлого документа
         clearPageCache();
-        filesRef.current.forEach((f) => closeDoc(f.doc));
+        filesRef.current.forEach((f) => {
+          closeDoc(f.doc);
+          f.release?.();
+        });
         const { entry, list } = await readFile(file);
         filesRef.current = [entry];
         pagesRef.current = list;
@@ -211,7 +257,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         setFiles([entry]);
         setPages(list);
         setAnnots([]);
-        setName(file.name);
+        setName(entry.name);
         setActive(0);
         setPast([]);
         setFuture([]);
@@ -292,7 +338,10 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
 
   const reset = useCallback(() => {
     clearPageCache();
-    filesRef.current.forEach((f) => closeDoc(f.doc));
+    filesRef.current.forEach((f) => {
+      closeDoc(f.doc);
+      f.release?.();
+    });
     filesRef.current = [];
     pagesRef.current = [];
     annotsRef.current = [];
@@ -322,7 +371,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         const source = filesRef.current.find((f) => f.id === p.fileId)!;
         let lib = cache.get(p.fileId);
         if (!lib) {
-          lib = await PDFDocument.load(source.bytes.slice(0), { ignoreEncryption: true });
+          const raw = await source.bytes();
+          lib = await PDFDocument.load(raw.slice(0), { ignoreEncryption: true });
           cache.set(p.fileId, lib);
         }
         const [copied] = await out.copyPages(lib, [p.src]);

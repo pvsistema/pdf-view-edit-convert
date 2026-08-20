@@ -258,22 +258,28 @@ public class MainForm : Form
     {
         try
         {
-            // Кладём копию документа в служебную папку и сообщаем адрес.
-            // Интерфейс скачивает файл напрямую — это заметно быстрее
-            // прежней передачи текстом, особенно на файлах в десятки мегабайт
+            // Документ становится доступен интерфейсу по адресу и читается
+            // по частям: просмотрщик берёт только нужные страницы
             string name = Path.GetFileName(path);
             string temp = Path.Combine(_openDir, "doc_" + DateTime.Now.Ticks + ".pdf");
 
-            using (var src = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, true))
-            using (var dst = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, true))
+            // Если документ лежит на том же диске, делаем на него ссылку:
+            // копирование не нужно, и файл на сотни мегабайт открывается сразу
+            if (!NativeMethods.CreateHardLink(temp, path, IntPtr.Zero))
             {
+                using var src = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1 << 20, true);
+                using var dst = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, true);
                 await src.CopyToAsync(dst);
             }
+
+            long size = 0;
+            try { size = new FileInfo(temp).Length; } catch { }
 
             var msg = new
             {
                 type = "openFile",
                 name,
+                size,
                 url = "https://pvspdf.file/" + Path.GetFileName(temp)
             };
             _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));

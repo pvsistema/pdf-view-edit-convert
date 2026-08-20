@@ -12,6 +12,9 @@ type Props = {
   tool: Tool;
   marks: Annot[];
   found: string;
+  // Ожидаемый размер листа: пока страница далеко, лента строится по нему
+  // и не заставляет читать весь файл ради размеров
+  hint?: { w: number; h: number } | null;
   onPlace: (page: PageMeta, x: number, y: number) => void;
   onRemoveMark: (id: string) => void;
 };
@@ -26,6 +29,7 @@ const SheetView = ({
   tool,
   marks,
   found,
+  hint,
   onPlace,
   onRemoveMark,
 }: Props) => {
@@ -35,18 +39,6 @@ const SheetView = ({
   const [drawn, setDrawn] = useState(false);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [spots, setSpots] = useState<TextHit[]>([]);
-
-  // Заранее узнаём размер листа, чтобы лента имела верную длину
-  useEffect(() => {
-    let off = false;
-    if (!doc) return;
-    pageSize(doc, page.src, page.rotation)
-      .then((s) => !off && setSize(s))
-      .catch(() => undefined);
-    return () => {
-      off = true;
-    };
-  }, [doc, page.src, page.rotation]);
 
   // Следим, близко ли лист к экрану
   useEffect(() => {
@@ -62,6 +54,19 @@ const SheetView = ({
     io.observe(el);
     return () => io.disconnect();
   }, []);
+
+  // Точный размер узнаём только у листов рядом с экраном. Иначе документ
+  // на тысячу страниц пришлось бы прочитать целиком ради одних размеров
+  useEffect(() => {
+    let off = false;
+    if (!doc || !near) return;
+    pageSize(doc, page.src, page.rotation)
+      .then((s) => !off && setSize(s))
+      .catch(() => undefined);
+    return () => {
+      off = true;
+    };
+  }, [doc, page.src, page.rotation, near]);
 
   useEffect(() => {
     let off = false;
@@ -101,8 +106,11 @@ const SheetView = ({
     };
   }, [found, near, doc, page.src, page.rotation]);
 
-  const width = size ? size.w * zoom : 700;
-  const height = size ? size.h * zoom : 990;
+  // Пока точный размер неизвестен, берём размер первой страницы:
+  // в обычном документе листы одинаковые, и лента не дёргается
+  const guess = size ?? hint;
+  const width = guess ? guess.w * zoom : 700;
+  const height = guess ? guess.h * zoom : 990;
 
   const click = (e: React.MouseEvent<HTMLDivElement>) => {
     if (tool === 'hand') return;

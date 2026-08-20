@@ -145,20 +145,19 @@ export const onUpdateState = (cb: (s: UpdateState) => void) => {
   };
 };
 
-export const onDesktopFile = (cb: (file: File) => void) => {
+export type DesktopDoc = { name: string; url?: string; file?: File; size?: number };
+
+export const onDesktopFile = (cb: (doc: DesktopDoc) => void) => {
   const handler = (e: MessageEvent) => {
     try {
       const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
       if (!data || data.type !== 'openFile') return;
       const name = data.name || 'document.pdf';
 
-      // Программа сообщает адрес документа — читаем файл напрямую.
-      // Это быстрее и не требует лишней памяти на больших файлах
+      // Программа сообщает адрес документа. Передаём его как есть:
+      // просмотрщик прочитает только нужные страницы, а не весь файл
       if (data.url) {
-        void fetch(data.url as string)
-          .then((r) => r.blob())
-          .then((b) => cb(new File([b], name, { type: 'application/pdf' })))
-          .catch(() => undefined);
+        cb({ name, url: data.url as string, size: Number(data.size) || 0 });
         return;
       }
 
@@ -166,7 +165,7 @@ export const onDesktopFile = (cb: (file: File) => void) => {
       const bin = atob(data.data as string);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      cb(new File([bytes], name, { type: 'application/pdf' }));
+      cb({ name, file: new File([bytes], name, { type: 'application/pdf' }) });
     } catch {
       /* игнорируем чужие сообщения */
     }

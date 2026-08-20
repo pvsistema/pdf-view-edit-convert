@@ -32,13 +32,32 @@ export type PageMeta = {
   label: number;
 };
 
-export const loadDoc = async (data: ArrayBuffer) => {
+// Документ из памяти: используется, когда байты уже прочитаны
+export const loadDocFromBytes = async (data: ArrayBuffer) => {
   const lib = await engineReady();
   // Копия нужна: просмотрщик забирает буфер себе, а исходные байты
   // ещё понадобятся при сохранении и печати
   const task = lib.getDocument({ data: data.slice(0) });
   return task.promise;
 };
+
+// Документ по адресу: программа читает только те куски файла, которые
+// нужны прямо сейчас. Документ на сотни мегабайт открывается почти мгновенно,
+// вместо ожидания, пока весь файл окажется в памяти
+export const loadDocFromUrl = async (url: string) => {
+  const lib = await engineReady();
+  const task = lib.getDocument({
+    url,
+    // Читаем частями по мере надобности и не докачиваем остаток в фоне:
+    // память не занимается страницами, которые пользователь не открывал
+    disableAutoFetch: true,
+    disableStream: false,
+    rangeChunkSize: 1 << 18,
+  });
+  return task.promise;
+};
+
+export const loadDoc = loadDocFromBytes;
 
 // Закрываем документ и освобождаем занятую им память
 export const closeDoc = (doc: any) => {
