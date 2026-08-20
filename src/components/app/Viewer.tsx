@@ -1,26 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import {
-  renderPage,
-  pageText,
-  screenDensity,
-  prefetchPage,
-  findOnPage,
-  PRIORITY,
-  type TextHit,
-} from '@/lib/pdf';
+import { pageText } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
+import SheetView from '@/components/app/SheetView';
 
 export type Tool = 'hand' | 'text' | 'block';
 
 type Props = { tool: Tool; setTool: (t: Tool) => void };
 
 const Viewer = ({ tool, setTool }: Props) => {
-  const { pages, active, setActive, docOf, rotate, version, annots, addAnnot, removeAnnot } = useDoc();
-  const host = useRef<HTMLDivElement>(null);
+  const { pages, active, setActive, docOf, rotate, annots, addAnnot, removeAnnot } = useDoc();
   const scroller = useRef<HTMLDivElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
-  const flipAt = useRef(0);
+  // Пока идёт переход к странице по кнопке, номер не пересчитываем
+  const jumping = useRef(false);
   // Через эту ссылку клавиша F3 попадает к переходу по находкам
   const jumpRef = useRef<(dir: number) => void>(() => undefined);
   const [zoom, setZoom] = useState(1.2);
@@ -29,93 +22,26 @@ const Viewer = ({ tool, setTool }: Props) => {
   const [hits, setHits] = useState<number[] | null>(null);
   // Что именно ищем сейчас — по нему подсвечиваем найденное на странице
   const [found, setFound] = useState('');
-  const [spots, setSpots] = useState<TextHit[]>([]);
-  // Направление перелистывания: лист мягко въезжает сверху или снизу
-  const slide = useRef<'none' | 'down' | 'up'>('none');
-  const sheet = useRef<HTMLDivElement>(null);
-  const setSlide = (dir: 'none' | 'down' | 'up') => {
-    slide.current = dir;
-  };
 
   const page = pages[active];
 
-  // Подсвечиваем найденные слова на открытой странице
-  useEffect(() => {
-    let cancelled = false;
-    if (!found || !page) {
-      setSpots([]);
-      return;
-    }
-    const doc = docOf(page);
-    if (!doc) return;
-    findOnPage(doc, page.src, found, page.rotation)
-      .then((list) => !cancelled && setSpots(list))
-      .catch(() => !cancelled && setSpots([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [found, page, docOf]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!page || !host.current) return;
-    const doc = docOf(page);
-    if (!doc) return;
-    const density = screenDensity();
-    // Готовую страницу показываем сразу, надпись "Обработка"
-    // появляется только если отрисовка действительно затянулась
-    const slow = setTimeout(() => !cancelled && setBusy(true), 180);
-    renderPage(doc, page.src, zoom, page.rotation, density, PRIORITY.view).then((canvas) => {
-      clearTimeout(slow);
-      if (cancelled || !host.current) return;
-      host.current.innerHTML = '';
-      canvas.className = 'block';
-      host.current.appendChild(canvas);
-      setBusy(false);
-
-      // Новый лист мягко въезжает с той стороны, куда листали,
-      // поэтому переход не выглядит внезапной подменой картинки
-      const dir = slide.current;
-      slide.current = 'none';
-      const el = sheet.current;
-      if (dir !== 'none' && el) {
-        el.animate(
-          [
-            { transform: `translateY(${dir === 'down' ? 26 : -26}px)`, opacity: 0.35 },
-            { transform: 'translateY(0)', opacity: 1 },
-          ],
-          { duration: 240, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
-        );
-      }
-
-      // Готовим соседние страницы заранее — переход к ним будет мгновенным
-      for (const step of [1, -1, 2, -2]) {
-        const near = pages[active + step];
-        if (!near) continue;
-        const nearDoc = docOf(near);
-        if (nearDoc) prefetchPage(nearDoc, near.src, zoom, near.rotation, density);
-      }
-    });
-    return () => {
-      cancelled = true;
-      clearTimeout(slow);
-    };
-  }, [page, zoom, docOf, version, active, pages]);
+  // Плавно подводим ленту к нужному листу
+  const scrollToPage = useCallback((i: number) => {
+    const box = scroller.current;
+    const el = box?.querySelector(`[data-sheet="${i}"]`) as HTMLElement | null;
+    if (!box || !el) return;
+    jumping.current = true;
+    box.scrollTo({ top: el.offsetTop - 24, behavior: 'smooth' });
+    setTimeout(() => (jumping.current = false), 700);
+  }, []);
 
   const go = useCallback(
     (step: number) => {
-      setActive((i: number) => Math.min(pages.length - 1, Math.max(0, i + step)));
+      const next = Math.min(pages.length - 1, Math.max(0, active + step));
+      setActive(next);
+      scrollToPage(next);
     },
-    [pages.length, setActive],
-  );
-
-  // Листание с показом направления перехода
-  const goSmooth = useCallback(
-    (step: number) => {
-      setSlide(step > 0 ? 'down' : 'up');
-      go(step);
-    },
-    [go],
+    [pages.length, setActive, active, scrollToPage],
   );
 
   // Управление с клавиатуры: стрелки и PageUp/PageDown листают страницы,
@@ -171,64 +97,98 @@ const Viewer = ({ tool, setTool }: Props) => {
         return;
       }
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') {
+      const box = scroller.current;
+
+      // Стрелки прокручивают ленту плавно, PageUp и PageDown
+      // перемещают ровно на страницу
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
-        goSmooth(1);
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        box?.scrollBy({ top: 90, behavior: 'smooth' });
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        goSmooth(-1);
+        box?.scrollBy({ top: -90, behavior: 'smooth' });
+      } else if (e.key === 'PageDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        go(1);
+      } else if (e.key === 'PageUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        go(-1);
       } else if (e.key === 'Home') {
         e.preventDefault();
         setActive(0);
+        box?.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (e.key === 'End') {
         e.preventDefault();
         setActive(pages.length - 1);
+        box?.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
       }
     };
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goSmooth, pages.length, setActive]);
+  }, [go, pages.length, setActive]);
 
-  // Колесо мыши: прокрутка листает страницы, а с Ctrl меняет масштаб
+  // Колесо мыши с Ctrl меняет масштаб. Обычная прокрутка идёт
+  // непрерывно через все листы, как в привычных читалках PDF
   useEffect(() => {
     const box = scroller.current;
     if (!box) return;
 
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        setZoom((z) =>
-          e.deltaY > 0 ? Math.max(0.4, +(z - 0.2).toFixed(2)) : Math.min(3, +(z + 0.2).toFixed(2)),
-        );
-        return;
-      }
-
-      // Пока страница не прокручена до края, крутим её саму
-      const atTop = box.scrollTop <= 0;
-      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 1;
-      const now = Date.now();
-      if (now - flipAt.current < 420) return;
-
-      // Лист меняется не мгновенно: новый мягко въезжает с той стороны,
-      // куда крутят колесо, — сразу понятно, что произошёл переход
-      if (e.deltaY > 0 && atBottom && active < pages.length - 1) {
-        flipAt.current = now;
-        setSlide('down');
-        go(1);
-        // Новый лист показываем с начала, старый уже прокручен до конца
-        requestAnimationFrame(() => (box.scrollTop = 0));
-      } else if (e.deltaY < 0 && atTop && active > 0) {
-        flipAt.current = now;
-        setSlide('up');
-        go(-1);
-        requestAnimationFrame(() => (box.scrollTop = box.scrollHeight));
-      }
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) =>
+        e.deltaY > 0 ? Math.max(0.4, +(z - 0.2).toFixed(2)) : Math.min(3, +(z + 0.2).toFixed(2)),
+      );
     };
 
     box.addEventListener('wheel', onWheel, { passive: false });
     return () => box.removeEventListener('wheel', onWheel);
-  }, [active, pages.length, go]);
+  }, []);
+
+  // Номер страницы обновляется по ходу прокрутки: показываем тот лист,
+  // который занимает середину окна
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+
+    let frame = 0;
+    const onScroll = () => {
+      if (frame || jumping.current) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const middle = box.scrollTop + box.clientHeight / 2;
+        const sheets = box.querySelectorAll('[data-sheet]');
+        let at = 0;
+        for (let i = 0; i < sheets.length; i++) {
+          const el = sheets[i] as HTMLElement;
+          if (el.offsetTop <= middle) at = i;
+          else break;
+        }
+        setActive((cur: number) => (cur === at ? cur : at));
+      });
+    };
+
+    box.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      box.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [setActive, pages.length]);
+
+  // Когда страницу выбирают в левой панели, лента подъезжает к ней
+  const lastJump = useRef(active);
+  useEffect(() => {
+    if (lastJump.current === active) return;
+    lastJump.current = active;
+    const box = scroller.current;
+    const el = box?.querySelector(`[data-sheet="${active}"]`) as HTMLElement | null;
+    if (!box || !el) return;
+    // Если лист и так на виду, ленту не двигаем
+    const top = el.offsetTop - box.scrollTop;
+    if (top > -40 && top < box.clientHeight * 0.6) return;
+    scrollToPage(active);
+  }, [active, scrollToPage]);
 
   const search = async () => {
     const q = query.trim();
@@ -249,7 +209,10 @@ const Viewer = ({ tool, setTool }: Props) => {
     setHits(list);
     setFound(list.length ? q : '');
     setBusy(false);
-    if (list.length) setActive(list[0]);
+    if (list.length) {
+      setActive(list[0]);
+      scrollToPage(list[0]);
+    }
   };
 
   // Переход к следующей или предыдущей найденной странице
@@ -258,26 +221,24 @@ const Viewer = ({ tool, setTool }: Props) => {
     const at = hits.indexOf(active);
     const next = at < 0 ? hits[0] : hits[(at + dir + hits.length) % hits.length];
     setActive(next);
+    scrollToPage(next);
   };
   jumpRef.current = jumpHit;
 
-  const place = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool === 'hand' || !page) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    if (tool === 'text') {
-      const text = window.prompt('Текст надписи');
-      if (!text) return;
-      addAnnot({ pageUid: page.uid, x, y, text, size: 14, color: '#14181C', kind: 'text' });
-    } else {
-      addAnnot({ pageUid: page.uid, x, y, text: '', size: 14, color: '#14181C', kind: 'block' });
-    }
-  };
+  const place = useCallback(
+    (target: typeof pages[number], x: number, y: number) => {
+      if (tool === 'text') {
+        const text = window.prompt('Текст надписи');
+        if (!text) return;
+        addAnnot({ pageUid: target.uid, x, y, text, size: 14, color: '#14181C', kind: 'text' });
+      } else if (tool === 'block') {
+        addAnnot({ pageUid: target.uid, x, y, text: '', size: 14, color: '#14181C', kind: 'block' });
+      }
+    },
+    [tool, addAnnot],
+  );
 
   if (!page) return null;
-
-  const marks = annots.filter((a) => a.pageUid === page.uid);
 
   const toolBtn = (id: Tool, icon: string, title: string) => (
     <button
@@ -295,9 +256,9 @@ const Viewer = ({ tool, setTool }: Props) => {
         <div className="flex items-center border border-border bg-background">
           <button
             className="px-3 py-2 hover:bg-card disabled:opacity-30"
-            onClick={() => setActive(Math.max(0, active - 1))}
+            onClick={() => go(-1)}
             disabled={active === 0}
-            title="Предыдущая страница (стрелка влево)"
+            title="Предыдущая страница (PageUp)"
           >
             <Icon name="ChevronLeft" size={16} />
           </button>
@@ -306,9 +267,9 @@ const Viewer = ({ tool, setTool }: Props) => {
           </span>
           <button
             className="px-3 py-2 hover:bg-card disabled:opacity-30"
-            onClick={() => setActive(Math.min(pages.length - 1, active + 1))}
+            onClick={() => go(1)}
             disabled={active === pages.length - 1}
-            title="Следующая страница (стрелка вправо)"
+            title="Следующая страница (PageDown)"
           >
             <Icon name="ChevronRight" size={16} />
           </button>
@@ -377,10 +338,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           {hits.length ? (
             <>
               <Icon name="Search" size={14} className="text-primary" />
-              <span>
-                Найдено на {hits.length} стр.
-                {spots.length ? ` · на этой странице ${spots.length}` : ''}
-              </span>
+              <span>Найдено на {hits.length} стр. — совпадения подсвечены жёлтым</span>
               <div className="ml-auto flex items-center gap-1">
                 <button
                   onClick={() => jumpHit(-1)}
@@ -417,7 +375,7 @@ const Viewer = ({ tool, setTool }: Props) => {
 
       <div
         ref={scroller}
-        className="relative flex flex-1 overflow-auto overscroll-contain bg-muted"
+        className="relative flex-1 overflow-auto overscroll-contain bg-muted"
         style={{ scrollBehavior: 'auto' }}
       >
         {busy && (
@@ -426,56 +384,23 @@ const Viewer = ({ tool, setTool }: Props) => {
             Обработка
           </div>
         )}
-        {/* Страница стоит по центру окна, а при увеличении
-            остаётся доступной прокрутка во все стороны */}
-        <div className="m-auto p-6">
-          <div
-            ref={sheet}
-            className={`relative shadow-[0_2px_14px_rgba(20,24,28,0.16)] ${tool === 'hand' ? '' : 'cursor-crosshair'}`}
-            onClick={place}
-          >
-            <div ref={host} />
-
-            {/* Жёлтая заливка поверх найденных слов */}
-            {spots.map((s, i) => (
-              <div
-                key={`hit-${i}`}
-                className="pointer-events-none absolute bg-yellow-300/50 mix-blend-multiply"
-                style={{
-                  left: `${s.x * 100}%`,
-                  top: `${s.y * 100}%`,
-                  width: `${s.w * 100}%`,
-                  height: `${s.h * 100}%`,
-                }}
-              />
-            ))}
-
-            {marks.map((m) => (
-              <div
-                key={m.id}
-                className="group absolute"
-                style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%` }}
-              >
-                {m.kind === 'block' ? (
-                  <div style={{ background: m.color, width: `${m.size * 8}px`, height: `${m.size * 1.5}px` }} />
-                ) : (
-                  <span style={{ color: m.color, fontSize: `${m.size}px`, whiteSpace: 'nowrap' }}>
-                    {m.text}
-                  </span>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeAnnot(m.id);
-                  }}
-                  className="absolute -right-5 -top-2 hidden bg-destructive p-0.5 text-destructive-foreground group-hover:block"
-                  title="Удалить"
-                >
-                  <Icon name="X" size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
+        {/* Непрерывная лента: все листы идут один за другим,
+            прокрутка не прерывается на границах страниц */}
+        <div className="flex flex-col items-center p-6">
+          {pages.map((p, i) => (
+            <SheetView
+              key={p.uid}
+              page={p}
+              index={i}
+              zoom={zoom}
+              doc={docOf(p)}
+              tool={tool}
+              marks={annots.filter((a) => a.pageUid === p.uid)}
+              found={found}
+              onPlace={place}
+              onRemoveMark={removeAnnot}
+            />
+          ))}
         </div>
       </div>
     </div>

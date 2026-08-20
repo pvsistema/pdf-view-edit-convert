@@ -51,6 +51,9 @@ const renderQueue = new Map<string, Promise<HTMLCanvasElement>>();
 // больше не перечитывают документ целиком
 const textCache = new Map<string, string>();
 
+// Размеры листов: нужны для правильной высоты ленты
+const sizeCache = new Map<string, { w: number; h: number }>();
+
 let docSeq = 0;
 const docKeys = new WeakMap<object, string>();
 const keyOfDoc = (doc: any) => {
@@ -103,6 +106,7 @@ export const clearPageCache = () => {
   renderCache.clear();
   renderQueue.clear();
   textCache.clear();
+  sizeCache.clear();
   waiting.length = 0;
 };
 
@@ -245,6 +249,21 @@ export const pageText = async (doc: any, pageIndex: number) => {
   if (textCache.size > 2000) textCache.clear();
   textCache.set(key, text);
   return text;
+};
+
+// Размер страницы нужен заранее: по нему лента сразу получает
+// правильную высоту и не дёргается при подгрузке листов
+export const pageSize = async (doc: any, pageIndex: number, extraRotation = 0) => {
+  const key = `${keyOfDoc(doc)}|${pageIndex}|${extraRotation}`;
+  const ready = sizeCache.get(key);
+  if (ready) return ready;
+
+  const page = await doc.getPage(pageIndex + 1);
+  const rotation = (page.rotate + extraRotation) % 360;
+  const v = page.getViewport({ scale: 1, rotation });
+  const size = { w: v.width, h: v.height };
+  sizeCache.set(key, size);
+  return size;
 };
 
 // Места на странице, где встретилось искомое. Доли от размера страницы,
