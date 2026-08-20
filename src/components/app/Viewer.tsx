@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { pageText } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
@@ -22,8 +22,31 @@ const Viewer = ({ tool, setTool }: Props) => {
   const [hits, setHits] = useState<number[] | null>(null);
   // Что именно ищем сейчас — по нему подсвечиваем найденное на странице
   const [found, setFound] = useState('');
+  // Разворот: два листа рядом, как в раскрытой книге.
+  // Выбор запоминается до следующего запуска программы
+  const [spread, setSpread] = useState(() => {
+    try {
+      return localStorage.getItem('pvs-spread') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const page = pages[active];
+
+  // В режиме разворота листы идут парами: первая страница — обложка,
+  // дальше чётная слева и нечётная справа, как в печатной книге
+  const rows = useMemo(() => {
+    if (!spread) return pages.map((p, i) => [{ p, i }]);
+    const out: { p: (typeof pages)[number]; i: number }[][] = [];
+    if (pages[0]) out.push([{ p: pages[0], i: 0 }]);
+    for (let i = 1; i < pages.length; i += 2) {
+      const pair = [{ p: pages[i], i }];
+      if (pages[i + 1]) pair.push({ p: pages[i + 1], i: i + 1 });
+      out.push(pair);
+    }
+    return out;
+  }, [pages, spread]);
 
   // Плавно подводим ленту к нужному листу
   const scrollToPage = useCallback((i: number) => {
@@ -35,13 +58,31 @@ const Viewer = ({ tool, setTool }: Props) => {
     setTimeout(() => (jumping.current = false), 700);
   }, []);
 
+  const toggleSpread = () => {
+    const next = !spread;
+    setSpread(next);
+    try {
+      localStorage.setItem('pvs-spread', next ? '1' : '0');
+    } catch {
+      /* хранилище недоступно — не страшно */
+    }
+    // В развороте два листа рядом, поэтому уменьшаем масштаб,
+    // чтобы оба помещались в окно целиком
+    setZoom((z) =>
+      next ? Math.max(0.4, +(z * 0.62).toFixed(2)) : Math.min(3, +(z / 0.62).toFixed(2)),
+    );
+    setTimeout(() => scrollToPage(active), 80);
+  };
+
   const go = useCallback(
     (step: number) => {
-      const next = Math.min(pages.length - 1, Math.max(0, active + step));
+      // В развороте кнопка перелистывает сразу пару листов
+      const size = spread && active > 0 ? 2 : 1;
+      const next = Math.min(pages.length - 1, Math.max(0, active + step * size));
       setActive(next);
       scrollToPage(next);
     },
-    [pages.length, setActive, active, scrollToPage],
+    [pages.length, setActive, active, scrollToPage, spread],
   );
 
   // Управление с клавиатуры: стрелки и PageUp/PageDown листают страницы,
@@ -309,6 +350,16 @@ const Viewer = ({ tool, setTool }: Props) => {
         </div>
 
         <div className="flex items-center border border-border bg-background">
+          <button
+            className={`px-3 py-2 transition-colors ${spread ? 'bg-primary text-primary-foreground' : 'hover:bg-card'}`}
+            onClick={toggleSpread}
+            title={spread ? 'Показывать по одной странице' : 'Две страницы рядом, как разворот книги'}
+          >
+            <Icon name={spread ? 'BookOpen' : 'File'} size={16} />
+          </button>
+        </div>
+
+        <div className="flex items-center border border-border bg-background">
           {toolBtn('hand', 'MousePointer2', 'Просмотр')}
           {toolBtn('text', 'Type', 'Добавить надпись')}
           {toolBtn('block', 'Square', 'Закрасить данные')}
@@ -387,19 +438,23 @@ const Viewer = ({ tool, setTool }: Props) => {
         {/* Непрерывная лента: все листы идут один за другим,
             прокрутка не прерывается на границах страниц */}
         <div className="flex flex-col items-center p-6">
-          {pages.map((p, i) => (
-            <SheetView
-              key={p.uid}
-              page={p}
-              index={i}
-              zoom={zoom}
-              doc={docOf(p)}
-              tool={tool}
-              marks={annots.filter((a) => a.pageUid === p.uid)}
-              found={found}
-              onPlace={place}
-              onRemoveMark={removeAnnot}
-            />
+          {rows.map((row) => (
+            <div key={row[0].p.uid} className="flex items-start justify-center gap-4">
+              {row.map(({ p, i }) => (
+                <SheetView
+                  key={p.uid}
+                  page={p}
+                  index={i}
+                  zoom={zoom}
+                  doc={docOf(p)}
+                  tool={tool}
+                  marks={annots.filter((a) => a.pageUid === p.uid)}
+                  found={found}
+                  onPlace={place}
+                  onRemoveMark={removeAnnot}
+                />
+              ))}
+            </div>
           ))}
         </div>
       </div>
