@@ -13,16 +13,19 @@ internal static class Program
     [STAThread]
     static void Main(string[] args)
     {
-        string? openFile = args.FirstOrDefault(a =>
-            a.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) && File.Exists(a));
+        // Пользователь мог выделить сразу несколько документов —
+        // каждый откроется своей вкладкой
+        string[] openFiles = args
+            .Where(a => a.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) && File.Exists(a))
+            .ToArray();
 
         // Один экземпляр программы
         using var mutex = new Mutex(true, "PVSPDF_SingleInstance", out bool isNew);
         if (!isNew)
         {
-            // Программа уже открыта: передаём ей файл и выходим,
-            // документ откроется в уже запущенном окне
-            if (!SendToRunning(openFile))
+            // Программа уже открыта: передаём ей документы и выходим,
+            // они добавятся вкладками в уже запущенном окне
+            if (!SendToRunning(openFiles))
             {
                 MessageBox.Show(
                     "ПВ-Система PDF уже запущена.",
@@ -40,16 +43,18 @@ internal static class Program
         Application.ThreadException += (s, e) => ShowFatal(e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (s, e) => ShowFatal(e.ExceptionObject as Exception);
 
-        Application.Run(new MainForm(openFile));
+        Application.Run(new MainForm(openFiles));
     }
 
-    static bool SendToRunning(string? file)
+    static bool SendToRunning(string[] files)
     {
         try
         {
             using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
             pipe.Connect(2000);
-            byte[] data = Encoding.UTF8.GetBytes(file ?? "");
+            // Документы разделяем переводом строки: в именах файлов
+            // такого символа быть не может
+            byte[] data = Encoding.UTF8.GetBytes(string.Join("\n", files));
             pipe.Write(data, 0, data.Length);
             pipe.Flush();
             return true;

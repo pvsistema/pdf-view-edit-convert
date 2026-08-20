@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
+import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { warmupEngine } from '@/lib/pdf';
 
 const Dropzone = () => {
   const { open, loading } = useDoc();
+  const tabsApi = useTabs();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
 
@@ -22,7 +24,9 @@ const Dropzone = () => {
       toast({ title: 'Нужен файл PDF', description: 'Выберите документ с расширением .pdf' });
       return;
     }
-    await open(file);
+    // Документ открывается своей вкладкой; без вкладок — прямо здесь
+    if (tabsApi) tabsApi.openTab(file);
+    else await open(file);
     toast({ title: 'Документ открыт', description: file.name });
   };
 

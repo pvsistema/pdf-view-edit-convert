@@ -149,6 +149,25 @@ export const clearPageCache = () => {
   waiting.length = 0;
 };
 
+// Освобождаем память только от закрытого документа: у остальных вкладок
+// страницы остаются готовыми, и переключение между ними мгновенное
+export const forgetDoc = (doc: any) => {
+  if (!doc) return;
+  const prefix = `${keyOfDoc(doc)}|`;
+  for (const key of [...renderCache.keys()]) {
+    if (key.startsWith(prefix)) renderCache.delete(key);
+  }
+  for (const key of [...renderQueue.keys()]) {
+    if (key.startsWith(prefix)) renderQueue.delete(key);
+  }
+  for (const key of [...textCache.keys()]) {
+    if (key.startsWith(prefix)) textCache.delete(key);
+  }
+  for (const key of [...sizeCache.keys()]) {
+    if (key.startsWith(prefix)) sizeCache.delete(key);
+  }
+};
+
 const rememberCanvas = (key: string, canvas: HTMLCanvasElement) => {
   renderCache.set(key, canvas);
 

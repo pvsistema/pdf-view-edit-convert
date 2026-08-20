@@ -6,6 +6,7 @@ import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import { isDesktop } from '@/lib/desktop';
+import { useTabs, useTabActive } from '@/context/TabsContext';
 
 const MenuBar = () => {
   const {
@@ -29,6 +30,9 @@ const MenuBar = () => {
     annots,
     clearAnnots,
   } = useDoc();
+
+  const tabsApi = useTabs();
+  const onScreen = useTabActive();
 
   const [menu, setMenu] = useState<'file' | 'edit' | null>(null);
   const [askName, setAskName] = useState(false);
@@ -78,6 +82,9 @@ const MenuBar = () => {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Скрытые вкладки остаются в памяти, но клавиши обрабатывает
+      // только та, что сейчас на экране
+      if (!onScreen) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
 
@@ -109,6 +116,17 @@ const MenuBar = () => {
       } else if ((k === 'z' && e.shiftKey) || k === 'y') {
         e.preventDefault();
         redo();
+      } else if (k === 'w' && tabsApi?.activeId) {
+        // Закрываем текущий документ, как вкладку в браузере
+        e.preventDefault();
+        tabsApi.closeTab(tabsApi.activeId);
+      } else if (e.key === 'Tab' && tabsApi && tabsApi.tabs.length > 1) {
+        // Переход к следующему открытому документу
+        e.preventDefault();
+        const at = tabsApi.tabs.findIndex((t) => t.id === tabsApi.activeId);
+        const step = e.shiftKey ? -1 : 1;
+        const next = (at + step + tabsApi.tabs.length) % tabsApi.tabs.length;
+        tabsApi.selectTab(tabsApi.tabs[next].id);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -134,7 +152,17 @@ const MenuBar = () => {
       on: true,
       sep: true,
     },
-    { icon: 'X', label: 'Закрыть документ', fn: act(reset), on: has },
+    {
+      icon: 'X',
+      label: 'Закрыть документ',
+      hint: 'Ctrl+W',
+      fn: act(() => {
+        // С вкладками закрывается текущая, без них — очищается окно
+        if (tabsApi?.activeId) tabsApi.closeTab(tabsApi.activeId);
+        else reset();
+      }),
+      on: has,
+    },
   ];
 
   const editItems: MenuItem[] = [
@@ -218,7 +246,9 @@ const MenuBar = () => {
           const f = e.target.files?.[0];
           if (f) {
             close();
-            await open(f);
+            // Открываем рядом: прежний документ остаётся в своей вкладке
+            if (tabsApi) tabsApi.openTab(f);
+            else await open(f);
             toast({ title: 'Документ открыт', description: f.name });
           }
           e.target.value = '';

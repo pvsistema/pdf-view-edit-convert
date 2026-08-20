@@ -10,6 +10,7 @@ import { onPrintRequest } from '@/lib/printBus';
 import { isDesktop } from '@/lib/desktop';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { useLicense } from '@/context/LicenseContext';
+import { useTabActive } from '@/context/TabsContext';
 
 const AppBar = () => {
   const { name, pages, files, buildPdf, undo, redo, canUndo, canRedo } = useDoc();
@@ -24,7 +25,9 @@ const AppBar = () => {
   const [showAct, setShowAct] = useState(false);
   const { isFull, license } = useLicense();
 
-  useEffect(() => onPrintRequest(() => setShowPrint(true)), []);
+  // Окно печати открывает только та вкладка, что сейчас на экране
+  const onScreen = useTabActive();
+  useEffect(() => onPrintRequest(() => onScreen && setShowPrint(true)), [onScreen]);
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);
 

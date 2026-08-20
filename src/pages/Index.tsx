@@ -1,32 +1,29 @@
-import { useState } from "react";
-import { DocProvider, useDoc } from "@/context/DocContext";
-import Icon from "@/components/ui/icon";
-import AppBar from "@/components/app/AppBar";
-import Dropzone from "@/components/app/Dropzone";
-import PagesPanel from "@/components/app/PagesPanel";
-import Viewer, { type Tool } from "@/components/app/Viewer";
-import ToolsPanel from "@/components/app/ToolsPanel";
-import AppWindow from "@/components/app/AppWindow";
-import { LicenseProvider } from "@/context/LicenseContext";
-import { isDesktop, onDesktopFile, onPrintDone, onSaveDone, setNativeTitle } from "@/lib/desktop";
-import { toast } from "@/hooks/use-toast";
-import UpdateBanner from "@/components/app/UpdateBanner";
-import { useEffect } from "react";
+import { useEffect } from 'react';
+import AppBar from '@/components/app/AppBar';
+import Dropzone from '@/components/app/Dropzone';
+import TabsBar from '@/components/app/TabsBar';
+import DocWorkspace from '@/components/app/DocWorkspace';
+import AppWindow from '@/components/app/AppWindow';
+import { DocProvider } from '@/context/DocContext';
+import { LicenseProvider } from '@/context/LicenseContext';
+import { TabsProvider, useTabs } from '@/context/TabsContext';
+import { isDesktop, onDesktopFile, onPrintDone, onSaveDone, setNativeTitle } from '@/lib/desktop';
+import { toast } from '@/hooks/use-toast';
+import UpdateBanner from '@/components/app/UpdateBanner';
 
 const Workspace = () => {
-  const { pages, name, open } = useDoc();
-  const [tool, setTool] = useState<Tool>("hand");
-  const [panel, setPanel] = useState<"pages" | "tools" | null>(null);
+  const tabsApi = useTabs()!;
+  const { tabs, activeId, openTab, activeTitle } = tabsApi;
 
-  // Документ от программы: если он доступен по адресу, открываем прямо
-  // по нему — файл не приходится загружать в память целиком
+  // Документ от программы открывается новой вкладкой: то, что уже открыто,
+  // остаётся на месте
   useEffect(
     () =>
       onDesktopFile((d) => {
-        if (d.url) void open({ name: d.name, url: d.url, size: d.size });
-        else if (d.file) void open(d.file);
+        if (d.url) openTab({ name: d.name, url: d.url, size: d.size });
+        else if (d.file) openTab(d.file);
       }),
-    [open],
+    [openTab],
   );
 
   useEffect(
@@ -34,9 +31,9 @@ const Workspace = () => {
       onPrintDone((r) => {
         if (r.cancelled) return;
         if (r.ok) {
-          toast({ title: "Документ напечатан", description: r.printer || "" });
+          toast({ title: 'Документ напечатан', description: r.printer || '' });
         } else if (r.error) {
-          toast({ title: "Не удалось напечатать", description: r.error });
+          toast({ title: 'Не удалось напечатать', description: r.error });
         }
       }),
     [],
@@ -48,13 +45,13 @@ const Workspace = () => {
         if (r.cancelled) return;
         if (r.ok) {
           if (r.count && r.count > 1) {
-            toast({ title: "Файлы сохранены", description: `${r.count} шт. — ${r.path}` });
+            toast({ title: 'Файлы сохранены', description: `${r.count} шт. — ${r.path}` });
           } else {
-            const file = (r.path || "").split(/[\\/]/).pop() || "";
-            toast({ title: "Файл сохранён", description: file });
+            const file = (r.path || '').split(/[\\/]/).pop() || '';
+            toast({ title: 'Файл сохранён', description: file });
           }
         } else if (r.error) {
-          toast({ title: "Не удалось сохранить", description: r.error });
+          toast({ title: 'Не удалось сохранить', description: r.error });
         }
       }),
     [],
@@ -62,60 +59,37 @@ const Workspace = () => {
 
   useEffect(() => {
     if (isDesktop()) {
-      setNativeTitle(name ? `${name} — ПВ-Система PDF` : "ПВ-Система PDF");
+      setNativeTitle(activeTitle ? `${activeTitle} — ПВ-Система PDF` : 'ПВ-Система PDF');
     }
-  }, [name]);
+  }, [activeTitle]);
 
   return (
-    <AppWindow title={name ? `${name} — ПВ-Система PDF` : undefined}>
+    <AppWindow title={activeTitle ? `${activeTitle} — ПВ-Система PDF` : undefined}>
       <div className="flex h-full flex-col overflow-hidden bg-background font-body text-foreground">
-        <AppBar />
-        {pages.length === 0 ? (
-          <div className="flex-1 overflow-y-auto">
-            <Dropzone />
-          </div>
+        {tabs.length === 0 ? (
+          // Пока ничего не открыто, показываем стартовый экран
+          <DocProvider>
+            <AppBar />
+            <div className="flex-1 overflow-y-auto">
+              <Dropzone />
+            </div>
+          </DocProvider>
         ) : (
-          <div className="relative flex min-h-0 flex-1">
-            <div className="hidden lg:flex">
-              <PagesPanel />
-            </div>
-
-            <Viewer tool={tool} setTool={setTool} />
-
-            <div className="hidden xl:flex">
-              <ToolsPanel />
-            </div>
-
-            {panel && (
-              <div className="absolute inset-0 z-40 flex xl:hidden">
-                <button
-                  className="flex-1 bg-foreground/40"
-                  onClick={() => setPanel(null)}
-                  aria-label="Закрыть панель"
-                />
-                <div className="animate-fade-in h-full bg-card shadow-2xl">
-                  {panel === "pages" ? <PagesPanel /> : <ToolsPanel />}
-                </div>
+          <>
+            <TabsBar />
+            {/* Открытые документы остаются в памяти: неактивная вкладка
+                просто скрыта, поэтому возврат к ней происходит мгновенно */}
+            {tabs.map((t) => (
+              <div
+                key={t.id}
+                className={
+                  t.id === activeId ? 'flex min-h-0 flex-1 flex-col' : 'hidden'
+                }
+              >
+                <DocWorkspace source={t.source} tabId={t.id} activeTab={t.id === activeId} />
               </div>
-            )}
-
-            <div className="absolute bottom-4 right-4 z-30 flex gap-2 xl:hidden">
-              <button
-                onClick={() => setPanel(panel === "pages" ? null : "pages")}
-                className="flex h-12 w-12 items-center justify-center border border-foreground bg-background lg:hidden"
-                title="Страницы"
-              >
-                <Icon name="Files" size={20} />
-              </button>
-              <button
-                onClick={() => setPanel(panel === "tools" ? null : "tools")}
-                className="flex h-12 w-12 items-center justify-center bg-primary text-primary-foreground"
-                title="Инструменты"
-              >
-                <Icon name="Wrench" size={20} />
-              </button>
-            </div>
-          </div>
+            ))}
+          </>
         )}
         <UpdateBanner />
       </div>
@@ -125,9 +99,9 @@ const Workspace = () => {
 
 const Index = () => (
   <LicenseProvider>
-    <DocProvider>
+    <TabsProvider>
       <Workspace />
-    </DocProvider>
+    </TabsProvider>
   </LicenseProvider>
 );
 

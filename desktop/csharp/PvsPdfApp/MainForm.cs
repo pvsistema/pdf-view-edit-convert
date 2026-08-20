@@ -7,14 +7,14 @@ namespace PvsPdfApp;
 public class MainForm : Form
 {
     readonly WebView2 _web = new();
-    readonly string? _openFile;
+    readonly string[] _openFiles;
     readonly DateTime _startedAt = DateTime.UtcNow;
     string _webRoot = "";
     string _openDir = "";
 
-    public MainForm(string? openFile = null)
+    public MainForm(string[]? openFiles = null)
     {
-        _openFile = openFile;
+        _openFiles = openFiles ?? Array.Empty<string>();
 
         Text = "ПВ-Система PDF";
         Width = 1280;
@@ -124,12 +124,12 @@ public class MainForm : Form
 
         core.NavigationCompleted += async (s, e) =>
         {
-            if (!string.IsNullOrEmpty(_openFile))
+            if (_openFiles.Length > 0)
             {
                 // Небольшая пауза: интерфейс должен успеть подготовиться
-                // к приёму документа
+                // к приёму документов
                 await Task.Delay(150);
-                await SendFileAsync(_openFile!);
+                foreach (string f in _openFiles) await SendFileAsync(f);
             }
             SendPrintersAsync();
         };
@@ -152,7 +152,12 @@ public class MainForm : Form
                     await pipe.WaitForConnectionAsync();
 
                     using var reader = new StreamReader(pipe, System.Text.Encoding.UTF8);
-                    string path = (await reader.ReadToEndAsync()).Trim();
+                    string payload = (await reader.ReadToEndAsync()).Trim();
+                    string[] paths = payload
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(p => p.Trim())
+                        .Where(File.Exists)
+                        .ToArray();
 
                     BeginInvoke(new Action(async () =>
                     {
@@ -161,8 +166,8 @@ public class MainForm : Form
                         Activate();
                         BringToFront();
 
-                        if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                            await SendFileAsync(path);
+                        // Каждый документ откроется своей вкладкой
+                        foreach (string p in paths) await SendFileAsync(p);
                     }));
                 }
                 catch

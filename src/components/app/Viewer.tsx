@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { pageText, pageSize } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
+import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
 
 export type Tool = 'hand' | 'text' | 'block';
@@ -10,6 +11,8 @@ type Props = { tool: Tool; setTool: (t: Tool) => void };
 
 const Viewer = ({ tool, setTool }: Props) => {
   const { pages, active, setActive, docOf, rotate, annots, addAnnot, removeAnnot } = useDoc();
+  // Клавиши слушает только вкладка, открытая на экране
+  const onScreen = useTabActive();
   const scroller = useRef<HTMLDivElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
   // Пока идёт переход к странице по кнопке, номер не пересчитываем
@@ -149,6 +152,7 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Ctrl и + / - меняют масштаб, Home и End — первая и последняя страница
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!onScreen) return;
       const el = e.target as HTMLElement | null;
       const typing =
         el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
@@ -233,7 +237,7 @@ const Viewer = ({ tool, setTool }: Props) => {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, pages.length, setActive]);
+  }, [go, pages.length, setActive, onScreen]);
 
   // Колесо мыши с Ctrl меняет масштаб. Обычная прокрутка идёт
   // непрерывно через все листы, как в привычных читалках PDF

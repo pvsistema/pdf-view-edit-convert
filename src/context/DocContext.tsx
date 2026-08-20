@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { clearPageCache, closeDoc, loadDocFromBytes, loadDocFromUrl } from '@/lib/pdf';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { forgetDoc, closeDoc, loadDocFromBytes, loadDocFromUrl } from '@/lib/pdf';
 
 export type PageMeta = {
   uid: string;
@@ -244,9 +244,10 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     async (file: File | DocSource) => {
       setLoading(true);
       try {
-        // Освобождаем память от прошлого документа
-        clearPageCache();
+        // Освобождаем память только от прошлого документа этой вкладки:
+        // страницы соседних вкладок остаются готовыми
         filesRef.current.forEach((f) => {
+          forgetDoc(f.doc);
           closeDoc(f.doc);
           f.release?.();
         });
@@ -336,9 +337,22 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
 
   const selectAllPages = useCallback(() => setActive(0), []);
 
+  // Вкладку закрыли — освобождаем память документа, который был в ней открыт
+  useEffect(
+    () => () => {
+      filesRef.current.forEach((f) => {
+        forgetDoc(f.doc);
+        closeDoc(f.doc);
+        f.release?.();
+      });
+      filesRef.current = [];
+    },
+    [],
+  );
+
   const reset = useCallback(() => {
-    clearPageCache();
     filesRef.current.forEach((f) => {
+      forgetDoc(f.doc);
       closeDoc(f.doc);
       f.release?.();
     });

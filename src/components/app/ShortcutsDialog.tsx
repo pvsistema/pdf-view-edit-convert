@@ -9,10 +9,19 @@ const GROUPS: Group[] = [
     title: 'Файл',
     icon: 'Files',
     rows: [
-      { keys: ['Ctrl', 'O'], label: 'Открыть документ' },
+      { keys: ['Ctrl', 'O'], label: 'Открыть документ в новой вкладке' },
       { keys: ['Ctrl', 'S'], label: 'Сохранить' },
       { keys: ['Ctrl', 'Shift', 'S'], label: 'Сохранить как…' },
       { keys: ['Ctrl', 'P'], label: 'Печать' },
+      { keys: ['Ctrl', 'W'], label: 'Закрыть документ' },
+    ],
+  },
+  {
+    title: 'Вкладки',
+    icon: 'Files',
+    rows: [
+      { keys: ['Ctrl', 'Tab'], label: 'Следующий документ' },
+      { keys: ['Ctrl', 'Shift', 'Tab'], label: 'Предыдущий документ' },
     ],
   },
   {
