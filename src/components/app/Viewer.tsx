@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { pageText } from '@/lib/pdf';
+import { pageText, pageSize } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 import SheetView from '@/components/app/SheetView';
 
@@ -16,7 +16,7 @@ const Viewer = ({ tool, setTool }: Props) => {
   const jumping = useRef(false);
   // Через эту ссылку клавиша F3 попадает к переходу по находкам
   const jumpRef = useRef<(dir: number) => void>(() => undefined);
-  const [zoom, setZoom] = useState(1.2);
+  const [zoom, setZoomRaw] = useState(1.2);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<number[] | null>(null);
@@ -31,6 +31,16 @@ const Viewer = ({ tool, setTool }: Props) => {
       return false;
     }
   });
+
+  // Подгонка масштаба: по ширине окна или страница целиком.
+  // Пока режим включён, масштаб пересчитывается при смене размера окна
+  const [fit, setFit] = useState<'none' | 'width' | 'page'>('none');
+
+  // Как только масштаб меняют вручную, подгонка выключается
+  const setZoom: typeof setZoomRaw = (v) => {
+    setFit('none');
+    setZoomRaw(v);
+  };
 
   const page = pages[active];
 
@@ -58,6 +68,34 @@ const Viewer = ({ tool, setTool }: Props) => {
     setTimeout(() => (jumping.current = false), 700);
   }, []);
 
+  // Считаем масштаб так, чтобы лист вписался в окно
+  const applyFit = useCallback(
+    async (mode: 'width' | 'page') => {
+      const box = scroller.current;
+      const target = pages[active];
+      if (!box || !target) return;
+      const doc = docOf(target);
+      if (!doc) return;
+      const size = await pageSize(doc, target.src, target.rotation);
+      // Поля вокруг листа и место под полосу прокрутки
+      const padX = 64 + (spread ? 16 + size.w : 0);
+      const padY = 88;
+      const byWidth = (box.clientWidth - padX) / size.w;
+      const scale = mode === 'width' ? byWidth : Math.min(byWidth, (box.clientHeight - padY) / size.h);
+      setZoomRaw(Math.max(0.2, Math.min(3, +scale.toFixed(2))));
+    },
+    [pages, active, docOf, spread],
+  );
+
+  // Пока подгонка включена, масштаб следует за размером окна
+  useEffect(() => {
+    if (fit === 'none') return;
+    applyFit(fit);
+    const onResize = () => applyFit(fit);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [fit, applyFit]);
+
   const toggleSpread = () => {
     const next = !spread;
     setSpread(next);
@@ -66,11 +104,13 @@ const Viewer = ({ tool, setTool }: Props) => {
     } catch {
       /* хранилище недоступно — не страшно */
     }
-    // В развороте два листа рядом, поэтому уменьшаем масштаб,
-    // чтобы оба помещались в окно целиком
-    setZoom((z) =>
-      next ? Math.max(0.4, +(z * 0.62).toFixed(2)) : Math.min(3, +(z / 0.62).toFixed(2)),
-    );
+    // В развороте два листа рядом, поэтому масштаб уменьшается.
+    // Если включена подгонка, она сама пересчитается под новый вид
+    if (fit === 'none') {
+      setZoomRaw((z) =>
+        next ? Math.max(0.4, +(z * 0.62).toFixed(2)) : Math.min(3, +(z / 0.62).toFixed(2)),
+      );
+    }
     setTimeout(() => scrollToPage(active), 80);
   };
 
@@ -134,6 +174,12 @@ const Viewer = ({ tool, setTool }: Props) => {
         } else if (e.key === '0') {
           e.preventDefault();
           setZoom(1.2);
+        } else if (e.key === '1') {
+          e.preventDefault();
+          setFit('width');
+        } else if (e.key === '2') {
+          e.preventDefault();
+          setFit('page');
         }
         return;
       }
@@ -337,6 +383,24 @@ const Viewer = ({ tool, setTool }: Props) => {
             title="Увеличить (Ctrl и колесо мыши)"
           >
             <Icon name="Plus" size={16} />
+          </button>
+          <button
+            className={`border-l border-border px-3 py-2 transition-colors ${
+              fit === 'width' ? 'bg-primary text-primary-foreground' : 'hover:bg-card'
+            }`}
+            onClick={() => setFit(fit === 'width' ? 'none' : 'width')}
+            title="По ширине окна (Ctrl и 1)"
+          >
+            <Icon name="MoveHorizontal" size={16} />
+          </button>
+          <button
+            className={`px-3 py-2 transition-colors ${
+              fit === 'page' ? 'bg-primary text-primary-foreground' : 'hover:bg-card'
+            }`}
+            onClick={() => setFit(fit === 'page' ? 'none' : 'page')}
+            title="Страница целиком (Ctrl и 2)"
+          >
+            <Icon name="Maximize2" size={16} />
           </button>
         </div>
 
