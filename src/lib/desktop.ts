@@ -113,6 +113,38 @@ export const onSaveDone = (cb: (r: SaveResult) => void) => {
   };
 };
 
+// Обновление программы: загрузка и установка идут внутри программы,
+// без браузера и ручного запуска установщика
+export type UpdateState = {
+  state: 'start' | 'progress' | 'installing' | 'cancelled' | 'error';
+  percent?: number;
+  loaded?: number;
+  total?: number;
+  error?: string;
+};
+
+export const startUpdate = (url: string, version: string) =>
+  send({ type: 'installUpdate', url, version });
+
+export const cancelUpdate = () => send({ type: 'cancelUpdate' });
+
+export const onUpdateState = (cb: (s: UpdateState) => void) => {
+  const handler = (e: MessageEvent) => {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d?.type === 'updateState') cb(d as UpdateState);
+    } catch {
+      /* игнорируем чужие сообщения */
+    }
+  };
+  window.chrome?.webview?.addEventListener?.('message', handler as EventListener);
+  window.addEventListener('message', handler);
+  return () => {
+    window.chrome?.webview?.removeEventListener?.('message', handler as EventListener);
+    window.removeEventListener('message', handler);
+  };
+};
+
 export const onDesktopFile = (cb: (file: File) => void) => {
   const handler = (e: MessageEvent) => {
     try {

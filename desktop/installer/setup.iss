@@ -47,8 +47,11 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 MinVersion=10.0
+; При обновлении программа закрывается сама, без вопросов пользователю
 CloseApplications=yes
+CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=no
+SetupMutex=PVSPDF_Setup_Mutex
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -101,8 +104,27 @@ begin
     RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Value);
 end;
 
+// Перед заменой файлов останавливаем службы и снимаем процессы программы,
+// иначе Windows не даст перезаписать занятые файлы
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Result := '';
+  Exec(ExpandConstant('{cmd}'), '/c net stop PVSPDFService /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{cmd}'), '/c net stop PVSPDFPrint /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM PVSPDF.exe /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Sleep(800);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Code: Integer;
 begin
   if CurStep = ssPostInstall then
+  begin
     CreateDir(ExpandConstant('{app}\data'));
+    // Возвращаем службы в работу, если они были заведены
+    Exec(ExpandConstant('{cmd}'), '/c sc start PVSPDFService', '', SW_HIDE, ewNoWait, Code);
+  end;
 end;

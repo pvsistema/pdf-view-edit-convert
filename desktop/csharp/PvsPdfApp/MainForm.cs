@@ -336,6 +336,86 @@ public class MainForm : Form
                     : "document.pdf";
                 _ = SaveFileAsync(b64, fileName);
             }
+            else if (type == "installUpdate")
+            {
+                string url = root.TryGetProperty("url", out var u) ? (u.GetString() ?? "") : "";
+                string ver = root.TryGetProperty("version", out var v) ? (v.GetString() ?? "") : "";
+                _ = InstallUpdateAsync(url, ver);
+            }
+            else if (type == "cancelUpdate")
+            {
+                Updater.Stop();
+            }
+        }
+        catch { }
+    }
+
+    // Обновление программы: скачиваем установщик, показывая ход загрузки,
+    // затем закрываем программу и ставим новую версию. После установки
+    // программа запускается снова — участие пользователя не требуется
+    async Task InstallUpdateAsync(string url, string version)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            SendUpdate(new { type = "updateState", state = "error", error = "Ссылка на обновление не получена." });
+            return;
+        }
+
+        if (Updater.Busy) return;
+
+        var cts = Updater.Begin();
+        SendUpdate(new { type = "updateState", state = "start" });
+
+        try
+        {
+            string setup = await Updater.DownloadAsync(url, version, (percent, got, total) =>
+            {
+                SendUpdate(new
+                {
+                    type = "updateState",
+                    state = "progress",
+                    percent,
+                    loaded = got,
+                    total,
+                });
+            }, cts.Token);
+
+            SendUpdate(new { type = "updateState", state = "installing" });
+            await Task.Delay(700);
+
+            Updater.RunInstaller(setup);
+
+            // Помощник установки уже ждёт закрытия окна
+            await Task.Delay(400);
+            Close();
+        }
+        catch (OperationCanceledException)
+        {
+            SendUpdate(new { type = "updateState", state = "cancelled" });
+        }
+        catch (Exception ex)
+        {
+            SendUpdate(new { type = "updateState", state = "error", error = ex.Message });
+        }
+        finally
+        {
+            Updater.End();
+        }
+    }
+
+    void SendUpdate(object payload)
+    {
+        try
+        {
+            if (IsDisposed) return;
+            BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    _web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
+                }
+                catch { }
+            }));
         }
         catch { }
     }
