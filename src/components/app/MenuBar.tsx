@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob } from '@/lib/pdf';
+import { downloadBlob } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';

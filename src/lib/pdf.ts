@@ -1,10 +1,29 @@
-import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { isDesktop, nativeSave } from '@/lib/desktop';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+// Просмотрщик подключается при открытии первого документа, а не при запуске:
+// пустое окно программы появляется заметно быстрее
+type PdfJs = typeof import('pdfjs-dist');
 
-export { pdfjsLib };
+let engine: PdfJs | null = null;
+let loading: Promise<PdfJs> | null = null;
+
+const engineReady = () => {
+  if (engine) return Promise.resolve(engine);
+  if (!loading) {
+    loading = import('pdfjs-dist').then((lib) => {
+      lib.GlobalWorkerOptions.workerSrc = workerSrc;
+      engine = lib;
+      return lib;
+    });
+  }
+  return loading;
+};
+
+// Заранее готовим просмотрщик в свободную минуту, чтобы первый документ
+// открывался без задержки
+export const warmupEngine = () => {
+  void engineReady();
+};
 
 export type PageMeta = {
   id: string;
@@ -14,9 +33,10 @@ export type PageMeta = {
 };
 
 export const loadDoc = async (data: ArrayBuffer) => {
+  const lib = await engineReady();
   // Копия нужна: просмотрщик забирает буфер себе, а исходные байты
   // ещё понадобятся при сохранении и печати
-  const task = pdfjsLib.getDocument({ data: data.slice(0) });
+  const task = lib.getDocument({ data: data.slice(0) });
   return task.promise;
 };
 
@@ -279,6 +299,8 @@ export const findOnPage = async (
   const q = needle.trim().toLowerCase();
   if (!q) return [];
 
+  const { Util: util } = await engineReady();
+
   const page = await doc.getPage(pageIndex + 1);
   const rotation = (page.rotate + extraRotation) % 360;
   const viewport = page.getViewport({ scale: 1, rotation });
@@ -297,7 +319,7 @@ export const findOnPage = async (
     if (!low.includes(needleText)) return false;
 
     // Положение и наклон куска текста на странице
-    const tr = pdfjsLib.Util.transform(viewport.transform, item.transform);
+    const tr = util.transform(viewport.transform, item.transform);
     const height = Math.hypot(tr[2], tr[3]) || 10;
     const dirX = Math.hypot(tr[0], tr[1]) || 1;
     const fullW = (item.width || 0) * (viewport.scale || 1) || dirX * str.length * 0.5;
@@ -340,85 +362,6 @@ export const findOnPage = async (
   return out;
 };
 
-export const downloadBlob = (blob: Blob, name: string) => {
-  // В десктопной версии открываем системное окно "Сохранить как" с выбором папки
-  if (isDesktop()) {
-    void nativeSave(blob, name);
-    return;
-  }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-};
-
-export const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality = 0.92) =>
-  new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), type, quality));
-
-let printFrame: HTMLIFrameElement | null = null;
-
-export const printBlob = (blob: Blob, name = 'document.pdf') => {
-  // Убираем предыдущий скрытый лист, иначе диалог печати открывается дважды
-  if (printFrame) {
-    printFrame.remove();
-    printFrame = null;
-  }
-
-  const url = URL.createObjectURL(blob);
-  const release = () => setTimeout(() => URL.revokeObjectURL(url), 60000);
-
-  const frame = document.createElement('iframe');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0';
-  printFrame = frame;
-
-  // settled = документ загрузился; сторожевой таймер после этого не срабатывает,
-  // иначе он открывал второе окно, пока пользователь стоял в диалоге печати.
-  let settled = false;
-
-  const openExternally = () => {
-    if (settled) return;
-    settled = true;
-    frame.remove();
-    if (printFrame === frame) printFrame = null;
-    const win = window.open(url, '_blank');
-    if (!win) downloadBlob(blob, name);
-    release();
-  };
-
-  frame.onload = () => {
-    if (settled) return;
-    settled = true;
-    setTimeout(() => {
-      try {
-        const w = frame.contentWindow;
-        if (!w) throw new Error('no window');
-        w.focus();
-        w.print();
-      } catch {
-        frame.remove();
-        if (printFrame === frame) printFrame = null;
-        const win = window.open(url, '_blank');
-        if (!win) downloadBlob(blob, name);
-      }
-      release();
-    }, 350);
-  };
-
-  frame.onerror = openExternally;
-
-  document.body.appendChild(frame);
-  frame.src = url;
-
-  // Сторожевой таймер только на случай, если лист вообще не загрузился
-  setTimeout(openExternally, 6000);
-};
-
-export const formatSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
-};
+// Сохранение и печать вынесены в @/lib/files — их можно использовать
+// без загрузки движка просмотра
+export { downloadBlob, canvasToBlob, printBlob, formatSize } from '@/lib/files';

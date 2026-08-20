@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
-import { canvasToBlob, downloadBlob, pageText, renderPageOnce } from '@/lib/pdf';
+import { canvasToBlob, downloadBlob } from '@/lib/files';
+import { pageText, renderPageOnce } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { useLicense } from '@/context/LicenseContext';
 import ActivateDialog from '@/components/app/ActivateDialog';

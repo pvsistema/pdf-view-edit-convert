@@ -8,6 +8,7 @@ public class MainForm : Form
 {
     readonly WebView2 _web = new();
     readonly string? _openFile;
+    readonly DateTime _startedAt = DateTime.UtcNow;
     string _webRoot = "";
     string _openDir = "";
 
@@ -86,9 +87,12 @@ public class MainForm : Form
         // в разы быстрее и не занимает лишнюю память
         _openDir = Path.Combine(Program.InstallDir, "open");
         Directory.CreateDirectory(_openDir);
-        CleanOpenDir();
         core.SetVirtualHostNameToFolderMapping(
             "pvspdf.file", _openDir, CoreWebView2HostResourceAccessKind.Allow);
+
+        // Прошлые документы удаляем в фоне: на медленном диске перебор папки
+        // задерживал появление окна
+        _ = Task.Run(CleanOpenDir);
 
         // Открывать внешние ссылки в системном браузере
         core.NewWindowRequested += (s, e) =>
@@ -122,6 +126,8 @@ public class MainForm : Form
         {
             if (!string.IsNullOrEmpty(_openFile))
             {
+                // Небольшая пауза: интерфейс должен успеть подготовиться
+                // к приёму документа
                 await Task.Delay(150);
                 await SendFileAsync(_openFile!);
             }
@@ -228,14 +234,21 @@ public class MainForm : Form
         return "1.0.0";
     }
 
-    // Убираем документы, оставшиеся от прошлых запусков
+    // Убираем документы, оставшиеся от прошлых запусков.
+    // Файлы текущего сеанса не трогаем: их мог только что открыть пользователь
     void CleanOpenDir()
     {
+        DateTime started = _startedAt;
         try
         {
             foreach (string f in Directory.GetFiles(_openDir))
             {
-                try { File.Delete(f); } catch { }
+                try
+                {
+                    if (File.GetCreationTimeUtc(f) >= started) continue;
+                    File.Delete(f);
+                }
+                catch { }
             }
         }
         catch { }

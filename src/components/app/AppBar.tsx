@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { LOGO_URL, APP_NAME } from '@/lib/brand';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob, formatSize } from '@/lib/pdf';
+import { downloadBlob, formatSize } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';

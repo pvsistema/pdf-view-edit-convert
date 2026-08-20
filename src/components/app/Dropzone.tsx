@@ -1,12 +1,20 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { toast } from '@/hooks/use-toast';
+import { warmupEngine } from '@/lib/pdf';
 
 const Dropzone = () => {
   const { open, loading } = useDoc();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+
+  // Окно уже показано — готовим просмотрщик в фоне,
+  // чтобы первый документ открылся без ожидания
+  useEffect(() => {
+    const id = setTimeout(warmupEngine, 400);
+    return () => clearTimeout(id);
+  }, []);
 
   const handle = async (file?: File) => {
     if (!file) return;

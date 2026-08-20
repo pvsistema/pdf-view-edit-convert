@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { clearPageCache, closeDoc, loadDoc, pdfjsLib } from '@/lib/pdf';
+import { clearPageCache, closeDoc, loadDoc } from '@/lib/pdf';
 
 export type PageMeta = {
   uid: string;
@@ -475,5 +475,3 @@ export const useDoc = () => {
   if (!ctx) throw new Error('useDoc must be used inside DocProvider');
   return ctx;
 };
-
-export { pdfjsLib };

@@ -160,7 +160,7 @@ if exist "%DIST%" rmdir /S /Q "%DIST%"
 set "OBF_OUTDIR=bin\Release\net8.0-windows\win-x64"
 
 echo     Compiling...
-call dotnet build -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:Version=%APP_VERSION% -o "%OBF_OUTDIR%" || goto :fail
+call dotnet build -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:Version=%APP_VERSION% -o "%OBF_OUTDIR%" || goto :fail
 
 if "%OBFUSCATE%"=="0" goto :publish
 
@@ -184,7 +184,7 @@ copy /Y "%APP_DIR%\%OBF_OUTDIR%\obf\PVSPDF.dll" "%APP_DIR%\%OBF_OUTDIR%\PVSPDF.d
 
 :publish
 echo     Packing single-file PVSPDF.exe...
-call dotnet publish -c Release -r win-x64 --self-contained true --no-build -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%DIST%" || goto :fail
+call dotnet publish -c Release -r win-x64 --self-contained true --no-build -p:PublishSingleFile=true -p:PublishReadyToRun=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%DIST%" || goto :fail
 
 if not exist "%DIST%\PVSPDF.exe" (
     echo ERROR: PVSPDF.exe was not produced

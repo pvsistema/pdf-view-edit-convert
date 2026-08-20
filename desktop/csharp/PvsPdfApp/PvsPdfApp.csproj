@@ -16,6 +16,13 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Ускоряем запуск: программа отдаёт предпочтение быстрому старту
+         перед оптимизацией кода, которая нужна долгим вычислениям -->
+    <TieredCompilationQuickStartupJit>true</TieredCompilationQuickStartupJit>
+    <TieredPGO>true</TieredPGO>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
   </PropertyGroup>
 
   <ItemGroup>

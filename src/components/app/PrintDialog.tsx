@@ -8,7 +8,7 @@ import {
   type FitMode,
   type Orientation,
 } from '@/context/DocContext';
-import { printBlob, downloadBlob } from '@/lib/pdf';
+import { printBlob, downloadBlob } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
 import DraggableDialog from '@/components/app/DraggableDialog';
