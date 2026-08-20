@@ -63,24 +63,6 @@ const Dropzone = () => {
           />
         </div>
 
-        {/* Коммерческое предложение для отправки заказчикам */}
-        <a
-          href="/kp/KP-PVSistema-PDF.docx"
-          download="Коммерческое предложение ПВ-Система PDF.docx"
-          className="mt-6 flex items-center gap-3 border border-border bg-card/60 px-5 py-4 transition-colors hover:border-foreground"
-        >
-          <Icon name="FileText" size={20} className="shrink-0 text-primary" />
-          <span className="min-w-0 flex-1">
-            <span className="block font-head text-[0.92rem] font-bold uppercase">
-              Коммерческое предложение
-            </span>
-            <span className="block text-[0.85rem] text-muted-foreground">
-              Готовый бланк с описанием и ценами — формат Word
-            </span>
-          </span>
-          <Icon name="Download" size={18} className="shrink-0 text-muted-foreground" />
-        </a>
-
         <div className="mt-10 grid grid-cols-1 border-l border-t border-border sm:grid-cols-3">
           {[
             { icon: 'BookOpen', t: 'Просмотр', d: 'Страницы, масштаб, поиск по тексту' },

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
+import fs from 'fs';
 
 // Сборка фронтенда для десктопной версии PVSPDF.
 // base: './' — файлы грузятся относительными путями внутри WebView2.
@@ -17,8 +18,18 @@ const stripOnline = {
   },
 };
 
+// Материалы для сайта (например, коммерческое предложение)
+// в программу не кладём — она весит меньше и ставится быстрее
+const dropSiteFiles = {
+  name: 'drop-site-files',
+  closeBundle() {
+    const dir = path.resolve(__dirname, 'dist-desktop/kp');
+    fs.rmSync(dir, { recursive: true, force: true });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), stripOnline],
+  plugins: [react(), stripOnline, dropSiteFiles],
   base: './',
   resolve: {
     alias: {
