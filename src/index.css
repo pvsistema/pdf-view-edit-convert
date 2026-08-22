@@ -147,6 +147,30 @@
   }
 }
 
+/* Слой настоящего текста поверх страницы: сам текст не виден,
+   но его можно выделить мышью и скопировать */
+.pvs-text-layer {
+  overflow: hidden;
+  line-height: 1;
+  opacity: 1;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pvs-text-layer span {
+  color: transparent;
+  white-space: pre;
+  transform-origin: 0% 0%;
+  cursor: text;
+  /* Буквы растягиваются под ширину, измеренную в документе,
+     поэтому выделение ложится ровно по тексту на картинке */
+  transform-box: border-box;
+}
+
+.pvs-text-layer ::selection {
+  background: hsl(var(--primary) / 0.35);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

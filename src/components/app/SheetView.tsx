@@ -3,6 +3,7 @@ import Icon from '@/components/ui/icon';
 import { renderPage, pageSize, screenDensity, findOnPage, PRIORITY, type TextHit } from '@/lib/pdf';
 import type { Annot, PageMeta } from '@/context/DocContext';
 import type { Tool } from '@/components/app/Viewer';
+import TextLayer from '@/components/app/TextLayer';
 
 type Props = {
   page: PageMeta;
@@ -128,6 +129,19 @@ const SheetView = ({
         onClick={click}
       >
         <div ref={host} />
+
+        {/* Настоящий текст поверх картинки: доступен для выделения,
+            пока не выбран инструмент расстановки пометок */}
+        {drawn && tool === 'hand' && (
+          <TextLayer
+            doc={doc}
+            pageIndex={page.src}
+            rotation={page.rotation}
+            width={width}
+            height={height}
+            active={near}
+          />
+        )}
 
         {!drawn && (
           <div className="absolute inset-0 flex items-center justify-center">

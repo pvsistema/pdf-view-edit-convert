@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
 import { downloadBlob } from '@/lib/files';
+import { pageText } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
@@ -29,6 +30,7 @@ const MenuBar = () => {
     duplicatePage,
     annots,
     clearAnnots,
+    docOf,
   } = useDoc();
 
   const tabsApi = useTabs();
@@ -165,6 +167,43 @@ const MenuBar = () => {
     },
   ];
 
+  // Копируем то, что пользователь выделил мышью в документе
+  const copySelection = () => {
+    const sel = window.getSelection()?.toString() ?? '';
+    if (!sel.trim()) {
+      toast({
+        title: 'Нечего копировать',
+        description: 'Сначала выделите текст в документе мышью',
+      });
+      return;
+    }
+    void navigator.clipboard
+      .writeText(sel)
+      .then(() => toast({ title: 'Текст скопирован' }))
+      .catch(() =>
+        toast({ title: 'Не удалось скопировать', description: 'Попробуйте сочетание Ctrl+C' }),
+      );
+  };
+
+  // Забираем весь текст текущей страницы, не выделяя его вручную
+  const copyPageText = async () => {
+    if (!current) return;
+    const doc = docOf(current);
+    if (!doc) return;
+    const text = await pageText(doc, current.src);
+    if (!text.trim()) {
+      toast({
+        title: 'На странице нет текста',
+        description: 'Похоже, это скан. Распознайте его в инструментах',
+      });
+      return;
+    }
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => toast({ title: 'Текст страницы скопирован' }))
+      .catch(() => toast({ title: 'Не удалось скопировать' }));
+  };
+
   const editItems: MenuItem[] = [
     {
       icon: 'Undo2',
@@ -179,6 +218,20 @@ const MenuBar = () => {
       hint: 'Ctrl+Y',
       fn: act(redo),
       on: canRedo,
+    },
+    {
+      icon: 'Copy',
+      label: 'Копировать выделенное',
+      hint: 'Ctrl+C',
+      fn: act(copySelection),
+      on: has,
+      sep: true,
+    },
+    {
+      icon: 'ScanText',
+      label: 'Копировать весь текст страницы',
+      fn: act(() => void copyPageText()),
+      on: has,
     },
     {
       icon: 'RotateCw',

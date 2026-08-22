@@ -280,6 +280,65 @@ const drawPage = async (
   return canvas;
 };
 
+// Кусочек текста с его местом на листе. Доли от размера страницы,
+// поэтому разметка одинаково верна при любом увеличении
+export type TextPiece = {
+  str: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  angle: number;
+};
+
+// Раскладка текста страницы: по ней строится невидимый слой поверх картинки,
+// благодаря которому текст в документе можно выделять и копировать
+export const pageTextLayout = async (
+  doc: any,
+  pageIndex: number,
+  extraRotation = 0,
+): Promise<TextPiece[]> => {
+  const { Util: util } = await engineReady();
+
+  const page = await doc.getPage(pageIndex + 1);
+  const rotation = (page.rotate + extraRotation) % 360;
+  const viewport = page.getViewport({ scale: 1, rotation });
+  const content = await page.getTextContent();
+
+  const W = viewport.width || 1;
+  const H = viewport.height || 1;
+  const out: TextPiece[] = [];
+
+  for (const item of content.items as any[]) {
+    const str = String(item.str ?? '');
+    if (!str) continue;
+
+    const tr = util.transform(viewport.transform, item.transform);
+    // Высота строки и наклон текста берутся из его собственных координат
+    const h = Math.hypot(tr[2], tr[3]) || 10;
+    const dir = Math.hypot(tr[0], tr[1]) || 1;
+    const w = (item.width || 0) * (viewport.scale || 1) || dir * str.length * 0.5;
+    const angle = Math.atan2(tr[1], tr[0]);
+
+    out.push({
+      str,
+      x: tr[4] / W,
+      y: (tr[5] - h) / H,
+      w: w / W,
+      h: h / H,
+      angle,
+    });
+  }
+
+  try {
+    page.cleanup();
+  } catch {
+    /* страница уже освобождена */
+  }
+
+  return out;
+};
+
 export const pageText = async (doc: any, pageIndex: number) => {
   const key = `${keyOfDoc(doc)}|${pageIndex}`;
   const ready = textCache.get(key);
