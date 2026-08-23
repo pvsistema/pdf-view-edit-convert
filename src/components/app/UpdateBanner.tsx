@@ -125,7 +125,7 @@ const UpdateBanner = () => {
             <div className="mb-2 flex items-center justify-between text-[0.78rem] text-muted-foreground">
               <span>
                 {job?.state === 'installing'
-                  ? 'Программа закроется и обновится'
+                  ? 'Программа закроется, откроется окно установки'
                   : job?.state === 'start'
                     ? 'Подключение к серверу'
                     : 'Загрузка обновления'}

@@ -1,9 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { renderPage, pageSize, screenDensity, findOnPage, PRIORITY, type TextHit } from '@/lib/pdf';
+import { renderPage, pageSize, screenDensity, findOnPage, pageText, PRIORITY, type TextHit } from '@/lib/pdf';
 import type { Annot, PageMeta } from '@/context/DocContext';
 import type { Tool } from '@/components/app/Viewer';
 import TextLayer from '@/components/app/TextLayer';
+import PageMenu, { type MenuPoint } from '@/components/app/PageMenu';
+import { toast } from '@/hooks/use-toast';
 
 type Props = {
   page: PageMeta;
@@ -113,6 +115,44 @@ const SheetView = ({
   const width = guess ? guess.w * zoom : 700;
   const height = guess ? guess.h * zoom : 990;
 
+  const [menu, setMenu] = useState<MenuPoint | null>(null);
+
+  // Правая кнопка открывает меню с копированием.
+  // Если пользователь ничего не выделил, но щёлкнул по слову —
+  // подхватываем это слово, чтобы копировать было что
+  const rightClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== 'hand') return;
+    e.preventDefault();
+
+    const sel = window.getSelection();
+    let text = sel?.toString() ?? '';
+
+    if (!text.trim()) {
+      const target = e.target as HTMLElement | null;
+      const word = target?.closest('.pvs-text-layer span')?.textContent ?? '';
+      text = word.trim();
+    }
+
+    setMenu({ x: e.clientX, y: e.clientY, text });
+  };
+
+  // Весь текст листа — на случай, когда выделять вручную неудобно
+  const copyPageText = async () => {
+    if (!doc) return;
+    const text = await pageText(doc, page.src);
+    if (!text.trim()) {
+      toast({
+        title: 'На странице нет текста',
+        description: 'Похоже, это скан. Распознайте его в инструментах',
+      });
+      return;
+    }
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => toast({ title: 'Текст страницы скопирован' }))
+      .catch(() => toast({ title: 'Не удалось скопировать' }));
+  };
+
   const click = (e: React.MouseEvent<HTMLDivElement>) => {
     if (tool === 'hand') return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -127,6 +167,7 @@ const SheetView = ({
         }`}
         style={{ width: `${width}px`, height: `${height}px` }}
         onClick={click}
+        onContextMenu={rightClick}
       >
         <div ref={host} />
 
@@ -194,6 +235,14 @@ const SheetView = ({
       <span className="mt-2 font-head text-[0.72rem] font-bold text-muted-foreground">
         Стр. {index + 1}
       </span>
+
+      {menu && (
+        <PageMenu
+          at={menu}
+          onClose={() => setMenu(null)}
+          onCopyPage={() => void copyPageText()}
+        />
+      )}
     </div>
   );
 };

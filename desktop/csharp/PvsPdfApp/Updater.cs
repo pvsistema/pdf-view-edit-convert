@@ -108,9 +108,9 @@ internal static class Updater
         cmd.AppendLine("taskkill /F /IM PVSPDF.exe /T >nul 2>&1");
         cmd.AppendLine("ping -n 2 127.0.0.1 >nul");
 
-        // Тихая установка новой версии
-        cmd.AppendLine($"start \"\" /wait \"{setupPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /SP-");
-        cmd.AppendLine("set CODE=%ERRORLEVEL%");
+        // Установка новой версии. Пользователь видит привычное окно
+        // установщика с ходом работы — без лишних вопросов и перезагрузок
+        cmd.AppendLine($"\"{setupPath}\" /SILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /SP-");
 
         // Запускаем обновлённую программу
         cmd.AppendLine("ping -n 2 127.0.0.1 >nul");
@@ -118,18 +118,53 @@ internal static class Updater
 
         // Убираем за собой
         cmd.AppendLine($"del /f /q \"{setupPath}\" >nul 2>&1");
+        cmd.AppendLine($"del /f /q \"{Path.Combine(dir, "run.vbs")}\" >nul 2>&1");
         cmd.AppendLine("(goto) 2>nul & del \"%~f0\"");
 
         File.WriteAllText(script, cmd.ToString(), new UTF8Encoding(false));
 
-        // Запускаем отдельным процессом: помощник продолжит работу,
-        // даже когда сама программа закроется
+        // Помощника запускаем полностью невидимо. Раньше здесь открывалось
+        // чёрное окно командной строки — пользователь видел его вместо
+        // установщика. Теперь на экране только окно установки
+        RunHidden(script, dir);
+    }
+
+    // Запуск служебного скрипта без единого окна на экране.
+    // Обёртка на WScript гарантирует, что консоль не мелькнёт даже на миг
+    static void RunHidden(string script, string dir)
+    {
+        string vbs = Path.Combine(dir, "run.vbs");
+
+        try
+        {
+            var wrap = new StringBuilder();
+            wrap.AppendLine("Set sh = CreateObject(\"WScript.Shell\")");
+            wrap.AppendLine($"sh.Run \"\"\"{script}\"\"\", 0, False");
+            File.WriteAllText(vbs, wrap.ToString(), new UTF8Encoding(false));
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "wscript.exe",
+                Arguments = $"//B //Nologo \"{vbs}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = dir,
+            });
+            return;
+        }
+        catch
+        {
+            // WScript может быть отключён политиками — идём запасным путём
+        }
+
         Process.Start(new ProcessStartInfo
         {
             FileName = "cmd.exe",
-            Arguments = $"/c start \"PVSPDF\" /min cmd /c \"{script}\"",
+            Arguments = $"/c \"{script}\"",
             UseShellExecute = false,
             CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = dir,
         });
     }
