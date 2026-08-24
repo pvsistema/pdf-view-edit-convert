@@ -1,13 +1,16 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
+import { heldPage, dropInto } from '@/lib/pageSwap';
 
 // Полоса вкладок: каждый открытый документ занимает свою вкладку,
 // переключение между ними мгновенное
 const TabsBar = () => {
   const tabsApi = useTabs();
   const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const hold = useRef<number>(0);
 
   if (!tabsApi || tabsApi.tabs.length < 1) return null;
   const { tabs, activeId, selectTab, closeTab, openTab } = tabsApi;
@@ -27,11 +30,56 @@ const TabsBar = () => {
       <div className="flex min-w-0 flex-1 overflow-x-auto">
         {tabs.map((t) => {
           const on = t.id === activeId;
+          const target = over === t.id;
+
+          // Страницу можно бросить прямо на вкладку — она встанет в конец
+          // того документа. Если задержать курсор, вкладка откроется сама
+          const dragOver = (e: React.DragEvent) => {
+            const cargo = heldPage();
+            if (!cargo || cargo.tabId === t.id) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = e.ctrlKey || e.metaKey ? 'copy' : 'move';
+            if (over !== t.id) {
+              setOver(t.id);
+              window.clearTimeout(hold.current);
+              hold.current = window.setTimeout(() => selectTab(t.id), 700);
+            }
+          };
+
+          const leave = () => {
+            window.clearTimeout(hold.current);
+            setOver((cur) => (cur === t.id ? null : cur));
+          };
+
+          const drop = (e: React.DragEvent) => {
+            const cargo = heldPage();
+            window.clearTimeout(hold.current);
+            setOver(null);
+            if (!cargo || cargo.tabId === t.id) return;
+            e.preventDefault();
+
+            const copy = e.ctrlKey || e.metaKey;
+            if (dropInto(t.id, Number.MAX_SAFE_INTEGER, copy)) {
+              selectTab(t.id);
+              toast({
+                title: copy ? 'Страница скопирована' : 'Страница перенесена',
+                description: `В документ «${t.title}»`,
+              });
+            }
+          };
+
           return (
             <div
               key={t.id}
-              className={`group flex min-w-[130px] max-w-[240px] shrink-0 items-center gap-2 border-r border-border px-3 py-2 transition-colors ${
-                on ? 'bg-background' : 'bg-card hover:bg-background/60'
+              onDragOver={dragOver}
+              onDragLeave={leave}
+              onDrop={drop}
+              className={`group flex min-w-[130px] max-w-[240px] shrink-0 items-center gap-2 border-r px-3 py-2 transition-colors ${
+                target
+                  ? 'border-primary bg-primary/10 ring-2 ring-inset ring-primary'
+                  : on
+                    ? 'border-border bg-background'
+                    : 'border-border bg-card hover:bg-background/60'
               }`}
             >
               <button

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { forgetDoc, closeDoc, loadDocFromBytes, loadDocFromUrl } from '@/lib/pdf';
+import { holdFiles, releaseOwner } from '@/lib/pageSwap';
 
 export type PageMeta = {
   uid: string;
@@ -77,6 +78,8 @@ type Ctx = {
   rotate: (uid: string, dir: number) => void;
   remove: (uid: string) => void;
   move: (uid: string, dir: number) => void;
+  movePageTo: (uid: string, at: number) => void;
+  insertPage: (page: PageMeta, file: SourceFile, at: number, label?: string) => void;
   reset: () => void;
   docOf: (p: PageMeta) => any;
   buildPdf: (subset?: PageMeta[], layout?: Layout) => Promise<Uint8Array>;
@@ -109,6 +112,9 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const [future, setFuture] = useState<Snapshot[]>([]);
   const filesRef = useRef<SourceFile[]>([]);
   const pagesRef = useRef<PageMeta[]>([]);
+
+  // Своя метка вкладки: по ней ведётся учёт общих файлов
+  const ownerId = useRef(`w${++seq}`).current;
   const annotsRef = useRef<Annot[]>([]);
 
   const apply = useCallback((label: string, next: { pages?: PageMeta[]; annots?: Annot[] }) => {
@@ -189,6 +195,44 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     apply('очистку пометок', { annots: [] });
   }, [apply]);
 
+  // Вставка страницы, перенесённой мышью из другой вкладки.
+  // Файл-источник подключаем к этой вкладке, если его тут ещё нет
+  const insertPage = useCallback(
+    (page: PageMeta, file: SourceFile, at: number, label = 'перенос страницы') => {
+      if (!filesRef.current.some((f) => f.id === file.id)) {
+        // Байты и сам документ общие: второй раз файл не читается.
+        // Отмечаемся совладельцем, чтобы файл не пропал вместе
+        // с закрытием вкладки, откуда пришла страница
+        holdFiles(ownerId, [file.id]);
+        filesRef.current = [...filesRef.current, file];
+        setFiles((list) => [...list, file]);
+      }
+
+      const copy = { ...page, uid: `p${++seq}` };
+      const next = [...pagesRef.current];
+      next.splice(Math.max(0, Math.min(at, next.length)), 0, copy);
+      apply(label, { pages: next });
+      setActive(Math.max(0, Math.min(at, next.length - 1)));
+    },
+    [apply, ownerId],
+  );
+
+  // Перестановка страницы на новое место внутри документа
+  const movePageTo = useCallback(
+    (uid: string, at: number) => {
+      const from = pagesRef.current.findIndex((x) => x.uid === uid);
+      if (from < 0) return;
+      const next = [...pagesRef.current];
+      const [item] = next.splice(from, 1);
+      const to = Math.max(0, Math.min(at > from ? at - 1 : at, next.length));
+      next.splice(to, 0, item);
+      if (to === from) return;
+      apply('перемещение страницы', { pages: next });
+      setActive(to);
+    },
+    [apply],
+  );
+
   const readFile = useCallback(async (input: File | DocSource) => {
     const id = `f${++seq}`;
     const file = input instanceof File ? input : undefined;
@@ -252,6 +296,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           f.release?.();
         });
         const { entry, list } = await readFile(file);
+        holdFiles(ownerId, [entry.id]);
         filesRef.current = [entry];
         pagesRef.current = list;
         annotsRef.current = [];
@@ -267,7 +312,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false);
       }
     },
-    [readFile],
+    [readFile, ownerId],
   );
 
   const append = useCallback(
@@ -275,6 +320,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(true);
       try {
         const { entry, list } = await readFile(file);
+        holdFiles(ownerId, [entry.id]);
         filesRef.current = [...filesRef.current, entry];
         setFiles((f) => [...f, entry]);
         apply('добавление файла', { pages: [...pagesRef.current, ...list] });
@@ -282,7 +328,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false);
       }
     },
-    [readFile, apply],
+    [readFile, apply, ownerId],
   );
 
   const rotate = useCallback(
@@ -337,21 +383,27 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
 
   const selectAllPages = useCallback(() => setActive(0), []);
 
-  // Вкладку закрыли — освобождаем память документа, который был в ней открыт
+  // Вкладку закрыли — освобождаем только те файлы, которыми
+  // больше никто не пользуется. Страницу могли перенести к соседям,
+  // и их документ обязан остаться рабочим
   useEffect(
     () => () => {
+      const free = new Set(releaseOwner(ownerId, filesRef.current.map((f) => f.id)));
       filesRef.current.forEach((f) => {
+        if (!free.has(f.id)) return;
         forgetDoc(f.doc);
         closeDoc(f.doc);
         f.release?.();
       });
       filesRef.current = [];
     },
-    [],
+    [ownerId],
   );
 
   const reset = useCallback(() => {
+    const free = new Set(releaseOwner(ownerId, filesRef.current.map((f) => f.id)));
     filesRef.current.forEach((f) => {
+      if (!free.has(f.id)) return;
       forgetDoc(f.doc);
       closeDoc(f.doc);
       f.release?.();
@@ -367,7 +419,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     setPast([]);
     setFuture([]);
     setVersion((v) => v + 1);
-  }, []);
+  }, [ownerId]);
 
   const docOf = useCallback(
     (p: PageMeta) => filesRef.current.find((f) => f.id === p.fileId)?.doc,
@@ -489,6 +541,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       rotate,
       remove,
       move,
+      movePageTo,
+      insertPage,
       duplicatePage,
       selectAllPages,
       reset,
@@ -518,6 +572,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       rotate,
       remove,
       move,
+      movePageTo,
+      insertPage,
       duplicatePage,
       selectAllPages,
       reset,
