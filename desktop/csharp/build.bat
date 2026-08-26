@@ -127,6 +127,15 @@ if not exist "%ROOT%\dist-desktop\index.html" (
     echo ERROR: frontend build failed - no index.html
     goto :fail
 )
+
+REM Платный модуль распознавания шифруем: в программу он попадает
+REM закрытым, ключ выдаёт сервер по действующей лицензии
+if "%PVSPDF_MODULE_KEY%"=="" (
+    echo     WARNING: PVSPDF_MODULE_KEY is not set - OCR module stays UNPROTECTED.
+    echo     Set it before building a release build.
+) else (
+    call node "%ROOT%\scripts\encrypt-module.mjs" "%ROOT%\dist-desktop" "%PVSPDF_MODULE_KEY%" || goto :fail
+)
 echo     OK
 echo.
 

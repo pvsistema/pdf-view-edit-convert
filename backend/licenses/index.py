@@ -138,6 +138,24 @@ def _seat_check(cur, lic_id: int, machine: str, machine_name: str, seats: int) -
     return 0
 
 
+def _module_secret(cur, module: str) -> str:
+    '''Ключ расшифровки модуля. Создаётся один раз и дальше берётся из базы —
+    иначе уже собранные версии программы перестали бы работать'''
+    cur.execute(
+        f"SELECT secret FROM {SCHEMA}.module_keys "
+        f"WHERE module = '{module}' AND is_active = TRUE ORDER BY id DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    if row:
+        return row[0]
+
+    secret = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(48))
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.module_keys (module, secret) VALUES ('{module}', '{secret}')"
+    )
+    return secret
+
+
 def _sign_result(cur, key: str, machine: str, result: dict) -> dict:
     '''Подписанный ответ. Внутри — тот же вердикт, плюс отпечаток машины
     и время: чужой или старый ответ подставить не выйдет'''
@@ -255,6 +273,47 @@ def handler(event, context):
         cur.close()
         conn.close()
         return _resp(200, result)
+
+    if action == 'module_key':
+        # Ключ к платному модулю. Выдаётся только по действующей лицензии:
+        # без него зашифрованный модуль не запустится, а в программе
+        # его нет — снять замок правкой программы не выйдет
+        key = _esc(str(body.get('key') or '').strip().upper())
+        module = _esc(str(body.get('module') or 'ocr').strip().lower())[:30]
+        machine = _esc(str(body.get('machine_id', '')).strip())[:60]
+
+        if not key:
+            cur.close()
+            conn.close()
+            return _resp(403, {'error': 'Нужна полная версия'})
+
+        cur.execute(
+            f"SELECT id, valid_until, status FROM {SCHEMA}.licenses WHERE license_key = '{key}'"
+        )
+        row = cur.fetchone()
+        today = datetime.utcnow().date()
+
+        if not row or row[2] != 'active' or row[1] < today:
+            cur.close()
+            conn.close()
+            return _resp(403, {'error': 'Нужна полная версия'})
+
+        # Ключ модуля должен быть привязан к машине: иначе его можно было бы
+        # получить один раз и раздать вместе со взломанной программой
+        if machine:
+            cur.execute(
+                f"SELECT 1 FROM {SCHEMA}.license_machines "
+                f"WHERE license_id = {row[0]} AND machine_id = '{machine}'"
+            )
+            if cur.fetchone() is None:
+                cur.close()
+                conn.close()
+                return _resp(403, {'error': 'Этот компьютер не активирован'})
+
+        secret = _module_secret(cur, module)
+        cur.close()
+        conn.close()
+        return _resp(200, {'secret': secret})
 
     if not _auth(cur, event, body):
         cur.close()

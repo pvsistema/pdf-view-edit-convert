@@ -93,6 +93,13 @@ export const listHistory = (id = 0, limit = 200) =>
     by_result: Record<string, number>;
   }>;
 
+// Ключ к платному модулю: сервер отдаёт его только по действующей лицензии
+export const getModuleKey = (module: string, key: string, machine = '') =>
+  post(LIC_URL, { action: 'module_key', module, key, machine_id: machine }) as Promise<{
+    secret?: string;
+    error?: string;
+  }>;
+
 export type SignedLicense = { payload: string; sig: string };
 
 export const verifyKey = (

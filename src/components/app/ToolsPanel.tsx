@@ -5,6 +5,7 @@ import { canvasToBlob, downloadBlob } from '@/lib/files';
 import { pageText, renderPageOnce } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { useLicense } from '@/context/LicenseContext';
+import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 
@@ -12,7 +13,7 @@ const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
 const ToolsPanel = () => {
   const { pages, name, active, docOf, buildPdf } = useDoc();
-  const { isFull } = useLicense();
+  const { isFull, license } = useLicense();
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [ocrText, setOcrText] = useState('');
@@ -25,7 +26,16 @@ const ToolsPanel = () => {
     try {
       await fn();
     } catch (e) {
-      toast({ title: 'Не удалось выполнить', description: 'Попробуйте другой файл или операцию' });
+      // Модуль не открылся: лицензия кончилась или компьютер не активирован
+      if (e instanceof ModuleLocked) {
+        toast({ title: 'Нужна полная версия', description: e.message });
+        setShowAct(true);
+      } else {
+        toast({
+          title: 'Не удалось выполнить',
+          description: 'Попробуйте другой файл или операцию',
+        });
+      }
     } finally {
       setBusy(null);
       setProgress(0);
@@ -149,8 +159,13 @@ const ToolsPanel = () => {
       const doc = docOf(p);
       if (!doc) return;
       const canvas = await renderPageOnce(doc, p.src, 2, p.rotation);
-      // Модуль распознавания тяжёлый — подключаем только при запуске OCR
-      const { createWorker } = await import('tesseract.js');
+
+      // Модуль распознавания хранится зашифрованным, ключ даёт сервер
+      // по действующей лицензии — иначе он просто не запустится
+      const mod = (await loadOcrModule(license?.key || '')) as {
+        createWorker: typeof import('tesseract.js').createWorker;
+      };
+      const { createWorker } = mod;
       const worker = await createWorker('rus+eng', 1, {
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') setProgress(Math.round(m.progress * 100));

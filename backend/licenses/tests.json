@@ -74,6 +74,27 @@
         "action": "public_key"
       },
       "expectedStatus": 401
+    },
+    {
+      "name": "Ключ модуля без лицензии закрыт",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "module_key",
+        "module": "ocr"
+      },
+      "expectedStatus": 403
+    },
+    {
+      "name": "Ключ модуля по чужому ключу закрыт",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "module_key",
+        "module": "ocr",
+        "key": "PVPDF-NOPE1-NOPE2-NOPE3-NOPE4"
+      },
+      "expectedStatus": 403
     }
   ]
 }
