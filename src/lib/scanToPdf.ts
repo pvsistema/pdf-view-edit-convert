@@ -15,22 +15,30 @@ const loadImage = (url: string) =>
 // весит десятки мегабайт, а на печати разницы не видно
 const MAX_SIDE = 2400;
 
-const toJpeg = async (img: HTMLImageElement, quality: number) => {
+// Снимок готовим сразу повёрнутым: в PDF он попадает уже ровным,
+// и документ открывается правильно в любой программе
+const toJpeg = async (img: HTMLImageElement, quality: number, turn: number) => {
   const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
   const w = Math.max(1, Math.round(img.naturalWidth * scale));
   const h = Math.max(1, Math.round(img.naturalHeight * scale));
 
+  const angle = ((turn % 360) + 360) % 360;
+  const sideways = angle === 90 || angle === 270;
+
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = sideways ? h : w;
+  canvas.height = sideways ? w : h;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Не удалось обработать снимок');
 
   // Белая подложка: у чёрно-белых снимков бывает прозрачный фон
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  if (angle) ctx.rotate((angle * Math.PI) / 180);
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
 
   const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', quality));
   canvas.width = 0;
@@ -44,14 +52,16 @@ export type BuildOptions = {
   onPage?: (done: number, total: number) => void;
 };
 
-export const scansToPdf = async (urls: string[], opts: BuildOptions = {}) => {
+export type Shot = { url: string; turn?: number };
+
+export const scansToPdf = async (shots: Shot[], opts: BuildOptions = {}) => {
   const { PDFDocument } = await import('pdf-lib');
   const out = await PDFDocument.create();
   const quality = opts.quality ?? 0.82;
 
-  for (let i = 0; i < urls.length; i++) {
-    const img = await loadImage(urls[i]);
-    const bytes = await toJpeg(img, quality);
+  for (let i = 0; i < shots.length; i++) {
+    const img = await loadImage(shots[i].url);
+    const bytes = await toJpeg(img, quality, shots[i].turn ?? 0);
     const embedded = await out.embedJpg(bytes);
 
     // Лист держим в пропорциях снимка: альбомный оригинал
@@ -71,7 +81,7 @@ export const scansToPdf = async (urls: string[], opts: BuildOptions = {}) => {
       height: h,
     });
 
-    opts.onPage?.(i + 1, urls.length);
+    opts.onPage?.(i + 1, shots.length);
   }
 
   return out.save();

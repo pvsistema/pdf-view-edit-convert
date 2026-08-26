@@ -19,7 +19,7 @@ type Props = {
   onClose: () => void;
 };
 
-type Shot = { index: number; url: string };
+type Shot = { index: number; url: string; turn: number };
 
 const plural = (n: number) => {
   const t = n % 10;
@@ -79,7 +79,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
   useEffect(
     () =>
       onScanPage((p) => {
-        setShots((list) => [...list, p]);
+        setShots((list) => [...list, { ...p, turn: 0 }]);
         requestAnimationFrame(() => {
           strip.current?.scrollTo({ left: strip.current.scrollWidth, behavior: 'smooth' });
         });
@@ -127,7 +127,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     if (!shots.length) return;
     setBuilding(true);
     try {
-      const bytes = await scansToPdf(shots.map((s) => s.url));
+      const bytes = await scansToPdf(shots.map((s) => ({ url: s.url, turn: s.turn })));
       const name = scanFileName();
       await onReady(new File([bytes as BlobPart], name, { type: 'application/pdf' }));
       toast({
@@ -141,6 +141,15 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
       setBuilding(false);
     }
   };
+
+  // Криво лежавший лист можно развернуть здесь, не сканируя заново
+  const turnPage = (url: string, dir: number) =>
+    setShots((list) =>
+      list.map((s) => (s.url === url ? { ...s, turn: (s.turn + dir + 360) % 360 } : s)),
+    );
+
+  const turnAll = (dir: number) =>
+    setShots((list) => list.map((s) => ({ ...s, turn: (s.turn + dir + 360) % 360 })));
 
   const none = devices !== null && devices.length === 0;
 
@@ -328,17 +337,32 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
 
           {shots.length > 0 && (
             <div className="mt-5">
-              <div className="label-caps mb-2">
-                Снятые страницы — {shots.length} {plural(shots.length)}
+              <div className="mb-2 flex items-center justify-between">
+                <span className="label-caps">
+                  Снятые страницы — {shots.length} {plural(shots.length)}
+                </span>
+                <button
+                  onClick={() => turnAll(90)}
+                  disabled={busy}
+                  title="Повернуть все страницы"
+                  className="flex items-center gap-1.5 text-[0.76rem] text-muted-foreground transition-colors hover:text-primary disabled:opacity-40"
+                >
+                  <Icon name="RotateCw" size={13} />
+                  Повернуть все
+                </button>
               </div>
               <div ref={strip} className="flex gap-2 overflow-x-auto pb-2">
                 {shots.map((s, i) => (
-                  <div key={s.url} className="relative shrink-0">
-                    <img
-                      src={s.url}
-                      alt={`Страница ${i + 1}`}
-                      className="h-[130px] w-auto border border-border bg-white object-contain"
-                    />
+                  <div key={s.url} className="group relative shrink-0">
+                    <div className="flex h-[130px] w-[110px] items-center justify-center overflow-hidden border border-border bg-white">
+                      <img
+                        src={s.url}
+                        alt={`Страница ${i + 1}`}
+                        style={{ transform: `rotate(${s.turn}deg)` }}
+                        className="max-h-full max-w-full object-contain transition-transform"
+                      />
+                    </div>
+
                     <button
                       onClick={() => setShots((l) => l.filter((x) => x.url !== s.url))}
                       title="Убрать страницу"
@@ -346,6 +370,24 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                     >
                       <Icon name="X" size={11} />
                     </button>
+
+                    <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        onClick={() => turnPage(s.url, -90)}
+                        title="Повернуть влево"
+                        className="bg-foreground/80 p-1 text-background hover:bg-primary"
+                      >
+                        <Icon name="RotateCcw" size={11} />
+                      </button>
+                      <button
+                        onClick={() => turnPage(s.url, 90)}
+                        title="Повернуть вправо"
+                        className="bg-foreground/80 p-1 text-background hover:bg-primary"
+                      >
+                        <Icon name="RotateCw" size={11} />
+                      </button>
+                    </div>
+
                     <span className="absolute bottom-1 left-1 bg-foreground/75 px-1.5 text-[0.65rem] text-background">
                       {i + 1}
                     </span>
