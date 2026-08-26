@@ -320,6 +320,18 @@ def handler(event, context):
         conn.close()
         return _resp(401, {'error': 'Нет доступа'})
 
+    if action == 'build_info':
+        # Ключи, нужные при сборке программы. Доступны только из панели:
+        # обычный пользователь их не получит
+        _, public_pem = ensure_keys(cur, SCHEMA)
+        info = {
+            'module_key': _module_secret(cur, 'ocr'),
+            'public_key': public_key_raw(public_pem),
+        }
+        cur.close()
+        conn.close()
+        return _resp(200, info)
+
     if action == 'public_key':
         _, public_pem = ensure_keys(cur, SCHEMA)
         raw = public_key_raw(public_pem)

@@ -93,6 +93,13 @@ export const listHistory = (id = 0, limit = 200) =>
     by_result: Record<string, number>;
   }>;
 
+// Ключи, нужные при сборке программы — только для панели управления
+export const getBuildInfo = () =>
+  post(LIC_URL, { action: 'build_info' }) as Promise<{
+    module_key: string;
+    public_key: string;
+  }>;
+
 // Ключ к платному модулю: сервер отдаёт его только по действующей лицензии
 export const getModuleKey = (module: string, key: string, machine = '') =>
   post(LIC_URL, { action: 'module_key', module, key, machine_id: machine }) as Promise<{

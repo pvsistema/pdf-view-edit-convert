@@ -95,6 +95,15 @@
         "key": "PVPDF-NOPE1-NOPE2-NOPE3-NOPE4"
       },
       "expectedStatus": 403
+    },
+    {
+      "name": "Ключи сборки закрыты без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "build_info"
+      },
+      "expectedStatus": 401
     }
   ]
 }
