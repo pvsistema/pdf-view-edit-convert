@@ -10,17 +10,35 @@ internal static class Scanner
     // Свойства снимка в терминах WIA
     const uint DPI_X = 6147;
     const uint DPI_Y = 6148;
+    const uint POS_X = 6149;
+    const uint POS_Y = 6150;
     const uint EXTENT_X = 6151;
     const uint EXTENT_Y = 6152;
-    const uint MODE = 6146;         // 0 — ч/б, 1 — оттенки серого, 2 — цвет
+    const uint MAX_X = 6165;        // предельная ширина области у устройства
+    const uint MAX_Y = 6166;        // предельная высота области
+    const uint INTENT = 6146;       // общее пожелание: цвет, серый или текст
+    const uint DATATYPE = 4103;     // как именно кодировать точки
+    const uint DEPTH = 4104;        // бит на точку
     const uint PAGES = 3096;        // сколько листов взять из автоподатчика
     const uint HANDLING = 3088;     // откуда брать: стекло или автоподатчик
+
+    // Пожелания к снимку. Именно здесь была ошибка: значение 2
+    // означает «оттенки серого», поэтому цветной режим давал ч/б
+    const int WANT_COLOR = 0x00000001;
+    const int WANT_GRAY = 0x00000002;
+    const int WANT_TEXT = 0x00000004;
+
+    // Способ кодирования точек
+    const int DATA_THRESHOLD = 0;   // ч/б, одна точка — один бит
+    const int DATA_GRAY = 2;
+    const int DATA_COLOR = 3;
 
     const int FEEDER = 0x001;
     const int FLATBED = 0x002;
     const int DUPLEX = 0x004;
 
     const string JPEG = "{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}";
+    const string BMP = "{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}";
 
     public sealed class Options
     {
@@ -126,9 +144,21 @@ internal static class Scanner
                 token.ThrowIfCancellationRequested();
 
                 dynamic? image = null;
+                string ext = "jpg";
+
                 try
                 {
-                    image = item.Transfer(JPEG);
+                    // JPEG умеют не все драйверы, а чёрно-белый снимок
+                    // в него порой вовсе не отдаётся — тогда берём BMP
+                    try
+                    {
+                        image = item.Transfer(JPEG);
+                    }
+                    catch (COMException ex) when (!Empty(ex))
+                    {
+                        image = item.Transfer(BMP);
+                        ext = "bmp";
+                    }
                 }
                 catch (COMException ex)
                 {
@@ -144,7 +174,7 @@ internal static class Scanner
                 }
 
                 made++;
-                string path = Path.Combine(dir, $"scan_{made:D3}.jpg");
+                string path = Path.Combine(dir, $"scan_{made:D3}.{ext}");
                 try { if (File.Exists(path)) File.Delete(path); } catch { }
 
                 image.SaveFile(path);
@@ -174,15 +204,51 @@ internal static class Scanner
     {
         int dpi = Math.Max(75, Math.Min(1200, opt.Dpi));
 
+        // Сначала пожелание к снимку, потом всё остальное: драйвер в ответ
+        // сам подбирает глубину цвета, и порядок здесь важен. Если задать
+        // разрешение раньше, часть сканеров сбрасывает его обратно
+        int intent = opt.Color switch
+        {
+            "bw" => WANT_TEXT,
+            "gray" => WANT_GRAY,
+            _ => WANT_COLOR,
+        };
+        Set(item.Properties, INTENT, intent);
+
+        // Прямо указываем способ кодирования и глубину: на одном лишь
+        // пожелании часть драйверов продолжает отдавать чёрно-белое
+        switch (opt.Color)
+        {
+            case "bw":
+                Set(item.Properties, DATATYPE, DATA_THRESHOLD);
+                Set(item.Properties, DEPTH, 1);
+                break;
+            case "gray":
+                Set(item.Properties, DATATYPE, DATA_GRAY);
+                Set(item.Properties, DEPTH, 8);
+                break;
+            default:
+                Set(item.Properties, DATATYPE, DATA_COLOR);
+                Set(item.Properties, DEPTH, 24);
+                break;
+        }
+
         Set(item.Properties, DPI_X, dpi);
         Set(item.Properties, DPI_Y, dpi);
 
-        // Размер области съёмки — лист A4 при выбранном разрешении
-        Set(item.Properties, EXTENT_X, (int)(8.27 * dpi));
-        Set(item.Properties, EXTENT_Y, (int)(11.69 * dpi));
+        // Снимаем от левого верхнего угла
+        Set(item.Properties, POS_X, 0);
+        Set(item.Properties, POS_Y, 0);
 
-        int mode = opt.Color switch { "bw" => 0, "gray" => 1, _ => 2 };
-        Set(item.Properties, MODE, mode);
+        // Область съёмки — лист A4, но не больше, чем умеет устройство:
+        // запрос сверх предела драйвер отклоняет вместе со всей настройкой
+        int wantW = (int)(8.27 * dpi);
+        int wantH = (int)(11.69 * dpi);
+        int maxW = Num(item.Properties, MAX_X);
+        int maxH = Num(item.Properties, MAX_Y);
+
+        Set(item.Properties, EXTENT_X, maxW > 0 ? Math.Min(wantW, maxW) : wantW);
+        Set(item.Properties, EXTENT_Y, maxH > 0 ? Math.Min(wantH, maxH) : wantH);
 
         if (opt.Feeder)
         {
@@ -208,6 +274,21 @@ internal static class Scanner
             }
         }
         catch { }
+    }
+
+    // Числовое свойство устройства. Ноль означает «драйвер не сообщил»
+    static int Num(dynamic props, uint id)
+    {
+        try
+        {
+            foreach (dynamic p in props)
+            {
+                if ((uint)p.PropertyID != id) continue;
+                return Convert.ToInt32(p.Value);
+            }
+        }
+        catch { }
+        return 0;
     }
 
     static string? Prop(dynamic props, string name)
