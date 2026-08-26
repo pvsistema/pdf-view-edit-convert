@@ -100,6 +100,114 @@ internal static class Scanner
         return found;
     }
 
+    // Родное окно сканера от производителя. Нужно капризным устройствам,
+    // у которых свои настройки: подсветка, обрезка полей, очистка фона.
+    // Снимки оттуда попадают в программу как обычные страницы
+    public static List<string> ShowDriverUi(string deviceId, string dir)
+    {
+        var files = new List<string>();
+        Directory.CreateDirectory(dir);
+
+        dynamic? dialog = null;
+        dynamic? device = null;
+        dynamic? mgr = null;
+
+        try
+        {
+            dialog = MakeCom("WIA.CommonDialog")
+                ?? throw new InvalidOperationException(
+                    "Служба сканирования Windows недоступна. Проверьте, что служба «Загрузка изображений (WIA)» запущена.");
+
+            // Подключаемся к выбранному устройству, чтобы Windows не спрашивала
+            // о нём повторно — пользователь уже указал сканер в нашем окне
+            if (!string.IsNullOrEmpty(deviceId))
+            {
+                try
+                {
+                    mgr = MakeCom("WIA.DeviceManager");
+                    if (mgr != null)
+                    {
+                        foreach (dynamic d in mgr.DeviceInfos)
+                        {
+                            if ((int)d.Type != 1) continue;
+                            if ((string)d.DeviceID != deviceId) continue;
+                            device = d.Connect();
+                            break;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            try
+            {
+                if (device != null)
+                {
+                    // Окно настроек драйвера для выбранного сканера:
+                    // пользователь выставляет всё родными средствами,
+                    // после чего снимок забираем обычным способом
+                    dynamic item = device.Items[1];
+                    bool ok = dialog.ShowItemProperties(item, 0);
+                    if (!ok) return files;
+
+                    dynamic? shot = null;
+                    try
+                    {
+                        shot = item.Transfer(JPEG);
+                    }
+                    catch (COMException ex) when (!Empty(ex))
+                    {
+                        shot = item.Transfer(BMP);
+                    }
+
+                    Save(shot, dir, files, "jpg");
+                    return files;
+                }
+
+                // Сканер не выбран — показываем полное окно Windows
+                // вместе с выбором устройства
+                dynamic? image = dialog.ShowAcquireImage(1, 0, 0x00040000, JPEG, false, true, false);
+                Save(image, dir, files, "jpg");
+                return files;
+            }
+            catch (COMException ex)
+            {
+                // Пользователь закрыл окно, ничего не отсканировав
+                if (Cancelled(ex) || Empty(ex)) return files;
+                throw;
+            }
+        }
+        finally
+        {
+            Release(device);
+            Release(mgr);
+            Release(dialog);
+        }
+    }
+
+    static void Save(dynamic? image, string dir, List<string> files, string ext)
+    {
+        if (image == null) return;
+
+        string path = Path.Combine(dir, $"scan_{files.Count + 1:D3}.{ext}");
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
+
+        image.SaveFile(path);
+        Release(image);
+        files.Add(path);
+    }
+
+    // Пользователь закрыл окно драйвера, ничего не отсканировав
+    static bool Cancelled(COMException ex)
+    {
+        unchecked
+        {
+            int code = ex.ErrorCode;
+            return code == (int)0x80210064   // отменено пользователем
+                || code == (int)0x800704C7;  // операция прервана
+        }
+    }
+
     // Снимаем страницы и складываем их картинками в указанную папку.
     // onPage вызывается после каждого листа — интерфейс сразу показывает,
     // сколько уже отсканировано, не дожидаясь всей пачки

@@ -404,6 +404,11 @@ public class MainForm : Form
             {
                 try { _scanCancel?.Cancel(); } catch { }
             }
+            else if (type == "scanDriverUi")
+            {
+                string dev = root.TryGetProperty("device", out var sd) ? (sd.GetString() ?? "") : "";
+                _ = DriverUiAsync(dev);
+            }
         }
         catch { }
     }
@@ -522,6 +527,43 @@ public class MainForm : Form
         {
             _scanCancel = null;
             cts.Dispose();
+        }
+    }
+
+    // Родное окно драйвера сканера. Работает поверх нашего окна,
+    // снимок из него попадает в программу как обычная страница
+    async Task DriverUiAsync(string device)
+    {
+        if (_scanCancel != null)
+        {
+            SendUpdate(new { type = "scanDone", ok = false, error = "Сканирование уже идёт." });
+            return;
+        }
+
+        string dir = Path.Combine(_openDir, "scan_" + DateTime.Now.Ticks);
+
+        try
+        {
+            SendUpdate(new { type = "scanState", state = "driver" });
+
+            var files = await Task.Run(() => Scanner.ShowDriverUi(device, dir));
+
+            if (files.Count == 0)
+            {
+                SendUpdate(new { type = "scanDone", ok = false, cancelled = true });
+                return;
+            }
+
+            for (int i = 0; i < files.Count; i++)
+            {
+                SendUpdate(new { type = "scanPage", index = i + 1, url = FileUrl(files[i]) });
+            }
+
+            SendUpdate(new { type = "scanDone", ok = true, pages = files.Select(FileUrl) });
+        }
+        catch (Exception ex)
+        {
+            SendUpdate(new { type = "scanDone", ok = false, error = ex.Message });
         }
     }
 

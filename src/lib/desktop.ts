@@ -164,6 +164,9 @@ export const startScan = (o: ScanOptions) => send({ type: 'scan', ...o });
 
 export const cancelScan = () => send({ type: 'cancelScan' });
 
+// Родное окно настроек сканера от производителя
+export const openScanDriverUi = (device: string) => send({ type: 'scanDriverUi', device });
+
 // Общая подписка на ответы программы: один обработчик вместо трёх
 const listen = <T>(kind: string, cb: (d: T) => void) => {
   const handler = (e: MessageEvent) => {

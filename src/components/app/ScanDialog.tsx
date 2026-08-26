@@ -5,6 +5,7 @@ import {
   listScanners,
   startScan,
   cancelScan,
+  openScanDriverUi,
   onScanners,
   onScanPage,
   onScanDone,
@@ -52,6 +53,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
   const [limit, setLimit] = useState(0);
 
   const [busy, setBusy] = useState(false);
+  const [driver, setDriver] = useState(false);
   const [building, setBuilding] = useState(false);
   const [shots, setShots] = useState<Shot[]>([]);
   const [error, setError] = useState('');
@@ -89,6 +91,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     () =>
       onScanDone((r) => {
         setBusy(false);
+        setDriver(false);
         if (r.cancelled) {
           toast({ title: 'Сканирование остановлено' });
           return;
@@ -102,11 +105,21 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     [],
   );
 
+  // Снятое раньше не трогаем: страницы из нескольких заходов
+  // складываются в один документ, как в пакетной обработке
   const run = () => {
     setError('');
-    setShots([]);
     setBusy(true);
     startScan({ device, dpi, color, feeder, duplex, limit });
+  };
+
+  // Настройки производителя: полезно, когда сканер плохо слушается
+  // общих настроек Windows — там свои подсветка, обрезка, очистка фона
+  const viaDriver = () => {
+    setError('');
+    setBusy(true);
+    setDriver(true);
+    openScanDriverUi(device);
   };
 
   // Собираем PDF из снятых листов и открываем его как обычный документ
@@ -278,6 +291,11 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                   берётся один лист со стекла.
                 </p>
               </div>
+
+              <p className="mt-4 text-[0.76rem] leading-relaxed text-muted-foreground">
+                Если сканер не слушается этих настроек, нажмите «Окно драйвера» — откроются
+                настройки производителя устройства, а снимок вернётся сюда.
+              </p>
             </>
           )}
 
@@ -285,14 +303,20 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
             <div className="mt-5 flex items-center gap-3 border border-primary bg-primary/5 px-4 py-3">
               <Icon name="LoaderCircle" size={16} className="animate-spin text-primary" />
               <span className="text-[0.88rem]">
-                {shots.length ? `Снято страниц: ${shots.length}` : 'Готовлю сканер'}
+                {driver
+                  ? 'Настройте сканер в окне производителя'
+                  : shots.length
+                    ? `Снято страниц: ${shots.length}`
+                    : 'Готовлю сканер'}
               </span>
-              <button
-                onClick={cancelScan}
-                className="ml-auto text-[0.78rem] text-muted-foreground hover:text-destructive"
-              >
-                Остановить
-              </button>
+              {!driver && (
+                <button
+                  onClick={cancelScan}
+                  className="ml-auto text-[0.78rem] text-muted-foreground hover:text-destructive"
+                >
+                  Остановить
+                </button>
+              )}
             </div>
           )}
 
@@ -308,11 +332,11 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                 Снятые страницы — {shots.length} {plural(shots.length)}
               </div>
               <div ref={strip} className="flex gap-2 overflow-x-auto pb-2">
-                {shots.map((s) => (
+                {shots.map((s, i) => (
                   <div key={s.url} className="relative shrink-0">
                     <img
                       src={s.url}
-                      alt={`Страница ${s.index}`}
+                      alt={`Страница ${i + 1}`}
                       className="h-[130px] w-auto border border-border bg-white object-contain"
                     />
                     <button
@@ -323,7 +347,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                       <Icon name="X" size={11} />
                     </button>
                     <span className="absolute bottom-1 left-1 bg-foreground/75 px-1.5 text-[0.65rem] text-background">
-                      {s.index}
+                      {i + 1}
                     </span>
                   </div>
                 ))}
@@ -332,7 +356,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
           )}
         </div>
 
-        <div className="flex items-center gap-3 border-t border-border px-6 py-4">
+        <div className="flex flex-wrap items-center gap-3 border-t border-border px-6 py-4">
           <button
             onClick={run}
             disabled={busy || building || !device}
@@ -340,6 +364,18 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
           >
             <Icon name="Scan" size={15} />
             {shots.length ? 'Сканировать ещё' : 'Сканировать'}
+          </button>
+
+          <button
+            onClick={viaDriver}
+            disabled={busy || building || !device}
+            title="Настройки от производителя сканера"
+            className="border border-border px-4 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.08em] transition-colors hover:border-foreground disabled:opacity-40"
+          >
+            <span className="flex items-center gap-2">
+              <Icon name="SlidersHorizontal" size={14} />
+              Окно драйвера
+            </span>
           </button>
 
           <button
