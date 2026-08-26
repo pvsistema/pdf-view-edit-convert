@@ -19,8 +19,23 @@ if (!secret) {
 
 const assets = join(outDir, 'assets');
 
+let files;
+try {
+  files = readdirSync(assets);
+} catch {
+  console.error(`Папка сборки не найдена: ${assets}`);
+  process.exit(1);
+}
+
+// Модуль уже защищён — так бывает при повторном запуске.
+// Это не ошибка: просто выходим, ничего не ломая
+if (files.includes('ocr.bin')) {
+  console.log('Модуль уже защищён — пропускаем.');
+  process.exit(0);
+}
+
 // Ищем собранный кусок с модулем распознавания
-const target = readdirSync(assets).find((f) => /^ocr-.*\.js$/.test(f));
+const target = files.find((f) => /^ocr-.*\.js$/.test(f));
 
 if (!target) {
   console.error('Модуль распознавания в сборке не найден.');

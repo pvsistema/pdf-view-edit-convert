@@ -130,12 +130,17 @@ if not exist "%ROOT%\dist-desktop\index.html" (
 
 REM Платный модуль распознавания шифруем: в программу он попадает
 REM закрытым, ключ выдаёт сервер по действующей лицензии
-if "%PVSPDF_MODULE_KEY%"=="" (
-    echo     WARNING: PVSPDF_MODULE_KEY is not set - OCR module stays UNPROTECTED.
-    echo     Set it before building a release build.
-) else (
-    call node "%ROOT%\scripts\encrypt-module.mjs" "%ROOT%\dist-desktop" "%PVSPDF_MODULE_KEY%" || goto :fail
-)
+if "%PVSPDF_MODULE_KEY%"=="" goto :skip_encrypt
+
+call node "%ROOT%\scripts\encrypt-module.mjs" "%ROOT%\dist-desktop" "%PVSPDF_MODULE_KEY%"
+if errorlevel 1 goto :fail
+goto :after_encrypt
+
+:skip_encrypt
+echo     WARNING: PVSPDF_MODULE_KEY is not set - OCR module stays UNPROTECTED.
+echo     Set it before building a release build.
+
+:after_encrypt
 echo     OK
 echo.
 
