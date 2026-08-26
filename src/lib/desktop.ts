@@ -4,6 +4,14 @@ declare global {
     PVSPDF_VERSION?: string;
     PVSPDF_PRINTER?: string;
     PVSPDF_PRINTERS?: string[];
+    PVSPDF_FULL?: boolean;
+    PVSPDF_LIC?: {
+      org: string;
+      key: string;
+      until: string;
+      machine: string;
+      machineName: string;
+    };
     chrome?: {
       webview?: {
         postMessage: (m: unknown) => void;
@@ -200,6 +208,34 @@ export type ScanResult = {
 };
 
 export const onScanDone = (cb: (r: ScanResult) => void) => listen<ScanResult>('scanDone', cb);
+
+// Лицензия в программе. Решение «полная версия или демо» принимает
+// сама программа: страница лишь показывает то, что ей сообщили
+export const nativeIsFull = () => !!window.PVSPDF_FULL;
+
+export const nativeLicense = () => window.PVSPDF_LIC || null;
+
+// Отпечаток компьютера — по нему сервер считает занятые места
+export const machineId = () => window.PVSPDF_LIC?.machine || '';
+export const machineName = () => window.PVSPDF_LIC?.machineName || '';
+
+// Подписанный ответ сервера отдаём программе: она проверит подпись
+// и сама решит, включать ли полную версию
+export const saveNativeLicense = (payload: string, sig: string) =>
+  send({ type: 'licenseSave', payload, sig });
+
+export const clearNativeLicense = () => send({ type: 'licenseClear' });
+
+export type NativeLicenseState = {
+  full: boolean;
+  accepted: boolean;
+  org: string;
+  key: string;
+  until: string;
+};
+
+export const onNativeLicense = (cb: (s: NativeLicenseState) => void) =>
+  listen<NativeLicenseState>('licenseState', cb);
 
 export type DesktopDoc = { name: string; url?: string; file?: File; size?: number };
 

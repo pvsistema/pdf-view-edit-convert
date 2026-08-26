@@ -4,6 +4,7 @@ import { LOGO_URL } from "@/lib/brand";
 import AdminLogin from "@/components/admin/AdminLogin";
 import LicenseForm from "@/components/admin/LicenseForm";
 import HistoryPanel from "@/components/admin/HistoryPanel";
+import MachinesPanel from "@/components/admin/MachinesPanel";
 import ReleasesPanel from "@/components/admin/ReleasesPanel";
 import {
   clearToken,
@@ -46,6 +47,7 @@ const Admin = () => {
   });
   const [tab, setTab] = useState<"licenses" | "history" | "releases">("licenses");
   const [histFor, setHistFor] = useState<License | null>(null);
+  const [machFor, setMachFor] = useState<License | null>(null);
 
   const load = useCallback(async (q = "") => {
     setLoading(true);
@@ -317,6 +319,13 @@ const Admin = () => {
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-1">
                               <button
+                                onClick={() => setMachFor(l)}
+                                className="p-2 hover:text-primary"
+                                title="Компьютеры лицензии"
+                              >
+                                <Icon name="MonitorSmartphone" size={15} />
+                              </button>
+                              <button
                                 onClick={() => setHistFor(l)}
                                 className="p-2 hover:text-primary"
                                 title="История проверок"
@@ -348,6 +357,15 @@ const Admin = () => {
           </>
         )}
       </main>
+
+      {machFor && (
+        <MachinesPanel
+          licenseId={machFor.id}
+          title={machFor.org_name}
+          seats={machFor.seats}
+          onClose={() => setMachFor(null)}
+        />
+      )}
 
       {histFor && (
         <HistoryPanel

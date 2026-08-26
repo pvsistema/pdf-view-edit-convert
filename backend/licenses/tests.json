@@ -10,16 +10,23 @@
       "name": "Список без доступа",
       "method": "POST",
       "path": "/",
-      "body": { "action": "list" },
+      "body": {
+        "action": "list"
+      },
       "expectedStatus": 401
     },
     {
       "name": "Проверка несуществующего ключа",
       "method": "POST",
       "path": "/",
-      "body": { "action": "verify", "key": "PVPDF-XXXXX-XXXXX-XXXXX-XXXXX" },
+      "body": {
+        "action": "verify",
+        "key": "PVPDF-XXXXX-XXXXX-XXXXX-XXXXX"
+      },
       "expectedStatus": 200,
-      "expectedBody": { "valid": false },
+      "expectedBody": {
+        "valid": false
+      },
       "bodyMatcher": "partial"
     },
     {
@@ -32,8 +39,41 @@
         "app_version": "1.0.0"
       },
       "expectedStatus": 200,
-      "expectedBody": { "valid": false, "update": { "latest": "string" } },
+      "expectedBody": {
+        "valid": false,
+        "update": {
+          "latest": "string"
+        }
+      },
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Ответ о лицензии приходит с подписью",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "verify",
+        "key": "PVPDF-XXXXX-XXXXX-XXXXX-XXXXX",
+        "machine_id": "testmachine01"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "valid": false,
+        "signed": {
+          "sig": "string",
+          "payload": "string"
+        }
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Публичный ключ закрыт без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "public_key"
+      },
+      "expectedStatus": 401
     }
   ]
 }

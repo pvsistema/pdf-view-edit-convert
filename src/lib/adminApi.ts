@@ -66,6 +66,17 @@ export const updateLicense = (data: Partial<License> & { id: number }) =>
 
 export const deleteLicense = (id: number) => post(LIC_URL, { action: 'delete', id });
 
+// Компьютеры, на которых работает ключ — видно занятые места
+export type Machine = {
+  machine_id: string;
+  machine_name: string;
+  first_seen: string;
+  last_seen: string;
+};
+
+export const listMachines = (id: number) =>
+  post(LIC_URL, { action: 'machines', id }) as Promise<{ items: Machine[] }>;
+
 export type CheckRecord = {
   id: number;
   license_key: string;
@@ -82,13 +93,27 @@ export const listHistory = (id = 0, limit = 200) =>
     by_result: Record<string, number>;
   }>;
 
-export const verifyKey = (key: string, appVersion = '') =>
-  post(LIC_URL, { action: 'verify', key, app_version: appVersion }) as Promise<{
+export type SignedLicense = { payload: string; sig: string };
+
+export const verifyKey = (
+  key: string,
+  appVersion = '',
+  machine = '',
+  machineName = '',
+) =>
+  post(LIC_URL, {
+    action: 'verify',
+    key,
+    app_version: appVersion,
+    machine_id: machine,
+    machine_name: machineName,
+  }) as Promise<{
     valid: boolean;
     reason?: string;
     org_name?: string;
     valid_until?: string;
     days_left?: number;
+    signed?: SignedLicense;
     update?: UpdateInfo;
   }>;
 export type Release = {

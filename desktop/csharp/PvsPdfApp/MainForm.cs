@@ -119,7 +119,18 @@ public class MainForm : Form
             "window.PVSPDF_DESKTOP = true;" +
             "window.PVSPDF_VERSION = '" + AppVersion() + "';" +
             "window.PVSPDF_PRINTER = " + JsonSerializer.Serialize(Settings.Printer ?? "") + ";" +
-            "window.PVSPDF_PRINTERS = [];");
+            "window.PVSPDF_PRINTERS = [];" +
+            // Решение о полной версии принимает программа, а не страница:
+            // подделать его правкой памяти браузера нельзя
+            "window.PVSPDF_FULL = " + (License.IsFull() ? "true" : "false") + ";" +
+            "window.PVSPDF_LIC = " + JsonSerializer.Serialize(new
+            {
+                org = License.Org,
+                key = License.Key,
+                until = License.Until,
+                machine = License.MachineId(),
+                machineName = License.MachineName(),
+            }) + ";");
 
         core.Navigate("https://pvspdf.local/index.html");
 
@@ -403,6 +414,27 @@ public class MainForm : Form
             else if (type == "cancelScan")
             {
                 try { _scanCancel?.Cancel(); } catch { }
+            }
+            else if (type == "licenseSave")
+            {
+                // Ответ сервера принимаем только с верной подписью
+                string payload = root.TryGetProperty("payload", out var pl) ? (pl.GetString() ?? "") : "";
+                string sig = root.TryGetProperty("sig", out var sg) ? (sg.GetString() ?? "") : "";
+                bool ok = License.Save(payload, sig);
+                SendUpdate(new
+                {
+                    type = "licenseState",
+                    full = License.IsFull(),
+                    accepted = ok,
+                    org = License.Org,
+                    key = License.Key,
+                    until = License.Until,
+                });
+            }
+            else if (type == "licenseClear")
+            {
+                License.Clear();
+                SendUpdate(new { type = "licenseState", full = false, accepted = true, org = "", key = "", until = "" });
             }
             else if (type == "scanDriverUi")
             {

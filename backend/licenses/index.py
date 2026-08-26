@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 
 import psycopg2
 
+from signing import ensure_keys, public_key_raw, sign_payload
+
 
 CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -96,6 +98,66 @@ def _row(r) -> dict:
 FIELDS = 'id, org_name, license_key, valid_until, seats, contact, note, status, activations, created_at'
 
 
+def _seat_check(cur, lic_id: int, machine: str, machine_name: str, seats: int) -> int:
+    '''Учёт компьютеров. Возвращает число машин, если мест не хватает,
+    и ноль, когда всё в порядке. Знакомая машина пропускается всегда —
+    иначе лицензия слетала бы при каждом обычном запуске'''
+    if not machine:
+        return 0
+
+    cur.execute(
+        f"SELECT 1 FROM {SCHEMA}.license_machines "
+        f"WHERE license_id = {lic_id} AND machine_id = '{machine}'"
+    )
+    known = cur.fetchone() is not None
+
+    if known:
+        cur.execute(
+            f"UPDATE {SCHEMA}.license_machines SET last_seen = NOW(), machine_name = '{machine_name}' "
+            f"WHERE license_id = {lic_id} AND machine_id = '{machine}'"
+        )
+        return 0
+
+    # Новая машина: считаем занятые места за последние полгода.
+    # Давно не выходившие на связь компьютеры место не занимают —
+    # так лицензия сама освобождается при замене техники
+    cur.execute(
+        f"SELECT COUNT(*) FROM {SCHEMA}.license_machines "
+        f"WHERE license_id = {lic_id} AND last_seen > NOW() - INTERVAL '180 days'"
+    )
+    used = int(cur.fetchone()[0])
+
+    if used >= max(1, seats):
+        return used
+
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.license_machines (license_id, machine_id, machine_name) "
+        f"VALUES ({lic_id}, '{machine}', '{machine_name}') "
+        f"ON CONFLICT (license_id, machine_id) DO UPDATE SET last_seen = NOW()"
+    )
+    return 0
+
+
+def _sign_result(cur, key: str, machine: str, result: dict) -> dict:
+    '''Подписанный ответ. Внутри — тот же вердикт, плюс отпечаток машины
+    и время: чужой или старый ответ подставить не выйдет'''
+    payload = {
+        'key': key,
+        'machine': machine,
+        'valid': bool(result.get('valid')),
+        'org': result.get('org_name', ''),
+        'until': result.get('valid_until', ''),
+        'issued': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }
+    private_pem, _ = ensure_keys(cur, SCHEMA)
+    text, sig = sign_payload(private_pem, payload)
+
+    # Отдаём подписанные данные СТРОКОЙ: программа проверяет подпись
+    # ровно по тем байтам, что подписал сервер. Если пересобрать их
+    # из объекта, порядок полей может измениться и подпись «сломается»
+    return {'payload': text, 'sig': sig}
+
+
 def handler(event, context):
     '''Управление ключами активации: список, создание, изменение, удаление и публичная проверка ключа'''
     method = event.get('httpMethod', 'GET')
@@ -127,8 +189,13 @@ def handler(event, context):
             conn.close()
             return _resp(400, {'valid': False, 'error': 'Ключ не указан'})
 
+        # Отпечаток компьютера: программа считает его сама и присылает.
+        # По нему видно, на скольких машинах работает один ключ
+        machine = _esc(str(body.get('machine_id', '')).strip())[:60]
+        machine_name = _esc(str(body.get('machine_name', '')).strip())[:200]
+
         cur.execute(
-            f"SELECT id, org_name, valid_until, status FROM {SCHEMA}.licenses WHERE license_key = '{key}'"
+            f"SELECT id, org_name, valid_until, status, seats FROM {SCHEMA}.licenses WHERE license_key = '{key}'"
         )
         row = cur.fetchone()
 
@@ -142,13 +209,14 @@ def handler(event, context):
         if not row:
             log(None, 'not_found')
             result = {'valid': False, 'reason': 'Ключ не найден'}
+            result['signed'] = _sign_result(cur, key, machine, result)
             if app_ver:
                 result['update'] = _latest_release(cur, app_ver)
             cur.close()
             conn.close()
             return _resp(200, result)
 
-        lic_id, org, until, status = row
+        lic_id, org, until, status, seats = row
         today = datetime.utcnow().date()
         if status != 'active':
             log(lic_id, 'blocked')
@@ -157,11 +225,29 @@ def handler(event, context):
             log(lic_id, 'expired')
             result = {'valid': False, 'reason': 'Срок действия истёк', 'org_name': org, 'valid_until': str(until)}
         else:
-            log(lic_id, 'ok')
-            result = {'valid': True, 'org_name': org, 'valid_until': str(until), 'days_left': (until - today).days}
-            cur.execute(
-                f"UPDATE {SCHEMA}.licenses SET activations = activations + 1, last_check_at = NOW() WHERE license_key = '{key}'"
-            )
+            over = _seat_check(cur, lic_id, machine, machine_name, int(seats or 1))
+            if over:
+                log(lic_id, 'seats_exceeded')
+                result = {
+                    'valid': False,
+                    'reason': f'Ключ уже используется на {over} компьютерах — оплачено мест: {seats}',
+                    'org_name': org,
+                }
+            else:
+                log(lic_id, 'ok')
+                result = {
+                    'valid': True,
+                    'org_name': org,
+                    'valid_until': str(until),
+                    'days_left': (until - today).days,
+                }
+                cur.execute(
+                    f"UPDATE {SCHEMA}.licenses SET activations = activations + 1, last_check_at = NOW() WHERE license_key = '{key}'"
+                )
+
+        # Ответ подписываем: программа примет его, только если подпись
+        # сходится с публичным ключом внутри неё
+        result['signed'] = _sign_result(cur, key, machine, result)
 
         if app_ver:
             result['update'] = _latest_release(cur, app_ver)
@@ -174,6 +260,32 @@ def handler(event, context):
         cur.close()
         conn.close()
         return _resp(401, {'error': 'Нет доступа'})
+
+    if action == 'public_key':
+        _, public_pem = ensure_keys(cur, SCHEMA)
+        raw = public_key_raw(public_pem)
+        cur.close()
+        conn.close()
+        return _resp(200, {'public_key': raw})
+
+    if action == 'machines':
+        lic_id = int(body.get('id') or params.get('id') or 0)
+        cur.execute(
+            f"SELECT machine_id, machine_name, first_seen, last_seen FROM {SCHEMA}.license_machines "
+            f"WHERE license_id = {lic_id} ORDER BY last_seen DESC LIMIT 200"
+        )
+        items = [
+            {
+                'machine_id': r[0],
+                'machine_name': r[1] or '',
+                'first_seen': r[2].strftime('%Y-%m-%d %H:%M') if r[2] else '',
+                'last_seen': r[3].strftime('%Y-%m-%d %H:%M') if r[3] else '',
+            }
+            for r in cur.fetchall()
+        ]
+        cur.close()
+        conn.close()
+        return _resp(200, {'items': items})
 
     if action == 'list' or (method == 'GET' and not action):
         search = _esc(params.get('search', '').strip())
