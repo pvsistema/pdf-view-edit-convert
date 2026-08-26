@@ -57,8 +57,36 @@ const BuildPanel = () => {
 
       {info && (
         <>
-          <div className="mt-6 flex items-center justify-between">
-            <span className="label-caps">Команда перед сборкой</span>
+          <div className="mt-6 border border-foreground p-5">
+            <div className="font-head text-[0.88rem] font-bold">Как защитить модуль</div>
+            <p className="mt-2 text-[0.84rem] leading-relaxed text-muted-foreground">
+              Скачайте файл ключа и положите его в папку проекта, в{' '}
+              <code className="font-mono text-[0.8rem]">desktop\module.key</code>. Сборка
+              подхватит его сама — вводить ничего не нужно ни сейчас, ни потом.
+            </p>
+            <button
+              onClick={() => {
+                const blob = new Blob([info.module_key], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'module.key';
+                a.click();
+                URL.revokeObjectURL(url);
+                toast({
+                  title: 'Файл сохранён',
+                  description: 'Положите module.key в папку desktop проекта',
+                });
+              }}
+              className="btn-block mt-4"
+            >
+              <Icon name="Download" size={15} />
+              Скачать файл ключа
+            </button>
+          </div>
+
+          <div className="mt-7 flex items-center justify-between">
+            <span className="label-caps">Или задать вручную</span>
             <button
               onClick={() => setShown((v) => !v)}
               className="flex items-center gap-1.5 text-[0.78rem] text-muted-foreground hover:text-primary"
@@ -82,8 +110,10 @@ const BuildPanel = () => {
           </div>
 
           <p className="mt-2.5 text-[0.78rem] leading-relaxed text-muted-foreground">
-            Выполните её в том же окне командной строки, где запускаете{' '}
-            <code className="font-mono">build.bat installer</code>.
+            Выполните её в том же окне командной строки <b>до</b> запуска{' '}
+            <code className="font-mono">build.bat installer</code>. Дождитесь приглашения
+            командной строки: если вставить команду, пока сборка ещё идёт, первые символы
+            потеряются и ключ не применится.
           </p>
 
           <div className="mt-7">

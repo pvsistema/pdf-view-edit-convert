@@ -132,11 +132,19 @@ if not exist "%ROOT%\scripts\encrypt-module.mjs" (
     echo        Update the project - this file protects the paid OCR module.
     goto :fail
 )
+REM Module key: taken from desktop\module.key next to the project.
+REM The file is created once (admin panel -> Sborka -> download) and is
+REM never committed, so nobody has to paste the key by hand every time.
+set "MODULE_KEY_FILE=%ROOT%\desktop\module.key"
+if "%PVSPDF_MODULE_KEY%"=="" if exist "%MODULE_KEY_FILE%" (
+    for /f "usebackq tokens=* delims=" %%k in (`powershell -NoProfile -Command "(Get-Content -Raw '%MODULE_KEY_FILE%').Trim()"`) do set "PVSPDF_MODULE_KEY=%%k"
+)
 if "%PVSPDF_MODULE_KEY%"=="" (
     echo     Module key: NOT SET - OCR module will stay UNPROTECTED
-    echo                 Get the command in admin panel, tab "Sborka".
+    echo                 Admin panel -^> Sborka -^> "Skachat fayl klyucha",
+    echo                 save it as desktop\module.key and build again.
 ) else (
-    echo     Module key: set - OCR module will be protected
+    echo     Module key: OK - OCR module will be protected
 )
 echo     OK
 echo.
