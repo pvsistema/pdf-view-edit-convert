@@ -13,7 +13,7 @@ import { join } from 'node:path';
 const [, , outDir = 'dist-desktop', secret = ''] = process.argv;
 
 if (!secret) {
-  console.error('Не указан ключ модуля. Модуль остаётся незашифрованным.');
+  console.error('ERROR: module key is empty - OCR module stays unprotected.');
   process.exit(1);
 }
 
@@ -23,14 +23,14 @@ let files;
 try {
   files = readdirSync(assets);
 } catch {
-  console.error(`Папка сборки не найдена: ${assets}`);
+  console.error(`ERROR: build folder not found: ${assets}`);
   process.exit(1);
 }
 
 // Модуль уже защищён — так бывает при повторном запуске.
 // Это не ошибка: просто выходим, ничего не ломая
 if (files.includes('ocr.bin')) {
-  console.log('Модуль уже защищён — пропускаем.');
+  console.log('    OCR module already protected - skipping.');
   process.exit(0);
 }
 
@@ -38,7 +38,7 @@ if (files.includes('ocr.bin')) {
 const target = files.find((f) => /^ocr-.*\.js$/.test(f));
 
 if (!target) {
-  console.error('Модуль распознавания в сборке не найден.');
+  console.error('ERROR: OCR module not found in the build.');
   process.exit(1);
 }
 
@@ -60,5 +60,5 @@ writeFileSync(join(assets, 'ocr.bin'), out);
 rmSync(path);
 
 console.log(
-  `Модуль защищён: ${target} -> ocr.bin (${(out.length / 1024).toFixed(0)} КБ)`,
+  `    OCR module protected: ${target} -> ocr.bin (${(out.length / 1024).toFixed(0)} KB)`,
 );

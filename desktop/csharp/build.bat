@@ -1,8 +1,21 @@
 @echo off
 REM Force a stable code page so this .bat is parsed identically on any PC.
-REM (This file is pure ASCII - no national characters anywhere.)
+REM (This file is pure ASCII - no national characters anywhere.
+REM  A single Cyrillic letter here breaks parsing and the window
+REM  closes instantly with no message. Keep it English-only.)
 chcp 437 >nul 2>nul
 setlocal enabledelayedexpansion
+
+REM Double-clicked from Explorer? Re-run in a window that stays open,
+REM so a parse error is readable instead of flashing by.
+REM Delayed expansion here on purpose: a project path with & or ( )
+REM would break the line if the value were substituted before parsing.
+echo !CMDCMDLINE! | find /i "/c" >nul
+if not errorlevel 1 if not defined PVSPDF_BUILD_RERUN (
+    set "PVSPDF_BUILD_RERUN=1"
+    cmd /k ""%~f0" %*"
+    exit /b
+)
 
 REM ============================================================
 REM  PV-Sistema PDF desktop build (PVSPDF.exe)
@@ -114,6 +127,17 @@ if not exist "%APP_DIR%\PvsPdfApp.csproj" (
     echo ERROR: C# project missing: %APP_DIR%
     goto :fail
 )
+if not exist "%ROOT%\scripts\encrypt-module.mjs" (
+    echo ERROR: scripts\encrypt-module.mjs not found at %ROOT%\scripts
+    echo        Update the project - this file protects the paid OCR module.
+    goto :fail
+)
+if "%PVSPDF_MODULE_KEY%"=="" (
+    echo     Module key: NOT SET - OCR module will stay UNPROTECTED
+    echo                 Get the command in admin panel, tab "Sborka".
+) else (
+    echo     Module key: set - OCR module will be protected
+)
 echo     OK
 echo.
 
@@ -128,8 +152,8 @@ if not exist "%ROOT%\dist-desktop\index.html" (
     goto :fail
 )
 
-REM Платный модуль распознавания шифруем: в программу он попадает
-REM закрытым, ключ выдаёт сервер по действующей лицензии
+REM Encrypt the paid OCR module: it ships closed, the server hands out
+REM the key only for a valid license.
 if "%PVSPDF_MODULE_KEY%"=="" goto :skip_encrypt
 
 call node "%ROOT%\scripts\encrypt-module.mjs" "%ROOT%\dist-desktop" "%PVSPDF_MODULE_KEY%"
