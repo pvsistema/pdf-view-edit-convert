@@ -11,6 +11,7 @@ public class MainForm : Form
     readonly DateTime _startedAt = DateTime.UtcNow;
     string _webRoot = "";
     string _openDir = "";
+    CancellationTokenSource? _scanCancel;
 
     public MainForm(string[]? openFiles = null)
     {
@@ -255,6 +256,18 @@ public class MainForm : Form
                 }
                 catch { }
             }
+
+            // Снимки сканера лежат в отдельных папках — убираем те,
+            // что остались от прошлых запусков, чтобы диск не забивался
+            foreach (string d in Directory.GetDirectories(_openDir))
+            {
+                try
+                {
+                    if (Directory.GetCreationTimeUtc(d) >= started) continue;
+                    Directory.Delete(d, true);
+                }
+                catch { }
+            }
         }
         catch { }
     }
@@ -370,6 +383,27 @@ public class MainForm : Form
             {
                 Updater.Stop();
             }
+            else if (type == "listScanners")
+            {
+                _ = ListScannersAsync();
+            }
+            else if (type == "scan")
+            {
+                var opt = new Scanner.Options
+                {
+                    DeviceId = root.TryGetProperty("device", out var dv) ? (dv.GetString() ?? "") : "",
+                    Dpi = root.TryGetProperty("dpi", out var dp) ? dp.GetInt32() : 300,
+                    Color = root.TryGetProperty("color", out var cl) ? (cl.GetString() ?? "color") : "color",
+                    Feeder = root.TryGetProperty("feeder", out var fd) && fd.GetBoolean(),
+                    Duplex = root.TryGetProperty("duplex", out var dx) && dx.GetBoolean(),
+                    Limit = root.TryGetProperty("limit", out var lm) ? lm.GetInt32() : 0,
+                };
+                _ = ScanAsync(opt);
+            }
+            else if (type == "cancelScan")
+            {
+                try { _scanCancel?.Cancel(); } catch { }
+            }
         }
         catch { }
     }
@@ -425,6 +459,78 @@ public class MainForm : Form
         {
             Updater.End();
         }
+    }
+
+    // Список сканеров опрашиваем в стороне от окна: у сетевых устройств
+    // ответ занимает секунды, и программа не должна на это замирать
+    async Task ListScannersAsync()
+    {
+        var list = await Task.Run(() => Scanner.List());
+        SendUpdate(new
+        {
+            type = "scanners",
+            items = list.Select(d => new { id = d.Id, name = d.Name, feeder = d.HasFeeder, duplex = d.HasDuplex }),
+        });
+    }
+
+    // Сканирование пачки. Каждый снятый лист сразу уходит в интерфейс,
+    // поэтому страницы появляются на экране по ходу работы
+    async Task ScanAsync(Scanner.Options opt)
+    {
+        if (_scanCancel != null)
+        {
+            SendUpdate(new { type = "scanDone", ok = false, error = "Сканирование уже идёт." });
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _scanCancel = cts;
+
+        string dir = Path.Combine(_openDir, "scan_" + DateTime.Now.Ticks);
+
+        try
+        {
+            SendUpdate(new { type = "scanState", state = "start" });
+
+            var files = await Task.Run(() => Scanner.Scan(
+                opt,
+                dir,
+                (n, path) => SendUpdate(new
+                {
+                    type = "scanPage",
+                    index = n,
+                    url = FileUrl(path),
+                }),
+                cts.Token), cts.Token);
+
+            SendUpdate(new
+            {
+                type = "scanDone",
+                ok = true,
+                pages = files.Select(FileUrl),
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            SendUpdate(new { type = "scanDone", ok = false, cancelled = true });
+        }
+        catch (Exception ex)
+        {
+            SendUpdate(new { type = "scanDone", ok = false, error = ex.Message });
+        }
+        finally
+        {
+            _scanCancel = null;
+            cts.Dispose();
+        }
+    }
+
+    // Путь к файлу внутри папки открытых документов — в виде адреса,
+    // по которому его прочитает просмотрщик
+    string FileUrl(string path)
+    {
+        string rel = Path.GetRelativePath(_openDir, path).Replace('\\', '/');
+        return "https://pvspdf.file/" + rel;
     }
 
     void SendUpdate(object payload)

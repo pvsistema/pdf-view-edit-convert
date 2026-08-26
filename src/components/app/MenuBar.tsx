@@ -6,6 +6,7 @@ import { pageText } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
+import ScanDialog from '@/components/app/ScanDialog';
 import { isDesktop } from '@/lib/desktop';
 import { useTabs, useTabActive } from '@/context/TabsContext';
 
@@ -36,9 +37,12 @@ const MenuBar = () => {
   const tabsApi = useTabs();
   const onScreen = useTabActive();
 
-  const [menu, setMenu] = useState<'file' | 'edit' | null>(null);
+  const [menu, setMenu] = useState<'file' | 'edit' | 'scan' | null>(null);
   const [askName, setAskName] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
+  const [showScan, setShowScan] = useState(false);
+  const [scanMode, setScanMode] = useState<'single' | 'batch'>('single');
+  const [scanAppend, setScanAppend] = useState(false);
 
   const [draft, setDraft] = useState('');
   const openInput = useRef<HTMLInputElement>(null);
@@ -273,6 +277,46 @@ const MenuBar = () => {
     },
   ];
 
+  // Сканер доступен только в программе: браузеру Windows
+  // доступ к устройству не даёт
+  const canScan = isDesktop();
+
+  const openScan = (mode: 'single' | 'batch', addTo = false) =>
+    act(() => {
+      if (!canScan) {
+        toast({
+          title: 'Сканирование в программе',
+          description: 'Установите ПВ-Систему PDF на компьютер — браузеру доступ к сканеру закрыт',
+        });
+        return;
+      }
+      setScanMode(mode);
+      setScanAppend(addTo);
+      setShowScan(true);
+    });
+
+  const scanItems: MenuItem[] = [
+    {
+      icon: 'Scan',
+      label: 'Сканировать страницу',
+      fn: openScan('single'),
+      on: true,
+    },
+    {
+      icon: 'Layers',
+      label: 'Пакетное сканирование',
+      fn: openScan('batch'),
+      on: true,
+    },
+    {
+      icon: 'FilePlus2',
+      label: 'Добавить скан к документу',
+      fn: openScan('batch', true),
+      on: has,
+      sep: true,
+    },
+  ];
+
   return (
     <div className="flex items-center gap-1">
       <MenuShell
@@ -288,6 +332,14 @@ const MenuBar = () => {
         onToggle={() => setMenu((m) => (m === 'edit' ? null : 'edit'))}
         onClose={() => setMenu((m) => (m === 'edit' ? null : m))}
         items={editItems}
+      />
+
+      <MenuShell
+        title="Сканировать"
+        open={menu === 'scan'}
+        onToggle={() => setMenu((m) => (m === 'scan' ? null : 'scan'))}
+        onClose={() => setMenu((m) => (m === 'scan' ? null : m))}
+        items={scanItems}
       />
 
       <input
@@ -324,6 +376,25 @@ const MenuBar = () => {
       />
 
 
+
+      {showScan && (
+        <ScanDialog
+          batch={scanMode === 'batch'}
+          onReady={async (f) => {
+            // Листы либо присоединяются к открытому документу,
+            // либо становятся новым документом в своей вкладке
+            if (scanAppend) {
+              await append(f);
+              toast({ title: 'Страницы добавлены', description: 'Сканы в конце документа' });
+            } else if (tabsApi) {
+              tabsApi.openTab(f);
+            } else {
+              await open(f);
+            }
+          }}
+          onClose={() => setShowScan(false)}
+        />
+      )}
 
       {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
 

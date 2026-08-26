@@ -145,6 +145,59 @@ export const onUpdateState = (cb: (s: UpdateState) => void) => {
   };
 };
 
+// Сканирование. Работает только в программе: браузер к сканеру
+// доступа не имеет, поэтому в веб-версии пункт меню скрыт
+export type ScanDevice = { id: string; name: string; feeder: boolean; duplex: boolean };
+
+export type ScanOptions = {
+  device: string;
+  dpi: number;
+  color: 'color' | 'gray' | 'bw';
+  feeder: boolean;
+  duplex: boolean;
+  limit: number;
+};
+
+export const listScanners = () => send({ type: 'listScanners' });
+
+export const startScan = (o: ScanOptions) => send({ type: 'scan', ...o });
+
+export const cancelScan = () => send({ type: 'cancelScan' });
+
+// Общая подписка на ответы программы: один обработчик вместо трёх
+const listen = <T>(kind: string, cb: (d: T) => void) => {
+  const handler = (e: MessageEvent) => {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d?.type === kind) cb(d as T);
+    } catch {
+      /* игнорируем чужие сообщения */
+    }
+  };
+  window.chrome?.webview?.addEventListener?.('message', handler as EventListener);
+  window.addEventListener('message', handler);
+  return () => {
+    window.chrome?.webview?.removeEventListener?.('message', handler as EventListener);
+    window.removeEventListener('message', handler);
+  };
+};
+
+export const onScanners = (cb: (list: ScanDevice[]) => void) =>
+  listen<{ items: ScanDevice[] }>('scanners', (d) => cb(d.items || []));
+
+// Лист снят — показываем его сразу, не дожидаясь всей пачки
+export const onScanPage = (cb: (p: { index: number; url: string }) => void) =>
+  listen<{ index: number; url: string }>('scanPage', cb);
+
+export type ScanResult = {
+  ok: boolean;
+  cancelled?: boolean;
+  pages?: string[];
+  error?: string;
+};
+
+export const onScanDone = (cb: (r: ScanResult) => void) => listen<ScanResult>('scanDone', cb);
+
 export type DesktopDoc = { name: string; url?: string; file?: File; size?: number };
 
 export const onDesktopFile = (cb: (doc: DesktopDoc) => void) => {
