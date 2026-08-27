@@ -63,6 +63,9 @@ Name: "assocpdf"; Description: "Открывать файлы PDF этой пр�
 [Files]
 Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\app_version.txt"; DestDir: "{app}"; Flags: ignoreversion
+; Помощник сканирования: через него работают сканеры, драйверы которых
+; ставит производитель. Без него видны только сканеры, известные Windows
+Source: "{#SourceDir}\PVSPDF-twain.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}\pvspdf.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}\web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -114,6 +117,8 @@ begin
   Exec(ExpandConstant('{cmd}'), '/c net stop PVSPDFService /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{cmd}'), '/c net stop PVSPDFPrint /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM PVSPDF.exe /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  // Помощник сканирования тоже освобождаем, иначе его файл будет занят
+  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM PVSPDF-twain.exe /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Sleep(800);
 end;
 

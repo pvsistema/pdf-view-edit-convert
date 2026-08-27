@@ -43,6 +43,8 @@ internal static class Scanner
     public sealed class Options
     {
         public string DeviceId = "";
+        public string DeviceName = "";   // нужно драйверам TWAIN
+        public bool Twain;               // работать через драйвер производителя
         public int Dpi = 300;
         public string Color = "color";   // color | gray | bw
         public bool Feeder;              // брать из автоподатчика
@@ -56,11 +58,52 @@ internal static class Scanner
         public string Name = "";
         public bool HasFeeder;
         public bool HasDuplex;
+        public bool Twain;               // найден через драйвер производителя
     }
 
-    // Список подключённых сканеров. Если служба недоступна,
-    // возвращаем пустой список — интерфейс сам объяснит это пользователю
-    public static List<Device> List() => Sta(ListCore);
+    // Все сканеры компьютера: и те, что видит Windows, и те, что доступны
+    // только через драйвер производителя. Второй список закрывает МФУ
+    // вроде Kyocera, где производитель не поставляет драйвер для Windows
+    public static List<Device> List()
+    {
+        var found = Sta(ListCore);
+
+        try
+        {
+            foreach (var t in TwainBridge.List())
+            {
+                // Одно и то же устройство может попасть в оба списка.
+                // Показываем его один раз — тем способом, что уже найден
+                bool same = found.Any(d => Same(d.Name, t.Name));
+                if (same) continue;
+
+                found.Add(new Device
+                {
+                    Id = "twain:" + t.Name,
+                    Name = t.Name,
+                    HasFeeder = t.HasFeeder,
+                    HasDuplex = t.HasDuplex,
+                    Twain = true,
+                });
+            }
+        }
+        catch { }
+
+        return found;
+    }
+
+    // Названия у одного устройства слегка расходятся: «Kyocera ECOSYS
+    // M2040dn» и «Kyocera ECOSYS M2040dn WIA». Сравниваем по сути
+    static bool Same(string a, string b)
+    {
+        string Clean(string s) => new string(s.ToLowerInvariant()
+            .Replace("wia-", "").Replace("wia ", "")
+            .Replace("twain", "")
+            .Where(char.IsLetterOrDigit).ToArray());
+
+        string x = Clean(a), y = Clean(b);
+        return x.Length > 0 && (x == y || x.Contains(y) || y.Contains(x));
+    }
 
     // Почему список пуст. Разбираем причину, чтобы человек знал,
     // что именно чинить, а не гадал над общим «сканер не найден»
@@ -88,10 +131,13 @@ internal static class Scanner
         }
         catch { }
 
-        if (twain)
-            return "Windows не видит сканер, хотя драйвер TWAIN на компьютере есть. Так бывает у Kyocera и других МФУ: производитель ставит только TWAIN, а Windows нужен драйвер WIA. Скачайте на сайте производителя драйвер с пометкой WIA либо полный пакет для вашей модели — после этого сканер появится здесь. Сетевое устройство сначала добавьте в «Принтеры и сканеры».";
+        if (twain && !TwainBridge.Available())
+            return "На компьютере есть драйвер сканера, но не установлен помощник сканирования. Переустановите программу — он ставится вместе с ней.";
 
-        return "Windows не нашла ни одного сканера. Проверьте питание и кабель, установите драйвер производителя, а сетевое устройство добавьте в разделе «Принтеры и сканеры».";
+        if (twain)
+            return "Драйвер сканера на компьютере есть, но устройство не отвечает. Проверьте питание и кабель, закройте другие программы сканирования — драйвер работает только с одной. Сетевое устройство должно быть добавлено в программе производителя.";
+
+        return "Ни одного сканера не найдено. Проверьте питание и кабель, установите драйвер производителя, а сетевое устройство добавьте в разделе «Принтеры и сканеры».";
     }
 
     static List<Device> ListCore()
@@ -167,7 +213,16 @@ internal static class Scanner
     // у которых свои настройки: подсветка, обрезка полей, очистка фона.
     // Снимки оттуда попадают в программу как обычные страницы
     public static List<string> ShowDriverUi(string deviceId, string dir)
-        => Sta(() => ShowDriverUiCore(deviceId, dir));
+    {
+        // У устройств производителя своё окно настроек — открываем его
+        if (deviceId.StartsWith("twain:"))
+        {
+            var opt = new Options { DeviceName = deviceId.Substring(6) };
+            return TwainBridge.Scan(opt, dir, true, (_, _) => { }, CancellationToken.None);
+        }
+
+        return Sta(() => ShowDriverUiCore(deviceId, dir));
+    }
 
     static List<string> ShowDriverUiCore(string deviceId, string dir)
     {
@@ -300,7 +355,14 @@ internal static class Scanner
     // onPage вызывается после каждого листа — интерфейс сразу показывает,
     // сколько уже отсканировано, не дожидаясь всей пачки
     public static List<string> Scan(Options opt, string dir, Action<int, string> onPage, CancellationToken token)
-        => Sta(() => ScanCore(opt, dir, onPage, token));
+    {
+        // Устройство от производителя снимаем через помощника:
+        // Windows о таком сканере не знает и помочь не может
+        if (opt.Twain || opt.DeviceId.StartsWith("twain:"))
+            return TwainBridge.Scan(opt, dir, false, onPage, token);
+
+        return Sta(() => ScanCore(opt, dir, onPage, token));
+    }
 
     static List<string> ScanCore(Options opt, string dir, Action<int, string> onPage, CancellationToken token)
     {

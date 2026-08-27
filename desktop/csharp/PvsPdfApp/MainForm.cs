@@ -409,6 +409,14 @@ public class MainForm : Form
                     Duplex = root.TryGetProperty("duplex", out var dx) && dx.GetBoolean(),
                     Limit = root.TryGetProperty("limit", out var lm) ? lm.GetInt32() : 0,
                 };
+
+                // Устройству от производителя нужно имя, а не системный код
+                if (opt.DeviceId.StartsWith("twain:"))
+                {
+                    opt.Twain = true;
+                    opt.DeviceName = opt.DeviceId.Substring(6);
+                }
+
                 _ = ScanAsync(opt);
             }
             else if (type == "cancelScan")
@@ -508,7 +516,14 @@ public class MainForm : Form
         SendUpdate(new
         {
             type = "scanners",
-            items = list.Select(d => new { id = d.Id, name = d.Name, feeder = d.HasFeeder, duplex = d.HasDuplex }),
+            items = list.Select(d => new
+            {
+                id = d.Id,
+                name = d.Name,
+                feeder = d.HasFeeder,
+                duplex = d.HasDuplex,
+                twain = d.Twain,
+            }),
             hint,
         });
     }

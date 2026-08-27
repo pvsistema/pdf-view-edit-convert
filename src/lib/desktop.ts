@@ -155,7 +155,14 @@ export const onUpdateState = (cb: (s: UpdateState) => void) => {
 
 // Сканирование. Работает только в программе: браузер к сканеру
 // доступа не имеет, поэтому в веб-версии пункт меню скрыт
-export type ScanDevice = { id: string; name: string; feeder: boolean; duplex: boolean };
+export type ScanDevice = {
+  id: string;
+  name: string;
+  feeder: boolean;
+  duplex: boolean;
+  // Устройство найдено через драйвер производителя, а не через Windows
+  twain?: boolean;
+};
 
 export type ScanOptions = {
   device: string;

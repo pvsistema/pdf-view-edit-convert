@@ -231,9 +231,18 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                 {devices.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
+                    {d.twain ? ' — драйвер производителя' : ''}
                   </option>
                 ))}
               </select>
+
+              {current?.twain && (
+                <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
+                  Работаем через драйвер производителя — так же, как программы для
+                  распознавания. Если сканер не отзывается, закройте другие программы
+                  сканирования: драйвер работает только с одной.
+                </p>
+              )}
 
               <div className="mt-5 grid grid-cols-2 gap-4">
                 <div>

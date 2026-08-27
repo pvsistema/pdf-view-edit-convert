@@ -34,6 +34,8 @@ popd
 
 set "CS_DIR=%ROOT%\desktop\csharp"
 set "APP_DIR=%CS_DIR%\PvsPdfApp"
+set "TWAIN_DIR=%CS_DIR%\PvsPdfTwain"
+set "TWAIN_OUT=%CS_DIR%\dist-twain"
 set "DIST=%CS_DIR%\dist"
 set "INSTALL_DIR=C:\PVSPDF"
 set "ICON_SRC=%ROOT%\public\app-icon.png"
@@ -239,6 +241,32 @@ if not exist "%DIST%\PVSPDF.exe" (
 if "%OBFUSCATE%"=="1" ( echo     OK ^(obfuscated^) ) else ( echo     OK ^(NOT obfuscated^) )
 echo.
 
+REM ---------- Scanner helper (32-bit, TWAIN) ----------
+REM Scanner drivers are almost always 32-bit, so the main 64-bit program
+REM cannot load them. This small helper does the talking and hands the
+REM pages over. Without it only Windows-known (WIA) scanners are visible.
+echo     Building scanner helper ^(32-bit, TWAIN^)...
+taskkill /F /IM PVSPDF-twain.exe >nul 2>nul
+if exist "%TWAIN_DIR%\PvsPdfTwain.csproj" (
+    REM Build in its own folder: the helper is 32-bit and its support
+    REM files must not mix with the 64-bit program
+    cd /d "%TWAIN_DIR%"
+    if exist "%TWAIN_OUT%" rmdir /S /Q "%TWAIN_OUT%"
+    call dotnet publish -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%APP_VERSION% -o "%TWAIN_OUT%" || goto :fail
+    cd /d "%APP_DIR%"
+
+    copy /Y "%TWAIN_OUT%\PVSPDF-twain.exe" "%DIST%\PVSPDF-twain.exe" >nul
+
+    if exist "%DIST%\PVSPDF-twain.exe" (
+        echo     OK - all scanners supported ^(Windows + manufacturer drivers^)
+    ) else (
+        echo     WARNING: helper was not produced - only Windows scanners will be visible
+    )
+) else (
+    echo     WARNING: helper project not found at %TWAIN_DIR%
+)
+echo.
+
 REM ---------- [4/5] Pack frontend next to exe ----------
 echo [4/5] Packing interface files...
 if exist "%DIST%\web" rmdir /S /Q "%DIST%\web"
@@ -328,6 +356,7 @@ echo ============================================================
 echo   Build finished successfully.
 echo   Output folder: %DIST%
 echo     PVSPDF.exe        (version %APP_VERSION%)
+echo     PVSPDF-twain.exe  (scanner helper, 32-bit)
 echo     web\              (interface files)
 echo     app_version.txt
 echo   Run: PVSPDF.exe

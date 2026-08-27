@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Помощник для сканеров, работающих по стандарту TWAIN.
+
+    Зачем отдельная программа. Драйверы сканеров почти всегда 32-разрядные:
+    производители (Kyocera, Canon, Brother и другие) выпускают только их.
+    Основная программа 64-разрядная и такой драйвер загрузить не может -
+    это ограничение Windows, обойти его внутри одного процесса нельзя.
+    Поэтому со сканером общается вот этот небольшой 32-разрядный помощник,
+    а результат отдаёт основной программе.
+
+    Окна у помощника нет: он запускается незаметно и сам закрывается.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>PVSPDF-twain</AssemblyName>
+    <RootNamespace>PvsPdfTwain</RootNamespace>
+    <Product>ПВ-Система PDF</Product>
+    <Company>ПВ-Система</Company>
+    <AssemblyTitle>Помощник сканирования</AssemblyTitle>
+    <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Строго 32 разряда: только так грузятся драйверы сканеров -->
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+  </PropertyGroup>
+
+</Project>
