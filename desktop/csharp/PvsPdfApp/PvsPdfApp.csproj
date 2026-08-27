@@ -9,6 +9,7 @@
     <AssemblyName>PVSPDF</AssemblyName>
     <RootNamespace>PvsPdfApp</RootNamespace>
     <ApplicationIcon>pvspdf.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>ПВ-Система PDF</Product>
     <Company>ПВ-Система</Company>
     <AssemblyTitle>ПВ-Система PDF</AssemblyTitle>

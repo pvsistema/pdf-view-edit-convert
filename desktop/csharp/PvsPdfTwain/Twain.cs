@@ -352,7 +352,12 @@ internal static class Twain
                 throw new InvalidOperationException("Сканер не найден среди устройств TWAIN.");
 
             if (Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_OPENDS, ref src) != TWRC_SUCCESS)
-                throw new InvalidOperationException("Драйвер сканера не отвечает. Возможно, устройство занято другой программой.");
+                throw new InvalidOperationException(
+                    "Драйвер сканера не смог связаться с аппаратом. " +
+                    "У сетевых МФУ адрес аппарата задаётся в настройках самого драйвера: " +
+                    "откройте «Пуск → программы производителя → настройка сканера» " +
+                    "и проверьте, что устройство там добавлено и доступно. " +
+                    "Также убедитесь, что аппарат включён и не занят другой программой.");
 
             dsOpen = true;
             Setup(ref app, ref src, opt);

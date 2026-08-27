@@ -60,6 +60,12 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "Создать значок на рабочем столе"; GroupDescription: "Значки:"
 Name: "assocpdf"; Description: "Открывать файлы PDF этой программой"; GroupDescription: "Файлы:"; Flags: unchecked
 
+[Dirs]
+; Программа работает от обычного пользователя (так требуют драйверы
+; сканеров), поэтому ей нужно право записи в свою папку — там хранится
+; лицензия. Без этого ключ активации не сохранился бы
+Name: "{app}"; Permissions: users-modify
+
 [Files]
 Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\app_version.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -88,7 +94,10 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\shell\open\command";
 
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Установка компонента просмотра..."; Flags: waituntilterminated; Check: not WebView2Installed
-Filename: "{app}\{#AppExe}"; Description: "Запустить {#AppName}"; Flags: nowait postinstall skipifsilent
+; Запускаем от обычного пользователя, а не от администратора: драйверы
+; сканеров хранят настройки аппарата отдельно для каждой учётной записи,
+; и из-под администратора сканер «не находится»
+Filename: "{app}\{#AppExe}"; Description: "Запустить {#AppName}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\web"

@@ -26,6 +26,7 @@
     <AssemblyTitle>Помощник сканирования</AssemblyTitle>
     <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Строго 32 разряда: только так грузятся драйверы сканеров -->
     <PlatformTarget>x86</PlatformTarget>
