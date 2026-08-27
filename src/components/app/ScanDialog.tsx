@@ -187,15 +187,29 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                 драйвер производителя. Сетевой сканер должен быть добавлен в разделе Windows
                 «Принтеры и сканеры».
               </p>
-              <button
-                onClick={() => {
-                  setDevices(null);
-                  listScanners();
-                }}
-                className="mt-4 border border-foreground px-4 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
-              >
-                Искать снова
-              </button>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  onClick={() => {
+                    setDevices(null);
+                    listScanners();
+                  }}
+                  className="border border-foreground px-4 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
+                >
+                  Искать снова
+                </button>
+                <button
+                  onClick={viaDriver}
+                  disabled={busy || building}
+                  title="Выбрать сканер средствами Windows"
+                  className="border border-border px-4 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:border-foreground disabled:opacity-40"
+                >
+                  Выбрать через Windows
+                </button>
+              </div>
+              <p className="mt-3 text-[0.78rem] leading-relaxed text-muted-foreground">
+                Некоторые сетевые и многофункциональные устройства не отвечают на общий
+                опрос. Окно Windows находит их напрямую — попробуйте этот способ.
+              </p>
             </div>
           )}
 

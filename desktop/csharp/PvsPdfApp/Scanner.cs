@@ -60,7 +60,9 @@ internal static class Scanner
 
     // Список подключённых сканеров. Если служба недоступна,
     // возвращаем пустой список — интерфейс сам объяснит это пользователю
-    public static List<Device> List()
+    public static List<Device> List() => Sta(ListCore);
+
+    static List<Device> ListCore()
     {
         var found = new List<Device>();
         dynamic? mgr = null;
@@ -74,7 +76,13 @@ internal static class Scanner
             {
                 try
                 {
-                    if ((int)info.Type != 1) continue;   // 1 — сканер
+                    // Тип устройства читаем мягко. Часть драйверов (в том числе
+                    // у сетевых МФУ) его не сообщает или отдаёт нестандартное
+                    // значение — раньше такой сканер молча пропадал из списка.
+                    // Отсекаем только заведомо чужое: камеры и видеоустройства
+                    int type = -1;
+                    try { type = (int)info.Type; } catch { }
+                    if (type == 2 || type == 3) continue;   // 2 - камера, 3 - видео
 
                     string id = info.DeviceID;
                     string name = Prop(info.Properties, "Name") ?? "Сканер";
@@ -100,10 +108,36 @@ internal static class Scanner
         return found;
     }
 
+    // Служба сканирования работает только в однопоточном режиме COM (STA).
+    // Из обычного фонового потока часть драйверов просто не отвечает и
+    // устройство «исчезает» — поэтому опрос уводим на собственный STA-поток
+    static T Sta<T>(Func<T> work)
+    {
+        T result = default!;
+        Exception? error = null;
+
+        var thread = new Thread(() =>
+        {
+            try { result = work(); }
+            catch (Exception ex) { error = ex; }
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+        thread.Join();
+
+        if (error != null) throw error;
+        return result;
+    }
+
     // Родное окно сканера от производителя. Нужно капризным устройствам,
     // у которых свои настройки: подсветка, обрезка полей, очистка фона.
     // Снимки оттуда попадают в программу как обычные страницы
     public static List<string> ShowDriverUi(string deviceId, string dir)
+        => Sta(() => ShowDriverUiCore(deviceId, dir));
+
+    static List<string> ShowDriverUiCore(string deviceId, string dir)
     {
         var files = new List<string>();
         Directory.CreateDirectory(dir);
@@ -129,7 +163,6 @@ internal static class Scanner
                     {
                         foreach (dynamic d in mgr.DeviceInfos)
                         {
-                            if ((int)d.Type != 1) continue;
                             if ((string)d.DeviceID != deviceId) continue;
                             device = d.Connect();
                             break;
@@ -212,6 +245,9 @@ internal static class Scanner
     // onPage вызывается после каждого листа — интерфейс сразу показывает,
     // сколько уже отсканировано, не дожидаясь всей пачки
     public static List<string> Scan(Options opt, string dir, Action<int, string> onPage, CancellationToken token)
+        => Sta(() => ScanCore(opt, dir, onPage, token));
+
+    static List<string> ScanCore(Options opt, string dir, Action<int, string> onPage, CancellationToken token)
     {
         var files = new List<string>();
         Directory.CreateDirectory(dir);
@@ -228,7 +264,10 @@ internal static class Scanner
             dynamic? info = null;
             foreach (dynamic d in mgr.DeviceInfos)
             {
-                if ((int)d.Type != 1) continue;
+                int type = -1;
+                try { type = (int)d.Type; } catch { }
+                if (type == 2 || type == 3) continue;   // камера и видео - не сканеры
+
                 if (string.IsNullOrEmpty(opt.DeviceId) || (string)d.DeviceID == opt.DeviceId)
                 {
                     info = d;
