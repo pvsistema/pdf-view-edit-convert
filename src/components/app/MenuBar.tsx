@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import { useDoc } from '@/context/DocContext';
 import { downloadBlob } from '@/lib/files';
@@ -8,7 +8,12 @@ import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import ScanDialog from '@/components/app/ScanDialog';
 import { isDesktop } from '@/lib/desktop';
+import { loadScanPrefs } from '@/lib/scanPrefs';
 import { useTabs, useTabActive } from '@/context/TabsContext';
+
+// Названия сканеров бывают длинными: в подсказке меню
+// оставляем начало, чтобы строка не разъезжалась
+const shortName = (s: string) => (s.length > 18 ? s.slice(0, 17) + '…' : s);
 
 const MenuBar = () => {
   const {
@@ -43,6 +48,8 @@ const MenuBar = () => {
   const [showScan, setShowScan] = useState(false);
   const [scanMode, setScanMode] = useState<'single' | 'batch'>('single');
   const [scanAppend, setScanAppend] = useState(false);
+  // Повтор с прошлыми настройками: окно открывается и сразу работает
+  const [quick, setQuick] = useState(false);
 
   const [draft, setDraft] = useState('');
   const openInput = useRef<HTMLInputElement>(null);
@@ -112,7 +119,8 @@ const MenuBar = () => {
         openInput.current?.click();
       } else if (k === 's' && has) {
         e.preventDefault();
-        e.shiftKey ? saveAs() : save();
+        if (e.shiftKey) saveAs();
+        else save();
       } else if (k === 'p' && has) {
         e.preventDefault();
         requestPrint();
@@ -292,8 +300,18 @@ const MenuBar = () => {
       }
       setScanMode(mode);
       setScanAppend(addTo);
+      setQuick(false);
       setShowScan(true);
     });
+
+  // Прошлые настройки: если человек уже сканировал, повтор делаем
+  // сразу — окно с настройками для этого открывать незачем.
+  // Перечитываем при открытии меню: настройки могли поменяться
+  const lastScan = useMemo(
+    () => (canScan && menu === 'scan' ? loadScanPrefs(false) : null),
+    [canScan, menu],
+  );
+  const canRepeat = !!lastScan?.device;
 
   const scanItems: MenuItem[] = [
     {
@@ -301,6 +319,19 @@ const MenuBar = () => {
       label: 'Сканировать страницу',
       fn: openScan('single'),
       on: true,
+    },
+    {
+      icon: 'RotateCw',
+      label: 'Сканировать ещё раз',
+      // Подсказываем, чем именно — чтобы нажатие не было неожиданностью
+      hint: canRepeat ? shortName(lastScan?.deviceName || '') : '',
+      fn: act(() => {
+        setScanMode('single');
+        setScanAppend(false);
+        setQuick(true);
+        setShowScan(true);
+      }),
+      on: canRepeat,
     },
     {
       icon: 'Layers',
@@ -380,6 +411,7 @@ const MenuBar = () => {
       {showScan && (
         <ScanDialog
           batch={scanMode === 'batch'}
+          quick={quick}
           onReady={async (f) => {
             // Листы либо присоединяются к открытому документу,
             // либо становятся новым документом в своей вкладке

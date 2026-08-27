@@ -16,6 +16,9 @@ import { loadScanPrefs, saveScanPrefs } from '@/lib/scanPrefs';
 
 type Props = {
   batch?: boolean;
+  // Повтор с прошлыми настройками: как только сканер найден,
+  // съёмка начинается сама — человеку ничего нажимать не нужно
+  quick?: boolean;
   onReady: (file: File) => void | Promise<void>;
   onClose: () => void;
 };
@@ -44,7 +47,7 @@ const COLORS = [
   { v: 'bw', t: 'Чёрно-белый' },
 ] as const;
 
-const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
+const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) => {
   // Настройки прошлого раза — окно открывается уже готовым к работе
   const saved = useRef(loadScanPrefs(batch)).current;
 
@@ -122,10 +125,21 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
           setError(r.error || 'Сканер не ответил');
           return;
         }
-        if (!r.pages?.length) setError('Сканер не передал ни одной страницы');
+        if (!r.pages?.length) {
+          setError('Сканер не передал ни одной страницы');
+          return;
+        }
+
+        // В быстром режиме доводим дело до конца сами: документ
+        // открывается сразу, окно закрывается
+        if (quick) autoFinish.current = true;
       }),
-    [],
+    [quick],
   );
+
+  // Сигнал «собрать документ и закрыться». Отдельно от обработчика:
+  // тому нужны свежие страницы, а они приходят чуть позже
+  const autoFinish = useRef(false);
 
   // Сканер сменили, а запомненный режим он не умеет — тихо отключаем.
   // Иначе программа попросила бы у устройства невозможное
@@ -158,6 +172,19 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     startScan({ device, dpi, color, feeder, duplex, limit });
   };
 
+  // Быстрый повтор: сканер найден — начинаем сразу, без лишних нажатий.
+  // Срабатывает один раз за открытие окна
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!quick || started.current) return;
+    if (!device || !devices?.length || busy) return;
+
+    started.current = true;
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quick, device, devices, busy]);
+
   // Настройки производителя: полезно, когда сканер плохо слушается
   // общих настроек Windows — там свои подсветка, обрезка, очистка фона
   const viaDriver = () => {
@@ -188,6 +215,15 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     }
   };
 
+  // Быстрый повтор довели до конца: страницы на месте, съёмка
+  // завершена — собираем документ и закрываем окно
+  useEffect(() => {
+    if (!autoFinish.current || busy || building || !shots.length) return;
+    autoFinish.current = false;
+    void finish();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, building, shots.length]);
+
   // Криво лежавший лист можно развернуть здесь, не сканируя заново
   const turnPage = (url: string, dir: number) =>
     setShots((list) =>
@@ -204,9 +240,15 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
       <div className="flex max-h-full w-full max-w-[720px] flex-col border border-foreground bg-background">
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <div className="label-caps">{batch ? 'Пакетное сканирование' : 'Сканирование'}</div>
+            <div className="label-caps">
+              {quick ? 'Повторное сканирование' : batch ? 'Пакетное сканирование' : 'Сканирование'}
+            </div>
             <p className="mt-1 text-[0.8rem] text-muted-foreground">
-              {batch ? 'Пачка листов в один документ' : 'Документ собирается на вашем компьютере'}
+              {quick
+                ? 'С прошлыми настройками — документ откроется сам'
+                : batch
+                  ? 'Пачка листов в один документ'
+                  : 'Документ собирается на вашем компьютере'}
             </p>
           </div>
           <button onClick={onClose} className="hover:text-destructive" title="Закрыть">
