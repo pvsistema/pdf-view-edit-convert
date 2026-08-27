@@ -12,6 +12,7 @@ import {
   type ScanDevice,
 } from '@/lib/desktop';
 import { scansToPdf, scanFileName } from '@/lib/scanToPdf';
+import { loadScanPrefs, saveScanPrefs } from '@/lib/scanPrefs';
 
 type Props = {
   batch?: boolean;
@@ -44,13 +45,16 @@ const COLORS = [
 ] as const;
 
 const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
+  // Настройки прошлого раза — окно открывается уже готовым к работе
+  const saved = useRef(loadScanPrefs(batch)).current;
+
   const [devices, setDevices] = useState<ScanDevice[] | null>(null);
   const [device, setDevice] = useState('');
-  const [dpi, setDpi] = useState(300);
-  const [color, setColor] = useState<'color' | 'gray' | 'bw'>('color');
-  const [feeder, setFeeder] = useState(false);
-  const [duplex, setDuplex] = useState(false);
-  const [limit, setLimit] = useState(0);
+  const [dpi, setDpi] = useState(saved.dpi);
+  const [color, setColor] = useState<'color' | 'gray' | 'bw'>(saved.color);
+  const [feeder, setFeeder] = useState(saved.feeder);
+  const [duplex, setDuplex] = useState(saved.duplex);
+  const [limit, setLimit] = useState(saved.limit);
 
   const [busy, setBusy] = useState(false);
   const [driver, setDriver] = useState(false);
@@ -67,15 +71,31 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
       setDevices(list);
       setHint(hint || '');
       if (list.length) {
-        setDevice((cur) => cur || list[0].id);
-        // В пакетном режиме сразу предлагаем автоподатчик,
-        // если устройство его умеет
-        setFeeder(list[0].feeder && batch);
+        setDevice((cur) => {
+          if (cur) return cur;
+
+          // Возвращаем прошлый сканер. Сначала по точному совпадению,
+          // затем по названию: у сетевых устройств системный код
+          // меняется при переподключении, а имя остаётся прежним
+          const exact = list.find((d) => d.id === saved.device);
+          if (exact) return exact.id;
+
+          const byName = saved.deviceName
+            ? list.find((d) => d.name === saved.deviceName)
+            : undefined;
+          if (byName) return byName.id;
+
+          return list[0].id;
+        });
+
+        // Автоподатчик предлагаем сами только при первом знакомстве.
+        // Дальше уважаем выбор человека, даже если он его отключил
+        if (!saved.device && !saved.deviceName) setFeeder(list[0].feeder && batch);
       }
     });
     listScanners();
     return offList;
-  }, [batch]);
+  }, [batch, saved.device, saved.deviceName]);
 
   // Снятые листы показываем сразу — видно, что работа идёт
   useEffect(
@@ -107,11 +127,34 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     [],
   );
 
-  // Снятое раньше не трогаем: страницы из нескольких заходов
-  // складываются в один документ, как в пакетной обработке
+  // Сканер сменили, а запомненный режим он не умеет — тихо отключаем.
+  // Иначе программа попросила бы у устройства невозможное
+  const canFeed = !!current?.feeder;
+  const canDuplex = !!current?.duplex;
+
+  useEffect(() => {
+    if (!canFeed) setFeeder(false);
+    if (!canDuplex) setDuplex(false);
+  }, [canFeed, canDuplex]);
+
+  // Настройки запоминаем в момент сканирования: значит, человек
+  // их обдумал и они рабочие
+  const remember = () => {
+    saveScanPrefs(batch, {
+      device,
+      deviceName: current?.name || '',
+      dpi,
+      color,
+      feeder,
+      duplex,
+      limit,
+    });
+  };
+
   const run = () => {
     setError('');
     setBusy(true);
+    remember();
     startScan({ device, dpi, color, feeder, duplex, limit });
   };
 
@@ -121,6 +164,7 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
     setError('');
     setBusy(true);
     setDriver(true);
+    remember();
     openScanDriverUi(device);
   };
 
