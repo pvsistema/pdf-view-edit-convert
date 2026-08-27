@@ -62,6 +62,38 @@ internal static class Scanner
     // возвращаем пустой список — интерфейс сам объяснит это пользователю
     public static List<Device> List() => Sta(ListCore);
 
+    // Почему список пуст. Разбираем причину, чтобы человек знал,
+    // что именно чинить, а не гадал над общим «сканер не найден»
+    public static string Diagnose() => Sta(DiagnoseCore);
+
+    static string DiagnoseCore()
+    {
+        if (MakeCom("WIA.DeviceManager") == null)
+            return "Служба сканирования Windows (WIA) не отвечает. Откройте «Службы» и запустите «Загрузка изображений (WIA)».";
+
+        // Драйвер TWAIN есть, а WIA нет — типично для Kyocera и части МФУ.
+        // Такой сканер видит FineReader, но не видит Windows: снимать его
+        // можно только через родное окно производителя
+        bool twain = false;
+        try
+        {
+            foreach (string dir in new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "twain_32"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "twain_64"),
+            })
+            {
+                if (Directory.Exists(dir) && Directory.GetDirectories(dir).Length > 0) twain = true;
+            }
+        }
+        catch { }
+
+        if (twain)
+            return "Windows не видит сканер, хотя драйвер TWAIN на компьютере есть. Так бывает у Kyocera и других МФУ: производитель ставит только TWAIN, а Windows нужен драйвер WIA. Скачайте на сайте производителя драйвер с пометкой WIA либо полный пакет для вашей модели — после этого сканер появится здесь. Сетевое устройство сначала добавьте в «Принтеры и сканеры».";
+
+        return "Windows не нашла ни одного сканера. Проверьте питание и кабель, установите драйвер производителя, а сетевое устройство добавьте в разделе «Принтеры и сканеры».";
+    }
+
     static List<Device> ListCore()
     {
         var found = new List<Device>();
@@ -197,9 +229,32 @@ internal static class Scanner
                     return files;
                 }
 
-                // Сканер не выбран — показываем полное окно Windows
-                // вместе с выбором устройства
-                dynamic? image = dialog.ShowAcquireImage(1, 0, 0x00040000, JPEG, false, true, false);
+                // Сканер не выбран — показываем полное окно Windows вместе
+                // с выбором устройства. Тип устройства НЕ ограничиваем (0):
+                // с фильтром «только сканер» Windows отвечает «не доступно
+                // ни одно устройство выбранного типа» тем МФУ, которые
+                // не сообщают о себе стандартный тип
+                dynamic? image = null;
+                try
+                {
+                    image = dialog.ShowAcquireImage(0, 0, 0x00040000, JPEG, false, true, false);
+                }
+                catch (COMException ex) when (!Cancelled(ex))
+                {
+                    // Запасной путь: сперва выбор устройства, потом съёмка.
+                    // Часть драйверов работает только такой связкой
+                    dynamic? picked = dialog.ShowSelectDevice(0, true, false);
+                    if (picked == null) return files;
+
+                    try
+                    {
+                        dynamic pickedItem = picked.Items[1];
+                        if (!dialog.ShowItemProperties(pickedItem, 0)) return files;
+                        image = pickedItem.Transfer(JPEG);
+                    }
+                    finally { Release(picked); }
+                }
+
                 Save(image, dir, files, "jpg");
                 return files;
             }

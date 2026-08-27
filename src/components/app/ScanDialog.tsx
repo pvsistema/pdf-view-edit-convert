@@ -57,13 +57,15 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
   const [building, setBuilding] = useState(false);
   const [shots, setShots] = useState<Shot[]>([]);
   const [error, setError] = useState('');
+  const [hint, setHint] = useState('');
 
   const strip = useRef<HTMLDivElement>(null);
   const current = devices?.find((d) => d.id === device);
 
   useEffect(() => {
-    const offList = onScanners((list) => {
+    const offList = onScanners((list, hint) => {
       setDevices(list);
+      setHint(hint || '');
       if (list.length) {
         setDevice((cur) => cur || list[0].id);
         // В пакетном режиме сразу предлагаем автоподатчик,
@@ -183,9 +185,8 @@ const ScanDialog = ({ batch = false, onReady, onClose }: Props) => {
                 Сканер не найден
               </div>
               <p className="mt-2 text-[0.84rem] leading-relaxed text-muted-foreground">
-                Проверьте, что устройство включено, подключено к компьютеру и для него установлен
-                драйвер производителя. Сетевой сканер должен быть добавлен в разделе Windows
-                «Принтеры и сканеры».
+                {hint ||
+                  'Проверьте, что устройство включено, подключено к компьютеру и для него установлен драйвер производителя. Сетевой сканер должен быть добавлен в разделе Windows «Принтеры и сканеры».'}
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <button

@@ -503,10 +503,13 @@ public class MainForm : Form
     async Task ListScannersAsync()
     {
         var list = await Task.Run(() => Scanner.List());
+        string hint = list.Count > 0 ? "" : await Task.Run(() => Scanner.Diagnose());
+
         SendUpdate(new
         {
             type = "scanners",
             items = list.Select(d => new { id = d.Id, name = d.Name, feeder = d.HasFeeder, duplex = d.HasDuplex }),
+            hint,
         });
     }
 

@@ -193,8 +193,8 @@ const listen = <T>(kind: string, cb: (d: T) => void) => {
   };
 };
 
-export const onScanners = (cb: (list: ScanDevice[]) => void) =>
-  listen<{ items: ScanDevice[] }>('scanners', (d) => cb(d.items || []));
+export const onScanners = (cb: (list: ScanDevice[], hint?: string) => void) =>
+  listen<{ items: ScanDevice[]; hint?: string }>('scanners', (d) => cb(d.items || [], d.hint));
 
 // Лист снят — показываем его сразу, не дожидаясь всей пачки
 export const onScanPage = (cb: (p: { index: number; url: string }) => void) =>
