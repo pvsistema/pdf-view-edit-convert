@@ -653,7 +653,9 @@ internal static class Twain
             // Всё остальное, кроме успеха, — отказ, и о нём стоит помнить
             if (rc != TWRC_SUCCESS && rc != TWRC_CHECK)
             {
-                string title = cap switch
+                // Знак вопроса означает: название может и не найтись —
+                // для настроек, о которых человеку сообщать нечего
+                string? title = cap switch
                 {
                     ICAP_XRESOLUTION or ICAP_YRESOLUTION => "качество (точек на дюйм)",
                     ICAP_PIXELTYPE => "цветность",
