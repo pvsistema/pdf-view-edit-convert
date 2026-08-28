@@ -212,6 +212,9 @@ export type ScanResult = {
   cancelled?: boolean;
   pages?: string[];
   error?: string;
+  // Настройки, которые сканер не поддержал: снимок сделан,
+  // но, например, не с тем качеством, что просили
+  ignored?: string[];
 };
 
 export const onScanDone = (cb: (r: ScanResult) => void) => listen<ScanResult>('scanDone', cb);

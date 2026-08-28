@@ -130,6 +130,14 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           return;
         }
 
+        // Сканер взял не все настройки — честно предупреждаем,
+        // иначе человек будет гадать, почему снимок не такой
+        if (r.ignored?.length)
+          toast({
+            title: 'Сканер применил свои настройки',
+            description: `Устройство не поддержало: ${r.ignored.join(', ')}`,
+          });
+
         // В быстром режиме доводим дело до конца сами: документ
         // открывается сразу, окно закрывается
         if (quick) autoFinish.current = true;

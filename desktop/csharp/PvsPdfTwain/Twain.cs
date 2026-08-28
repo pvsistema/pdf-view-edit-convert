@@ -464,6 +464,7 @@ internal static class Twain
     // такие свойства пропускаем, чтобы не срывать работу
     static void Setup(ref TwIdentity app, ref TwIdentity src, Options opt)
     {
+        refused.Clear();
         SetOne(ref app, ref src, ICAP_XFERMECH, TWTY_UINT16, TWSX_NATIVE);
         SetOne(ref app, ref src, ICAP_UNITS, TWTY_UINT16, TWUN_INCHES);
 
@@ -496,6 +497,12 @@ internal static class Twain
             opt.Limit > 0 ? (ushort)opt.Limit : unchecked((ushort)-1));
     }
 
+    // Какие настройки сканер не принял — пригодится, чтобы объяснить
+    // человеку, почему снимок вышел не таким, как он просил
+    static readonly List<string> refused = new();
+
+    public static string[] Refused() => refused.ToArray();
+
     static void SetOne(ref TwIdentity app, ref TwIdentity src, ushort cap, ushort type, ushort value)
         => SetRaw(ref app, ref src, cap, type, value);
 
@@ -504,9 +511,15 @@ internal static class Twain
     static void SetFix(ref TwIdentity app, ref TwIdentity src, ushort cap, int whole)
         => SetRaw(ref app, ref src, cap, TWTY_FIX32, (uint)(ushort)whole);
 
+    // Настройка передаётся драйверу так: сначала тип (2 байта), затем
+    // само значение. Значение начинается не сразу за типом, а с отступа
+    // в 4 байта — этого требует выравнивание памяти. Если записать его
+    // вплотную, драйвер прочитает мусор, промолчит и возьмёт своё
+    // значение по умолчанию: именно поэтому сканер игнорировал
+    // выбранное качество и всегда работал на 300 точках
     static void SetRaw(ref TwIdentity app, ref TwIdentity src, ushort cap, ushort type, uint value)
     {
-        IntPtr mem = GlobalAlloc(GHND, (UIntPtr)6);
+        IntPtr mem = GlobalAlloc(GHND, (UIntPtr)8);
         if (mem == IntPtr.Zero) return;
 
         try
@@ -515,11 +528,29 @@ internal static class Twain
             if (p == IntPtr.Zero) return;
 
             Marshal.WriteInt16(p, 0, (short)type);
-            Marshal.WriteInt32(p, 2, (int)value);
+            Marshal.WriteInt16(p, 2, 0);
+            Marshal.WriteInt32(p, 4, (int)value);
             GlobalUnlock(mem);
 
             var c = new TwCapability { Cap = cap, ConType = TWON_ONEVALUE, hContainer = mem };
-            Ds(ref app, ref src, DG_CONTROL, DAT_CAPABILITY, MSG_SET, ref c);
+            ushort rc = Ds(ref app, ref src, DG_CONTROL, DAT_CAPABILITY, MSG_SET, ref c);
+
+            // TWRC_CHECKSTATUS означает «взял, но по-своему» — это нормально.
+            // Всё остальное, кроме успеха, — отказ, и о нём стоит помнить
+            if (rc != TWRC_SUCCESS && rc != TWRC_CHECK)
+            {
+                string title = cap switch
+                {
+                    ICAP_XRESOLUTION or ICAP_YRESOLUTION => "качество (точек на дюйм)",
+                    ICAP_PIXELTYPE => "цветность",
+                    ICAP_BITDEPTH => "глубина цвета",
+                    CAP_FEEDERENABLED or CAP_AUTOFEED => "автоподатчик",
+                    CAP_DUPLEXENABLED => "двусторонняя съёмка",
+                    CAP_XFERCOUNT => "количество листов",
+                    _ => null,
+                };
+                if (title != null && !refused.Contains(title)) refused.Add(title);
+            }
         }
         catch { }
         finally { GlobalFree(mem); }

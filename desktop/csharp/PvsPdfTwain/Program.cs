@@ -91,7 +91,9 @@ internal static class Program
             Console.Out.Flush();
         });
 
-        Say(new { ok = true, pages = files });
+        // refused — настройки, которые сканер не принял. Программа
+        // предупредит о них, чтобы результат не был неожиданностью
+        Say(new { ok = true, pages = files, refused = Twain.Refused() });
         return 0;
     }
 

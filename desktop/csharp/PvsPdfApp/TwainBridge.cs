@@ -9,6 +9,10 @@ namespace PvsPdfApp;
 // не знает: Kyocera и другие МФУ, где поставлен только драйвер TWAIN.
 internal static class TwainBridge
 {
+    // Настройки, которые сканер не принял при последней съёмке.
+    // Например, дешёвая модель может не уметь 1200 точек
+    public static readonly List<string> Ignored = new();
+
     public sealed class Device
     {
         public string Name = "";
@@ -142,6 +146,19 @@ internal static class TwainBridge
 
                     if (root.TryGetProperty("ok", out var ok) && !ok.GetBoolean())
                         error = root.TryGetProperty("error", out var e) ? e.GetString() ?? "" : "";
+
+                    // Настройки, которые сканер не принял: снимок сделан,
+                    // но не совсем такой, как просили
+                    if (root.TryGetProperty("refused", out var bad) &&
+                        bad.ValueKind == JsonValueKind.Array)
+                    {
+                        Ignored.Clear();
+                        foreach (var b in bad.EnumerateArray())
+                        {
+                            string t = b.GetString() ?? "";
+                            if (t.Length > 0) Ignored.Add(t);
+                        }
+                    }
                 }
                 catch { }
             }

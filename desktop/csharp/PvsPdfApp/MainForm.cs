@@ -563,6 +563,8 @@ public class MainForm : Form
                 type = "scanDone",
                 ok = true,
                 pages = files.Select(FileUrl),
+                // Чего сканер не умеет — окно покажет подсказкой
+                ignored = TwainBridge.Ignored.ToArray(),
             });
         }
         catch (OperationCanceledException)
