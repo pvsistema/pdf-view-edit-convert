@@ -8,18 +8,22 @@ public class MainForm : Form
 {
     readonly WebView2 _web = new();
 
-    // Подготовка встроенного просмотрщика — самая долгая часть запуска.
-    // Начинаем её сразу, не дожидаясь, пока окно нарисуется: пока
-    // Windows показывает рамку, просмотрщик уже готовится
+    // Подготовка встроенного просмотрщика — самая долгая часть запуска,
+    // поэтому начинаем её заранее и не ждём завершения.
+    //
+    // ВАЖНО: только из главного потока программы. Просмотрщик заводится
+    // на том же потоке, где потом работает, и запуск из фонового
+    // заканчивался отказом «изменение режима для потока невозможно»
     static Task<CoreWebView2Environment>? _envReady;
 
     public static void WarmUp()
     {
         if (_envReady != null) return;
-        string dataDir = Path.Combine(Program.InstallDir, "data");
-        _envReady = Task.Run(async () =>
+        try
         {
+            string dataDir = Path.Combine(Program.InstallDir, "data");
             Directory.CreateDirectory(dataDir);
+
             var opts = new CoreWebView2EnvironmentOptions
             {
                 // Отключаем то, что программе не нужно: проверку сайтов
@@ -31,8 +35,17 @@ public class MainForm : Form
                     "--disable-background-timer-throttling " +
                     "--no-default-browser-check --no-first-run",
             };
-            return await CoreWebView2Environment.CreateAsync(null, dataDir, opts);
-        });
+
+            // Работа уходит вперёд сама, ждать её здесь не нужно —
+            // окно тем временем продолжает открываться
+            _envReady = CoreWebView2Environment.CreateAsync(null, dataDir, opts);
+        }
+        catch
+        {
+            // Не вышло начать заранее — не беда, окно подготовит
+            // просмотрщик обычным порядком
+            _envReady = null;
+        }
     }
 
     readonly string[] _openFiles;
@@ -79,24 +92,32 @@ public class MainForm : Form
             return;
         }
 
+        // Подготовка началась ещё до появления окна — здесь обычно
+        // остаётся только забрать готовый результат
         try
         {
-            // Подготовка началась ещё до появления окна — здесь обычно
-            // остаётся только забрать готовый результат
             WarmUp();
             var env = await _envReady!;
             await _web.EnsureCoreWebView2Async(env);
         }
-        catch (Exception ex)
+        catch
         {
-            MessageBox.Show(
-                "Не удалось запустить встроенный просмотрщик.\r\n\r\n" +
-                "Установите компонент Microsoft Edge WebView2 Runtime:\r\n" +
-                "https://developer.microsoft.com/microsoft-edge/webview2/\r\n\r\n" +
-                ex.Message,
-                "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            Close();
-            return;
+            // Заранее не получилось — заводим просмотрщик обычным
+            // порядком. Так программа откроется даже там, где ранняя
+            // подготовка почему-то не сработала
+            _envReady = null;
+            try
+            {
+                string dataDir = Path.Combine(Program.InstallDir, "data");
+                Directory.CreateDirectory(dataDir);
+                var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
+                await _web.EnsureCoreWebView2Async(env);
+            }
+            catch (Exception ex)
+            {
+                ShowViewerError(ex);
+                return;
+            }
         }
 
         var core = _web.CoreWebView2;
@@ -277,6 +298,19 @@ public class MainForm : Form
         }
         catch { }
         return "1.0.0";
+    }
+
+    // Просмотрщик не завёлся совсем — почти всегда это значит, что на
+    // компьютере не установлен нужный компонент Windows
+    void ShowViewerError(Exception ex)
+    {
+        MessageBox.Show(
+            "Не удалось запустить встроенный просмотрщик.\r\n\r\n" +
+            "Установите компонент Microsoft Edge WebView2 Runtime:\r\n" +
+            "https://developer.microsoft.com/microsoft-edge/webview2/\r\n\r\n" +
+            ex.Message,
+            "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        Close();
     }
 
     // Убираем документы, оставшиеся от прошлых запусков.
