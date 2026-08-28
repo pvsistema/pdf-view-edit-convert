@@ -210,6 +210,22 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
     setDpi(near);
   }, [ableDpi, dpi]);
 
+  // Примерный вес будущего файла. Считаем по площади листа A4:
+  // точки на дюйм в квадрате дают число точек, а сколько весит точка
+  // после сжатия — зависит от цветности. Числа опытные, для обычного
+  // документа с текстом; фотографии выйдут тяжелее
+  const weight = useMemo(() => {
+    const perDot = { color: 0.15, gray: 0.08, bw: 0.04 }[color];
+    const mb = (8.27 * dpi * (11.69 * dpi) * perDot) / (1024 * 1024);
+    const pages = feeder && limit > 0 ? limit : 1;
+    const total = mb * pages * (duplex ? 2 : 1);
+
+    const show = (v: number) =>
+      v < 1 ? `${Math.round(v * 1024)} КБ` : `${v.toFixed(v < 10 ? 1 : 0)} МБ`;
+
+    return pages > 1 ? `${show(total)} за ${pages * (duplex ? 2 : 1)} стр.` : show(total);
+  }, [dpi, color, feeder, duplex, limit]);
+
   // Быстрый повтор: сканер найден — начинаем сразу, без лишних нажатий.
   // Срабатывает один раз за открытие окна
   const started = useRef(false);
@@ -383,6 +399,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                       </option>
                     ))}
                   </select>
+                  <p className="mt-2 text-[0.76rem] text-muted-foreground">
+                    Примерный размер: {weight}
+                  </p>
                 </div>
                 <div>
                   <label className="label-caps">Цвет</label>
