@@ -32,12 +32,30 @@ export type UpdateInfo = {
   published_at?: string;
 };
 
+// Дольше этого ответа не ждём: при обрыве связи запрос мог висеть
+// минутами, и программа впустую держала соединение
+const WAIT_MS = 15000;
+
 const post = async (url: string, body: Record<string, unknown>) => {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': getToken() },
-    body: JSON.stringify(body),
-  });
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), WAIT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': getToken() },
+      body: JSON.stringify(body),
+      signal: stop.signal,
+    });
+  } catch {
+    throw new Error(
+      stop.signal.aborted ? 'Сервер не ответил вовремя' : 'Нет связи с сервером',
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
   return data;

@@ -26,13 +26,14 @@ public class MainForm : Form
 
             var opts = new CoreWebView2EnvironmentOptions
             {
-                // Отключаем то, что программе не нужно: проверку сайтов
-                // в сети, перевод страниц, фоновые службы браузера.
-                // Каждая из них отнимала доли секунды при запуске
+                // Отключаем только то, чем программа заведомо не пользуется:
+                // предложение перевести страницу, передачу видео на телевизор
+                // и проверку «браузер по умолчанию».
+                //
+                // Намеренно НЕ трогаем встроенный просмотрщик PDF (msPdfOOUI):
+                // на нём держится печать документов
                 AdditionalBrowserArguments =
-                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection," +
-                    "Translate,OptimizationHints,MediaRouter,BackgroundNetworking " +
-                    "--disable-background-timer-throttling " +
+                    "--disable-features=Translate,MediaRouter " +
                     "--no-default-browser-check --no-first-run",
             };
 
