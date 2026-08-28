@@ -25,6 +25,12 @@ export const readUpdateInfo = (): UpdateInfo | null => {
   }
 };
 
+// Версия, которую человек отложил кнопкой «Потом». Ручная проверка
+// эту отметку снимает: раз попросили проверить — значит, хотят видеть
+export const SKIP_KEY = 'pv_skip_version';
+
+export const forgetSkipped = () => localStorage.removeItem(SKIP_KEY);
+
 export const updateCheckDue = () =>
   Date.now() - Number(localStorage.getItem(UPDATE_CHECKED_AT) || 0) >= UPDATE_EVERY;
 

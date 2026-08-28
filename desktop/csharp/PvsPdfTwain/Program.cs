@@ -30,6 +30,7 @@ internal static class Program
             switch (args[0].ToLowerInvariant())
             {
                 case "list": return DoList();
+                case "caps": return DoCaps(args);
                 case "scan": return DoScan(args);
                 default: return Fail("Неизвестная команда.");
             }
@@ -46,6 +47,18 @@ internal static class Program
         {
             Handle.Close();
         }
+    }
+
+    // Какое качество умеет выбранный аппарат
+    static int DoCaps(string[] args)
+    {
+        string device = "";
+        for (int i = 1; i < args.Length - 1; i++)
+            if (args[i] == "--device") device = args[i + 1];
+
+        if (device.Length == 0) return Fail("Не указан сканер.");
+        Say(new { ok = true, dpi = Twain.Resolutions(device) });
+        return 0;
     }
 
     static int DoList()

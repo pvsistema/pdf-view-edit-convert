@@ -398,6 +398,11 @@ public class MainForm : Form
             {
                 _ = ListScannersAsync();
             }
+            else if (type == "scanCaps")
+            {
+                string dev = root.TryGetProperty("device", out var sd) ? (sd.GetString() ?? "") : "";
+                _ = ScanCapsAsync(dev);
+            }
             else if (type == "scan")
             {
                 var opt = new Scanner.Options
@@ -504,6 +509,14 @@ public class MainForm : Form
         {
             Updater.End();
         }
+    }
+
+    // Какое качество умеет аппарат. Спрашиваем в стороне от окна:
+    // драйвер отвечает не мгновенно
+    async Task ScanCapsAsync(string deviceId)
+    {
+        var dpi = await Task.Run(() => Scanner.Resolutions(deviceId));
+        SendUpdate(new { type = "scanCaps", device = deviceId, dpi });
     }
 
     // Список сканеров опрашиваем в стороне от окна: у сетевых устройств

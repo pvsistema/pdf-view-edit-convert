@@ -7,7 +7,10 @@ import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import ScanDialog from '@/components/app/ScanDialog';
-import { isDesktop } from '@/lib/desktop';
+import { isDesktop, desktopVersion } from '@/lib/desktop';
+import { APP_VERSION } from '@/lib/brand';
+import { checkUpdate } from '@/lib/adminApi';
+import { saveUpdateInfo, forgetSkipped } from '@/lib/updateStore';
 import { loadScanPrefs } from '@/lib/scanPrefs';
 import { useTabs, useTabActive } from '@/context/TabsContext';
 
@@ -58,6 +61,33 @@ const MenuBar = () => {
   const has = pages.length > 0;
   const current = pages[active];
   const close = () => setMenu(null);
+
+  // Проверка обновлений по требованию: обычная проверка идёт раз в сутки,
+  // поэтому свежий выпуск может появиться не сразу. Здесь спрашиваем
+  // сервер сейчас же и снимаем отметку «пропустить эту версию»
+  const [checking, setChecking] = useState(false);
+
+  const lookForUpdate = async () => {
+    setChecking(true);
+    const current = desktopVersion() || APP_VERSION;
+    try {
+      const r = await checkUpdate(current);
+      forgetSkipped();
+      saveUpdateInfo(r);
+
+      if (r.update_available && r.latest !== current)
+        toast({ title: 'Есть обновление', description: `Доступна версия ${r.latest}` });
+      else
+        toast({ title: 'Обновлений нет', description: `У вас последняя версия ${current}` });
+    } catch {
+      toast({
+        title: 'Не удалось проверить',
+        description: 'Нет связи с сервером обновлений — попробуйте позже',
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const makeBlob = async () => {
     // На большом документе показываем ход работы: молчаливое ожидание
@@ -174,6 +204,12 @@ const MenuBar = () => {
       fn: act(() => setShowKeys(true)),
       on: true,
       sep: true,
+    },
+    {
+      icon: 'RefreshCw',
+      label: 'Проверить обновления',
+      fn: act(() => void lookForUpdate()),
+      on: !checking,
     },
     {
       icon: 'X',

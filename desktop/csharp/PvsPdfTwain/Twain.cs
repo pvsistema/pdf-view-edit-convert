@@ -56,6 +56,9 @@ internal static class Twain
     const ushort CAP_DUPLEXENABLED = 0x1013;
 
     const ushort TWON_ONEVALUE = 5;
+    // Виды ответа драйвера о возможностях: список значений и диапазон
+    const ushort TWON_ENUMERATION = 3;
+    const ushort TWON_RANGE = 6;
     const ushort TWTY_INT16 = 1;
     const ushort TWTY_UINT16 = 4;
     const ushort TWTY_BOOL = 6;
@@ -312,6 +315,117 @@ internal static class Twain
 
         return found;
     }
+
+    // Какое качество умеет аппарат. Драйвер отвечает либо списком
+    // значений, либо диапазоном «от и до с шагом» — разбираем оба вида.
+    // Пустой ответ означает «узнать не удалось»: тогда показываем
+    // обычный набор значений, ничего не запрещая
+    public static List<int> Resolutions(string deviceName)
+    {
+        var list = new List<int>();
+        var app = MakeAppId();
+        IntPtr hwnd = Handle.Window;
+
+        if (Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_OPENDSM, ref hwnd) != TWRC_SUCCESS)
+            return list;
+
+        bool dsOpen = false;
+        var src = new TwIdentity();
+
+        try
+        {
+            ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETFIRST, ref src);
+            bool picked = false;
+
+            while (rc == TWRC_SUCCESS)
+            {
+                if (FromStr32(src.ProductName).Equals(deviceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    picked = true;
+                    break;
+                }
+                src = new TwIdentity();
+                rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETNEXT, ref src);
+                if (rc == TWRC_ENDOFLIST) break;
+            }
+
+            if (!picked) return list;
+            if (Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_OPENDS, ref src) != TWRC_SUCCESS)
+                return list;
+
+            dsOpen = true;
+            ReadCap(ref app, ref src, ICAP_XRESOLUTION, list);
+        }
+        catch { }
+        finally
+        {
+            if (dsOpen) Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_CLOSEDS, ref src);
+            Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_CLOSEDSM, ref hwnd);
+        }
+
+        list.Sort();
+        return list;
+    }
+
+    // Разбор ответа драйвера о поддерживаемых значениях
+    static void ReadCap(ref TwIdentity app, ref TwIdentity src, ushort cap, List<int> into)
+    {
+        var c = new TwCapability { Cap = cap, ConType = 0, hContainer = IntPtr.Zero };
+        if (Ds(ref app, ref src, DG_CONTROL, DAT_CAPABILITY, MSG_GET, ref c) != TWRC_SUCCESS)
+            return;
+        if (c.hContainer == IntPtr.Zero) return;
+
+        IntPtr p = GlobalLock(c.hContainer);
+        if (p == IntPtr.Zero) { GlobalFree(c.hContainer); return; }
+
+        try
+        {
+            // Список значений: тип, сколько их, текущее, по умолчанию, дальше сами значения
+            if (c.ConType == TWON_ENUMERATION)
+            {
+                ushort type = (ushort)Marshal.ReadInt16(p, 0);
+                int count = Marshal.ReadInt32(p, 2);
+                for (int i = 0; i < count && i < 64; i++)
+                    into.Add(ReadItem(p, 14 + i * ItemSize(type), type));
+            }
+            // Диапазон: от, до, с шагом
+            else if (c.ConType == TWON_RANGE)
+            {
+                ushort type = (ushort)Marshal.ReadInt16(p, 0);
+                int size = ItemSize(type);
+                int min = ReadItem(p, 2, type);
+                int max = ReadItem(p, 2 + size, type);
+                int step = Math.Max(1, ReadItem(p, 2 + size * 2, type));
+
+                for (int v = min; v <= max && into.Count < 64; v += step)
+                    into.Add(v);
+            }
+            else if (c.ConType == TWON_ONEVALUE)
+            {
+                ushort type = (ushort)Marshal.ReadInt16(p, 0);
+                into.Add(ReadItem(p, 4, type));
+            }
+        }
+        catch { }
+        finally
+        {
+            GlobalUnlock(c.hContainer);
+            GlobalFree(c.hContainer);
+        }
+
+        into.RemoveAll(v => v < 50 || v > 2400);
+        var uniq = new List<int>(new SortedSet<int>(into));
+        into.Clear();
+        into.AddRange(uniq);
+    }
+
+    static int ItemSize(ushort type) => type == TWTY_FIX32 ? 4 : 2;
+
+    // Дробное число стандарта: целая часть лежит в младших двух байтах
+    static int ReadItem(IntPtr p, int at, ushort type) =>
+        type == TWTY_FIX32
+            ? (short)Marshal.ReadInt16(p, at)
+            : (ushort)Marshal.ReadInt16(p, at);
 
     // Съёмка страниц. Возвращает пути к сохранённым картинкам
     public static List<string> Scan(Options opt, string dir, Action<int, string>? onPage = null)

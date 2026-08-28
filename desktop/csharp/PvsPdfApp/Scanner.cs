@@ -209,6 +209,17 @@ internal static class Scanner
         return result;
     }
 
+    // Какое качество поддерживает устройство. Спрашиваем только у
+    // сканеров производителя (TWAIN) — у остальных Windows такого
+    // списка не даёт. Пустой ответ значит «показывай обычный набор»
+    public static List<int> Resolutions(string deviceId)
+    {
+        if (deviceId.StartsWith("twain:"))
+            return TwainBridge.Resolutions(deviceId.Substring(6));
+
+        return new List<int>();
+    }
+
     // Родное окно сканера от производителя. Нужно капризным устройствам,
     // у которых свои настройки: подсветка, обрезка полей, очистка фона.
     // Снимки оттуда попадают в программу как обычные страницы

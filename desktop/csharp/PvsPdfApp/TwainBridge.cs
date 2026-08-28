@@ -45,6 +45,41 @@ internal static class TwainBridge
             "Не удалось запустить помощник сканирования.");
     }
 
+    // Какое качество поддерживает аппарат. Пустой список означает
+    // «выяснить не удалось» — тогда показываем обычный набор значений
+    public static List<int> Resolutions(string device)
+    {
+        var found = new List<int>();
+        if (!Available() || string.IsNullOrWhiteSpace(device)) return found;
+
+        try
+        {
+            using var p = Start($"caps --device {Quote(device)}");
+            string output = p.StandardOutput.ReadToEnd();
+            if (!p.WaitForExit(25000))
+            {
+                try { p.Kill(true); } catch { }
+                return found;
+            }
+
+            foreach (string line in output.Split('\n'))
+            {
+                string s = line.Trim();
+                if (!s.StartsWith("{")) continue;
+
+                using var doc = JsonDocument.Parse(s);
+                if (!doc.RootElement.TryGetProperty("dpi", out var arr)) continue;
+                if (arr.ValueKind != JsonValueKind.Array) continue;
+
+                foreach (var v in arr.EnumerateArray())
+                    if (v.TryGetInt32(out int n)) found.Add(n);
+            }
+        }
+        catch { }
+
+        return found;
+    }
+
     // Список сканеров, известных драйверам TWAIN
     public static List<Device> List()
     {

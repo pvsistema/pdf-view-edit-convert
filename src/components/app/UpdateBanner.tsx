@@ -15,9 +15,10 @@ import {
   readUpdateInfo,
   saveUpdateInfo,
   updateCheckDue,
+  SKIP_KEY,
 } from '@/lib/updateStore';
 
-const SKIP_KEY = 'pv_skip_version';
+
 
 const size = (n: number) => {
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} МБ`;

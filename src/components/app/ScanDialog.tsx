@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { toast } from '@/hooks/use-toast';
 import {
@@ -9,6 +9,8 @@ import {
   onScanners,
   onScanPage,
   onScanDone,
+  onScanCaps,
+  askScanCaps,
   type ScanDevice,
 } from '@/lib/desktop';
 import { scansToPdf, scanFileName } from '@/lib/scanToPdf';
@@ -54,6 +56,10 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   const [devices, setDevices] = useState<ScanDevice[] | null>(null);
   const [device, setDevice] = useState('');
   const [dpi, setDpi] = useState(saved.dpi);
+
+  // Качество, которое умеет выбранный аппарат. Пусто — значит выяснить
+  // не удалось, и тогда показываем обычный набор, ничего не запрещая
+  const [ableDpi, setAbleDpi] = useState<number[]>([]);
   const [color, setColor] = useState<'color' | 'gray' | 'bw'>(saved.color);
   const [feeder, setFeeder] = useState(saved.feeder);
   const [duplex, setDuplex] = useState(saved.duplex);
@@ -99,6 +105,14 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
     listScanners();
     return offList;
   }, [batch, saved.device, saved.deviceName]);
+
+  // Узнаём у выбранного сканера, какое качество он поддерживает
+  useEffect(() => onScanCaps((dev, list) => dev === device && setAbleDpi(list)), [device]);
+
+  useEffect(() => {
+    setAbleDpi([]);
+    if (device) askScanCaps(device);
+  }, [device]);
 
   // Снятые листы показываем сразу — видно, что работа идёт
   useEffect(
@@ -179,6 +193,22 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
     remember();
     startScan({ device, dpi, color, feeder, duplex, limit });
   };
+
+  // Показываем то, что аппарат действительно умеет. Пояснения к
+  // привычным значениям сохраняем, для остальных пишем просто число.
+  // Если сканер промолчал — остаётся обычный набор
+  const dpiList = useMemo(() => {
+    if (!ableDpi.length) return DPI;
+    const known = new Map(DPI.map((d) => [d.v, d.t]));
+    return ableDpi.map((v) => ({ v, t: known.get(v) ?? String(v) }));
+  }, [ableDpi]);
+
+  // Выбранное качество аппарат может не уметь — тогда берём ближайшее
+  useEffect(() => {
+    if (!ableDpi.length || ableDpi.includes(dpi)) return;
+    const near = ableDpi.reduce((a, b) => (Math.abs(b - dpi) < Math.abs(a - dpi) ? b : a));
+    setDpi(near);
+  }, [ableDpi, dpi]);
 
   // Быстрый повтор: сканер найден — начинаем сразу, без лишних нажатий.
   // Срабатывает один раз за открытие окна
@@ -347,7 +377,7 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                     onChange={(e) => setDpi(Number(e.target.value))}
                     className="mt-2 w-full border border-border bg-background px-3 py-2.5 text-[0.9rem] outline-none focus:border-primary"
                   >
-                    {DPI.map((d) => (
+                    {dpiList.map((d) => (
                       <option key={d.v} value={d.v}>
                         {d.t}
                       </option>

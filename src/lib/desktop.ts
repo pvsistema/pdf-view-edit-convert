@@ -175,6 +175,9 @@ export type ScanOptions = {
 
 export const listScanners = () => send({ type: 'listScanners' });
 
+// Спрашиваем у выбранного сканера, какое качество он умеет
+export const askScanCaps = (device: string) => send({ type: 'scanCaps', device });
+
 export const startScan = (o: ScanOptions) => send({ type: 'scan', ...o });
 
 export const cancelScan = () => send({ type: 'cancelScan' });
@@ -202,6 +205,11 @@ const listen = <T>(kind: string, cb: (d: T) => void) => {
 
 export const onScanners = (cb: (list: ScanDevice[], hint?: string) => void) =>
   listen<{ items: ScanDevice[]; hint?: string }>('scanners', (d) => cb(d.items || [], d.hint));
+
+// Ответ сканера о поддерживаемом качестве. Пустой список означает,
+// что выяснить не удалось — тогда показываем обычный набор значений
+export const onScanCaps = (cb: (device: string, dpi: number[]) => void) =>
+  listen<{ device: string; dpi: number[] }>('scanCaps', (d) => cb(d.device || '', d.dpi || []));
 
 // Лист снят — показываем его сразу, не дожидаясь всей пачки
 export const onScanPage = (cb: (p: { index: number; url: string }) => void) =>
