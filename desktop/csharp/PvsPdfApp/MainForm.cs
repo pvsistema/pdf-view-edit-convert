@@ -7,6 +7,34 @@ namespace PvsPdfApp;
 public class MainForm : Form
 {
     readonly WebView2 _web = new();
+
+    // Подготовка встроенного просмотрщика — самая долгая часть запуска.
+    // Начинаем её сразу, не дожидаясь, пока окно нарисуется: пока
+    // Windows показывает рамку, просмотрщик уже готовится
+    static Task<CoreWebView2Environment>? _envReady;
+
+    public static void WarmUp()
+    {
+        if (_envReady != null) return;
+        string dataDir = Path.Combine(Program.InstallDir, "data");
+        _envReady = Task.Run(async () =>
+        {
+            Directory.CreateDirectory(dataDir);
+            var opts = new CoreWebView2EnvironmentOptions
+            {
+                // Отключаем то, что программе не нужно: проверку сайтов
+                // в сети, перевод страниц, фоновые службы браузера.
+                // Каждая из них отнимала доли секунды при запуске
+                AdditionalBrowserArguments =
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection," +
+                    "Translate,OptimizationHints,MediaRouter,BackgroundNetworking " +
+                    "--disable-background-timer-throttling " +
+                    "--no-default-browser-check --no-first-run",
+            };
+            return await CoreWebView2Environment.CreateAsync(null, dataDir, opts);
+        });
+    }
+
     readonly string[] _openFiles;
     readonly DateTime _startedAt = DateTime.UtcNow;
     string _webRoot = "";
@@ -51,12 +79,12 @@ public class MainForm : Form
             return;
         }
 
-        string dataDir = Path.Combine(Program.InstallDir, "data");
-        Directory.CreateDirectory(dataDir);
-
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
+            // Подготовка началась ещё до появления окна — здесь обычно
+            // остаётся только забрать готовый результат
+            WarmUp();
+            var env = await _envReady!;
             await _web.EnsureCoreWebView2Async(env);
         }
         catch (Exception ex)

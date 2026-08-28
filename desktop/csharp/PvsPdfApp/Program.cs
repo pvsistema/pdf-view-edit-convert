@@ -36,6 +36,10 @@ internal static class Program
             return;
         }
 
+        // Готовим просмотрщик заранее, параллельно с открытием окна:
+        // это самая долгая часть запуска, и ждать её впустую незачем
+        MainForm.WarmUp();
+
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
