@@ -60,7 +60,16 @@ const MenuBar = () => {
   const close = () => setMenu(null);
 
   const makeBlob = async () => {
-    const bytes = await buildPdf();
+    // На большом документе показываем ход работы: молчаливое ожидание
+    // выглядит как зависшая программа
+    const big = pages.length > 60;
+    let shown = 0;
+    const bytes = await buildPdf(undefined, undefined, (done, total) => {
+      // Не чаще раза в сто страниц, иначе сообщения завалят экран
+      if (!big || !done || done >= total || done - shown < 100) return;
+      shown = done;
+      toast({ title: 'Готовлю документ', description: `${done} из ${total} страниц` });
+    });
     return new Blob([bytes as BlobPart], { type: 'application/pdf' });
   };
 

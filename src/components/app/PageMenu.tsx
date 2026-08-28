@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { toast } from '@/hooks/use-toast';
+import { requestSearch } from '@/lib/searchBus';
 
 export type MenuPoint = { x: number; y: number; text: string };
 
@@ -59,6 +60,17 @@ const PageMenu = ({ at, onClose, onCopyPage }: Props) => {
       hint: 'Ctrl+C',
       on: has,
       fn: () => copy(at.text, 'Текст скопирован'),
+    },
+    {
+      icon: 'Search',
+      // Ищем ровно то, что выделено: длинные куски обрезаем,
+      // иначе поиск заведомо ничего не найдёт
+      label: 'Найти выделенное в документе',
+      on: has,
+      fn: () => {
+        onClose();
+        requestSearch(at.text.trim().slice(0, 120));
+      },
     },
     {
       icon: 'ScanText',

@@ -82,7 +82,11 @@ type Ctx = {
   insertPage: (page: PageMeta, file: SourceFile, at: number, label?: string) => void;
   reset: () => void;
   docOf: (p: PageMeta) => any;
-  buildPdf: (subset?: PageMeta[], layout?: Layout) => Promise<Uint8Array>;
+  buildPdf: (
+    subset?: PageMeta[],
+    layout?: Layout,
+    onStep?: (done: number, total: number) => void,
+  ) => Promise<Uint8Array>;
   version: number;
   undo: () => void;
   redo: () => void;
@@ -427,21 +431,60 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const buildPdf = useCallback(
-    async (subset?: PageMeta[], layout: Layout = DEFAULT_LAYOUT) => {
+    async (
+      subset?: PageMeta[],
+      layout: Layout = DEFAULT_LAYOUT,
+      onStep?: (done: number, total: number) => void,
+    ) => {
       const list = subset ?? pages;
+      let done = 0;
+      const onWork = () => onStep?.(done, list.length);
       // Сборщик PDF подключаем при сохранении, а не при запуске программы
       const { PDFDocument, degrees } = await import('pdf-lib');
       const out = await PDFDocument.create();
       const cache = new Map<string, any>();
+
+      // Страницы копируем пачкой на каждый исходный файл, а не по одной:
+      // так сборщик проходит документ один раз вместо сотни. На больших
+      // документах это основная экономия времени
+      const byFile = new Map<string, number[]>();
       for (const p of list) {
-        const source = filesRef.current.find((f) => f.id === p.fileId)!;
-        let lib = cache.get(p.fileId);
+        const seen = byFile.get(p.fileId);
+        if (seen) seen.push(p.src);
+        else byFile.set(p.fileId, [p.src]);
+      }
+
+      type Copied = Awaited<ReturnType<typeof out.copyPages>>[number];
+      const copiedOf = new Map<string, Map<number, Copied>>();
+      for (const [fileId, srcList] of byFile) {
+        const source = filesRef.current.find((f) => f.id === fileId)!;
+        let lib = cache.get(fileId);
         if (!lib) {
           const raw = await source.bytes();
           lib = await PDFDocument.load(raw.slice(0), { ignoreEncryption: true });
-          cache.set(p.fileId, lib);
+          cache.set(fileId, lib);
         }
-        const [copied] = await out.copyPages(lib, [p.src]);
+        // Одну и ту же страницу могли добавить дважды — копируем её один раз
+        const uniq = [...new Set(srcList)];
+        const got = await out.copyPages(lib, uniq);
+        const slot = new Map<number, Copied>();
+        uniq.forEach((s, i) => slot.set(s, got[i]));
+        copiedOf.set(fileId, slot);
+        onWork?.();
+      }
+
+      // Копия страницы одна на всех, а поворот у каждой свой — поэтому
+      // повторные вставки той же страницы делаем отдельными копиями
+      const used = new Set<string>();
+
+      for (const p of list) {
+        const key = p.fileId + ':' + p.src;
+        let copied = copiedOf.get(p.fileId)!.get(p.src)!;
+        if (used.has(key)) {
+          [copied] = await out.copyPages(cache.get(p.fileId), [p.src]);
+        }
+        used.add(key);
+
         if (p.rotation) {
           const cur = copied.getRotation().angle;
           copied.setRotation(degrees((cur + p.rotation) % 360));
@@ -517,7 +560,16 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           const img = await out.embedPng(await png.arrayBuffer());
           added.drawImage(img, { x: 0, y: 0, width, height });
         }
+
+        // Раз в несколько страниц отдаём управление окну: так видно
+        // ход работы, а программа не выглядит зависшей
+        done++;
+        if (done % 25 === 0) {
+          onWork();
+          await new Promise((r) => setTimeout(r, 0));
+        }
       }
+      onStep?.(list.length, list.length);
       return out.save();
     },
     [pages, annots],

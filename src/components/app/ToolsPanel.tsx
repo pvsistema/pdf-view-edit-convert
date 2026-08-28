@@ -46,14 +46,24 @@ const ToolsPanel = () => {
   // без неё полоска выполнения замирает на долгих документах
   const breathe = () => new Promise((r) => setTimeout(r, 0));
 
+  // Текст читаем небольшими группами страниц сразу, а не строго по одной:
+  // ожидание страниц накладывается друг на друга и документ обрабатывается
+  // заметно быстрее. Группа маленькая, чтобы не забивать память
   const collectText = async () => {
     const chunks: string[] = [];
-    for (let i = 0; i < pages.length; i++) {
-      const doc = docOf(pages[i]);
-      if (!doc) continue;
-      chunks.push(await pageText(doc, pages[i].src));
-      setProgress(Math.round(((i + 1) / pages.length) * 100));
-      if (i % 5 === 4) await breathe();
+    const STEP = 8;
+
+    for (let i = 0; i < pages.length; i += STEP) {
+      const part = pages.slice(i, i + STEP);
+      const got = await Promise.all(
+        part.map(async (p) => {
+          const doc = docOf(p);
+          return doc ? await pageText(doc, p.src) : '';
+        }),
+      );
+      chunks.push(...got);
+      setProgress(Math.round((Math.min(i + STEP, pages.length) / pages.length) * 100));
+      await breathe();
     }
     return chunks;
   };

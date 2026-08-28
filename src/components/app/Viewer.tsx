@@ -4,6 +4,7 @@ import { pageText, pageSize } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
+import { onSearchRequest } from '@/lib/searchBus';
 
 export type Tool = 'hand' | 'text' | 'block';
 
@@ -301,8 +302,9 @@ const Viewer = ({ tool, setTool }: Props) => {
     scrollToPage(active);
   }, [active, scrollToPage]);
 
-  const search = async () => {
-    const q = query.trim();
+  // Слово приходит либо из поля поиска, либо из меню по правой кнопке
+  const search = async (text?: string) => {
+    const q = (text ?? query).trim();
     if (!q) {
       setHits(null);
       setFound('');
@@ -325,6 +327,21 @@ const Viewer = ({ tool, setTool }: Props) => {
       scrollToPage(list[0]);
     }
   };
+
+  // Запрос из меню по правой кнопке: слово попадает в поле поиска,
+  // чтобы его было видно и можно было поправить
+  const searchRef = useRef(search);
+  searchRef.current = search;
+
+  useEffect(
+    () =>
+      onSearchRequest((text) => {
+        if (!onScreen || !text) return;
+        setQuery(text);
+        void searchRef.current(text);
+      }),
+    [onScreen],
+  );
 
   // Переход к следующей или предыдущей найденной странице
   const jumpHit = (dir: number) => {
@@ -464,7 +481,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           />
           <button
             className="px-3 py-2 text-primary hover:bg-card"
-            onClick={search}
+            onClick={() => void search()}
             title="Найти (Enter), следующее совпадение — F3"
           >
             <Icon name="Search" size={16} />
