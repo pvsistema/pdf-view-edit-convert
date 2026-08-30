@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import ScanDialog from '@/components/app/ScanDialog';
+import ConvertDialog from '@/components/app/ConvertDialog';
 import { isDesktop, desktopVersion } from '@/lib/desktop';
 import { APP_VERSION } from '@/lib/brand';
 import { checkUpdate } from '@/lib/adminApi';
@@ -45,7 +46,10 @@ const MenuBar = () => {
   const tabsApi = useTabs();
   const onScreen = useTabActive();
 
-  const [menu, setMenu] = useState<'file' | 'edit' | 'scan' | null>(null);
+  const [menu, setMenu] = useState<'file' | 'edit' | 'scan' | 'convert' | null>(null);
+  // Каталог инструментов. Пустая строка — открыть общий список,
+  // непустая — сразу нужный инструмент
+  const [convertAt, setConvertAt] = useState<string | null>(null);
   const [askName, setAskName] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [showScan, setShowScan] = useState(false);
@@ -393,6 +397,57 @@ const MenuBar = () => {
     },
   ];
 
+  // Часто нужное выносим прямо в меню, остальное — в каталоге.
+  // Так до популярного действия один щелчок, а не два
+  const openTool = (id: string) => act(() => setConvertAt(id));
+
+  const convertItems: MenuItem[] = [
+    {
+      icon: 'LayoutGrid',
+      label: 'Все инструменты…',
+      fn: openTool(''),
+      on: true,
+    },
+    {
+      icon: 'Minimize2',
+      label: 'Сжать PDF',
+      fn: openTool('compress'),
+      on: true,
+      sep: true,
+    },
+    {
+      icon: 'Combine',
+      label: 'Объединить файлы',
+      fn: openTool('merge'),
+      on: true,
+    },
+    {
+      icon: 'Sun',
+      label: 'Улучшить скан',
+      fn: openTool('enhance'),
+      on: true,
+    },
+    {
+      icon: 'FileText',
+      label: 'PDF в Word',
+      fn: openTool('to-word'),
+      on: true,
+      sep: true,
+    },
+    {
+      icon: 'Image',
+      label: 'PDF в JPG',
+      fn: openTool('to-jpg'),
+      on: true,
+    },
+    {
+      icon: 'ImagePlus',
+      label: 'Фото и сканы в PDF',
+      fn: openTool('from-jpg'),
+      on: true,
+    },
+  ];
+
   return (
     <div className="flex items-center gap-1">
       <MenuShell
@@ -416,6 +471,14 @@ const MenuBar = () => {
         onToggle={() => setMenu((m) => (m === 'scan' ? null : 'scan'))}
         onClose={() => setMenu((m) => (m === 'scan' ? null : m))}
         items={scanItems}
+      />
+
+      <MenuShell
+        title="Конвертировать"
+        open={menu === 'convert'}
+        onToggle={() => setMenu((m) => (m === 'convert' ? null : 'convert'))}
+        onClose={() => setMenu((m) => (m === 'convert' ? null : m))}
+        items={convertItems}
       />
 
       <input
@@ -471,6 +534,10 @@ const MenuBar = () => {
           }}
           onClose={() => setShowScan(false)}
         />
+      )}
+
+      {convertAt !== null && (
+        <ConvertDialog start={convertAt} onClose={() => setConvertAt(null)} />
       )}
 
       {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}

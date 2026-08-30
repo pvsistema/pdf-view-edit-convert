@@ -54,6 +54,16 @@ export default defineConfig({
           // иначе весь просмотрщик грузился бы сразу при запуске
           if (id.includes('pdf.worker')) return;
           if (id.includes('pdfjs-dist')) return;
+
+          // Разбор снимков с телефона и многостраничных сканов —
+          // каждый отдельно: нужны только своему инструменту
+          if (id.includes('heic')) return 'heic';
+          if (id.includes('utif')) return 'tiff';
+
+          // Работа со шрифтами нужна лишь там, где создаётся текстовый
+          // PDF. В общей части с pdf-lib она грузилась бы при каждом
+          // сохранении документа
+          if (id.includes('fontkit') || id.includes('unicode-')) return 'fontkit';
           if (id.includes('pdf-lib')) return 'pdflib';
           if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler'))
             return 'react';
