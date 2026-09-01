@@ -24,6 +24,20 @@
       "expectedStatus": 400
     },
     {
+      "name": "Состояние почты доступно",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "mail_ready" },
+      "expectedStatus": 200
+    },
+    {
+      "name": "Повторная отправка закрыта без входа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "resend_mail", "id": 1 },
+      "expectedStatus": 401
+    },
+    {
       "name": "Панель управления закрыта без входа",
       "method": "POST",
       "path": "/",

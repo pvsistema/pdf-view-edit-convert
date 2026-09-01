@@ -232,6 +232,8 @@ export type Order = {
   license_key: string;
   created_at: string;
   paid_at: string;
+  mail_sent: boolean;
+  mail_note: string;
 };
 
 export const listOrders = (limit = 100) =>
@@ -243,3 +245,10 @@ export const listOrders = (limit = 100) =>
 // Выдать ключ вручную: деньги пришли мимо банка — счётом или переводом
 export const markOrderPaid = (id: number) =>
   post(PAY_URL, { action: 'mark_paid', id }) as Promise<{ ok: boolean; license_key: string }>;
+
+// Отправить письмо с ключом заново — на тот же или исправленный адрес
+export const resendKeyMail = (id: number, email = '') =>
+  post(PAY_URL, { action: 'resend_mail', id, email }) as Promise<{ ok: boolean; note: string }>;
+
+export const mailReady = () =>
+  post(PAY_URL, { action: 'mail_ready' }) as Promise<{ ready: boolean }>;

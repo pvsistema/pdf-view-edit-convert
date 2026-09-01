@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 import psycopg2
 
+import mailer
+
 CORS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -130,6 +132,31 @@ def _add_months(day, months: int):
     return day.replace(year=year, month=month, day=min(day.day, last))
 
 
+def _mail_key(cur, order_id: int, key: str, title: str, until: str,
+              seats: int, email: str, renew: bool = False) -> None:
+    '''Письмо с ключом покупателю. Ошибка отправки НЕ должна ронять оплату:
+    деньги уже получены и ключ уже выдан — иначе банк, не увидев ответа,
+    прислал бы уведомление снова. Что не отправилось, видно в панели'''
+    if not email or '@' not in email:
+        return
+
+    try:
+        subject = 'Продление лицензии — ПВ-Система PDF' if renew else 'Ваш ключ активации — ПВ-Система PDF'
+        text, html = mailer.key_letter(key, title or 'Лицензия', until, int(seats or 1))
+        ok, note = mailer.send(email, subject, text, html)
+    except Exception as e:
+        ok, note = False, f'Сбой отправки: {e}'
+
+    try:
+        cur.execute(
+            f"UPDATE {SCHEMA}.orders SET mail_sent = {'TRUE' if ok else 'FALSE'}, "
+            f"mail_note = '{_esc(note)[:250]}', mail_at = NOW() WHERE id = {order_id}"
+        )
+    except Exception:
+        # Даже запись об отправке не должна мешать выдаче ключа
+        pass
+
+
 def _grant_license(cur, order_id: int) -> None:
     '''Выдача ключа после оплаты. Повторный вызов ничего не меняет:
     банк присылает уведомление не один раз, и второй ключ выдавать нельзя'''
@@ -168,6 +195,7 @@ def _grant_license(cur, order_id: int) -> None:
                 f"UPDATE {SCHEMA}.orders SET status = 'paid', paid_at = NOW(), "
                 f"license_id = {lic_id}, license_key = '{_esc(renew_key)}' WHERE id = {order_id}"
             )
+            _mail_key(cur, order_id, renew_key, title, str(new_until), seats, email, renew=True)
             return
 
     # Новая лицензия
@@ -191,6 +219,7 @@ def _grant_license(cur, order_id: int) -> None:
         f"UPDATE {SCHEMA}.orders SET status = 'paid', paid_at = NOW(), "
         f"license_id = {lic_id}, license_key = '{key}' WHERE id = {order_id}"
     )
+    _mail_key(cur, order_id, key, title, str(until), seats, email)
 
 
 def handler(event, context):
@@ -343,6 +372,10 @@ def handler(event, context):
                 'price': float(price or 0),
             })
 
+        # Настроена ли отправка писем — знать полезно и до входа
+        if action == 'mail_ready':
+            return _resp(200, {'ready': mailer.ready()})
+
         # --- Панель управления ---
         if not _auth(cur, event, body):
             return _resp(401, {'error': 'Нужен вход в панель'})
@@ -390,7 +423,8 @@ def handler(event, context):
             limit = min(500, max(1, int(body.get('limit') or 100)))
             cur.execute(
                 f"SELECT id, title, price, status, email, org_name, license_key, "
-                f"created_at, paid_at FROM {SCHEMA}.orders ORDER BY id DESC LIMIT {limit}"
+                f"created_at, paid_at, mail_sent, mail_note "
+                f"FROM {SCHEMA}.orders ORDER BY id DESC LIMIT {limit}"
             )
             items = [
                 {
@@ -403,6 +437,8 @@ def handler(event, context):
                     'license_key': r[6] or '',
                     'created_at': r[7].strftime('%Y-%m-%d %H:%M') if r[7] else '',
                     'paid_at': r[8].strftime('%Y-%m-%d %H:%M') if r[8] else '',
+                    'mail_sent': bool(r[9]),
+                    'mail_note': r[10] or '',
                 }
                 for r in cur.fetchall()
             ]
@@ -414,6 +450,38 @@ def handler(event, context):
                 'items': items,
                 'stats': {'paid': int(paid_count), 'total_sum': float(paid_sum)},
             })
+
+        # Отправить письмо заново: адрес был с опечаткой или почта молчала
+        if action == 'resend_mail':
+            order_id = int(body.get('id') or 0)
+            to = str(body.get('email', '')).strip()
+
+            cur.execute(
+                f"SELECT license_key, title, seats, email, license_id "
+                f"FROM {SCHEMA}.orders WHERE id = {order_id}"
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return _resp(400, {'error': 'По этому заказу ключ ещё не выдан'})
+            key, title, seats, saved_mail, lic_id = row
+
+            # Новый адрес запоминаем: старый мог быть с ошибкой
+            if to and '@' in to and to != saved_mail:
+                cur.execute(
+                    f"UPDATE {SCHEMA}.orders SET email = '{_esc(to)}' WHERE id = {order_id}"
+                )
+            else:
+                to = saved_mail
+
+            cur.execute(f"SELECT valid_until FROM {SCHEMA}.licenses WHERE id = {lic_id or 0}")
+            found = cur.fetchone()
+            until = str(found[0]) if found else ''
+
+            _mail_key(cur, order_id, key, title, until, int(seats or 1), to)
+
+            cur.execute(f"SELECT mail_sent, mail_note FROM {SCHEMA}.orders WHERE id = {order_id}")
+            sent, note = cur.fetchone()
+            return _resp(200, {'ok': bool(sent), 'note': note or ''})
 
         # Выдача ключа вручную: деньги пришли мимо банка (счёт, перевод)
         if action == 'mark_paid':

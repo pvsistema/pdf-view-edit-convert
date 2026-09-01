@@ -4,7 +4,9 @@ import {
   adminTariffs,
   deleteTariff,
   listOrders,
+  mailReady,
   markOrderPaid,
+  resendKeyMail,
   saveTariff,
   type Order,
   type Tariff,
@@ -29,6 +31,8 @@ const SalesPanel = () => {
   const [stats, setStats] = useState({ paid: 0, total_sum: 0 });
   const [edit, setEdit] = useState<Partial<Tariff> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mailOn, setMailOn] = useState(true);
+  const [sending, setSending] = useState(0);
 
   const loadTariffs = useCallback(() => {
     adminTariffs()
@@ -48,7 +52,28 @@ const SalesPanel = () => {
   useEffect(() => {
     loadTariffs();
     loadOrders();
+    mailReady()
+      .then((r) => setMailOn(r.ready))
+      .catch(() => undefined);
   }, [loadTariffs, loadOrders]);
+
+  const resend = async (o: Order) => {
+    const to = window.prompt('Отправить ключ на адрес:', o.email || '');
+    if (to === null) return;
+    setSending(o.id);
+    try {
+      const r = await resendKeyMail(o.id, to.trim());
+      toast({
+        title: r.ok ? 'Письмо отправлено' : 'Письмо не ушло',
+        description: r.note,
+      });
+      loadOrders();
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : 'Не удалось отправить' });
+    } finally {
+      setSending(0);
+    }
+  };
 
   const save = async () => {
     if (!edit) return;
@@ -187,6 +212,17 @@ const SalesPanel = () => {
         </>
       ) : (
         <>
+          {!mailOn && (
+            <div className="mt-5 flex items-start gap-2.5 border border-destructive bg-destructive/5 px-4 py-3 text-[0.85rem]">
+              <Icon name="TriangleAlert" size={15} className="mt-0.5 shrink-0 text-destructive" />
+              <span>
+                Отправка писем не настроена — покупатели не получат ключ на почту.
+                Ключ по-прежнему включается в программе сам, а здесь его можно
+                скопировать и отправить вручную.
+              </span>
+            </div>
+          )}
+
           <div className="mt-5 grid grid-cols-2 border-l border-t border-border">
             <div className="border-b border-r border-border p-5">
               <Icon name="CircleCheck" size={18} className="text-primary" />
@@ -212,7 +248,7 @@ const SalesPanel = () => {
             <table className="w-full min-w-[820px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-border bg-card">
-                  {['№', 'Тариф', 'Сумма', 'Покупатель', 'Ключ', 'Статус', ''].map((h) => (
+                  {['№', 'Тариф', 'Сумма', 'Покупатель', 'Ключ', 'Статус', 'Письмо', ''].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 font-head text-[0.7rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
@@ -225,7 +261,7 @@ const SalesPanel = () => {
               <tbody>
                 {!orders.length && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                       Заказов пока нет
                     </td>
                   </tr>
@@ -271,16 +307,49 @@ const SalesPanel = () => {
                           {s.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        {o.status !== 'paid' && (
-                          <button
-                            onClick={() => giveKey(o)}
-                            className="border border-border px-2.5 py-1.5 text-[0.76rem] transition-colors hover:border-foreground"
-                            title="Деньги получены другим способом"
+                      <td className="px-4 py-3">
+                        {!o.license_key ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : o.mail_sent ? (
+                          <span
+                            className="flex items-center gap-1.5 text-[0.78rem] text-primary"
+                            title={o.mail_note}
                           >
-                            Выдать ключ
-                          </button>
+                            <Icon name="Check" size={13} />
+                            Отправлено
+                          </span>
+                        ) : (
+                          <span
+                            className="flex items-center gap-1.5 text-[0.78rem] text-destructive"
+                            title={o.mail_note || 'Письмо не отправлялось'}
+                          >
+                            <Icon name="TriangleAlert" size={13} />
+                            Не ушло
+                          </span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1.5">
+                          {o.license_key && (
+                            <button
+                              onClick={() => resend(o)}
+                              disabled={sending === o.id}
+                              className="border border-border px-2.5 py-1.5 text-[0.76rem] transition-colors hover:border-foreground disabled:opacity-50"
+                              title="Отправить ключ письмом ещё раз"
+                            >
+                              {sending === o.id ? 'Отправляю…' : 'Письмо'}
+                            </button>
+                          )}
+                          {o.status !== 'paid' && (
+                            <button
+                              onClick={() => giveKey(o)}
+                              className="border border-border px-2.5 py-1.5 text-[0.76rem] transition-colors hover:border-foreground"
+                              title="Деньги получены другим способом"
+                            >
+                              Выдать ключ
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
