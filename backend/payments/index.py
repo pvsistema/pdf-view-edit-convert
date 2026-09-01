@@ -76,11 +76,14 @@ def _md5(s: str) -> str:
 
 
 def _shop():
+    '''Доступы к магазину. Пробелы и переводы строк по краям убираем:
+    при копировании из кабинета они цепляются незаметно, а подпись
+    из-за них перестаёт сходиться и платёж отклоняется'''
     return (
-        os.environ.get('ROBOKASSA_LOGIN', ''),
-        os.environ.get('ROBOKASSA_PASSWORD1', ''),
-        os.environ.get('ROBOKASSA_PASSWORD2', ''),
-        os.environ.get('ROBOKASSA_TEST', '') == '1',
+        os.environ.get('ROBOKASSA_LOGIN', '').strip(),
+        os.environ.get('ROBOKASSA_PASSWORD1', '').strip(),
+        os.environ.get('ROBOKASSA_PASSWORD2', '').strip(),
+        os.environ.get('ROBOKASSA_TEST', '').strip() == '1',
     )
 
 
@@ -403,6 +406,19 @@ def handler(event, context):
         if action == 'pay_check':
             login, pass1, pass2, test = _shop()
             probe = _md5(f"{login}:100.00:1:{pass1}")
+
+            # Частая беда: пароль скопирован вместе с пробелом или
+            # переводом строки. Глазами это не видно, а подпись ломается
+            raw1 = os.environ.get('ROBOKASSA_PASSWORD1', '')
+            raw2 = os.environ.get('ROBOKASSA_PASSWORD2', '')
+            raw_login = os.environ.get('ROBOKASSA_LOGIN', '')
+            spaces = {
+                'login_has_spaces': raw_login != raw_login.strip(),
+                'pass1_has_spaces': raw1 != raw1.strip(),
+                'pass2_has_spaces': raw2 != raw2.strip(),
+                'pass1_same_as_pass2': bool(pass1) and pass1 == pass2,
+                'pass1_is_login': bool(pass1) and pass1 == login,
+            }
             return _resp(200, {
                 'login': login,
                 'login_looks_like_password': not login.replace('-', '').replace('_', '').isalnum(),
@@ -412,11 +428,19 @@ def handler(event, context):
                 'pass2_len': len(pass2),
                 'test_mode': test,
                 'tax': os.environ.get('ROBOKASSA_TAX', 'none'),
+                **spaces,
                 # Простая ссылка без чека и меток: если банк примет её,
                 # значит пароль верный, а дело в чеке или метках
                 'simple_url': (
                     f"{PAY_URL}?MerchantLogin={quote(login)}&OutSum=100.00&InvId=1"
                     f"&Description={quote('Проверка')}&SignatureValue={probe}"
+                ),
+                # Та же ссылка, но подписанная вторым паролём. Если банк
+                # примет ЕЁ, значит пароли просто переставлены местами
+                'swapped_url': (
+                    f"{PAY_URL}?MerchantLogin={quote(login)}&OutSum=100.00&InvId=1"
+                    f"&Description={quote('Проверка')}"
+                    f"&SignatureValue={_md5(f'{login}:100.00:1:{pass2}')}"
                 ),
             })
 
