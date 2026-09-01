@@ -291,8 +291,12 @@ def handler(event, context):
 
             # Подпись заказа. Чек в ней участвует закодированным один раз:
             # MerchantLogin:OutSum:InvId:Receipt:Пароль#1
+            #
+            # Своя метка заказа (Shp_tok) ОБЯЗАНА входить в подпись и идти
+            # после пароля — иначе банк отвергнет платёж. Такие метки
+            # добавляются в конец по алфавиту, в виде «имя=значение»
             enc_receipt = quote(receipt, safe='')
-            sign = _md5(f"{login}:{total}:{order_id}:{enc_receipt}:{pass1}")
+            sign = _md5(f"{login}:{total}:{order_id}:{enc_receipt}:{pass1}:Shp_tok={token}")
 
             # А в самой ссылке чек кодируется ЕЩЁ раз: иначе его знаки
             # разорвут адрес и банк отвергнет подпись. Требование
@@ -309,6 +313,9 @@ def handler(event, context):
                 f"&SignatureValue={sign}"
                 f"&Email={quote(str(body.get('email', '')).strip())}"
                 f"&Culture=ru"
+                # Банк вернёт это значение на страницу «Спасибо»,
+                # и она сможет показать именно этот заказ
+                f"&Shp_tok={quote(token)}"
             )
             if test:
                 url += '&IsTest=1'
@@ -324,9 +331,10 @@ def handler(event, context):
         # --- Уведомление от банка: деньги поступили ---
         if action == 'result':
             _, _, pass2, _ = _shop()
-            src = body or {}
-            if not src:
-                src = params
+            # Уведомление приходит и в теле запроса, и в адресе — собираем
+            # оба источника, иначе метки заказа могут потеряться
+            src = dict(params or {})
+            src.update(body or {})
             out = str(src.get('OutSum') or src.get('outSum') or '')
             inv = str(src.get('InvId') or src.get('invId') or '')
             got = str(src.get('SignatureValue') or src.get('signatureValue') or '').lower()
@@ -334,7 +342,15 @@ def handler(event, context):
             if not inv.isdigit():
                 return _text(400, 'bad invoice')
 
-            mine = _md5(f"{out}:{inv}:{pass2}").lower()
+            # Свои метки заказа банк возвращает вместе с уведомлением, и они
+            # тоже входят в подпись: по алфавиту, в конце, как «имя=значение».
+            # Без них подпись не сойдётся и оплата не будет засчитана
+            extra = ''.join(
+                f':{name}={src[name]}'
+                for name in sorted(k for k in src if str(k).lower().startswith('shp_'))
+            )
+
+            mine = _md5(f"{out}:{inv}:{pass2}{extra}").lower()
             if not pass2 or got != mine:
                 return _text(400, 'bad sign')
 
