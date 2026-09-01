@@ -394,6 +394,32 @@ def handler(event, context):
         if action == 'mail_ready':
             return _resp(200, {'ready': mailer.ready()})
 
+        # --- Панель управления ---
+        if not _auth(cur, event, body):
+            return _resp(401, {'error': 'Нужен вход в панель'})
+
+        # Разбор настроек оплаты: показывает, что именно уходит в банк,
+        # но никогда не раскрывает пароли — только их признаки
+        if action == 'pay_check':
+            login, pass1, pass2, test = _shop()
+            probe = _md5(f"{login}:100.00:1:{pass1}")
+            return _resp(200, {
+                'login': login,
+                'login_looks_like_password': not login.replace('-', '').replace('_', '').isalnum(),
+                'pass1_set': bool(pass1),
+                'pass1_len': len(pass1),
+                'pass2_set': bool(pass2),
+                'pass2_len': len(pass2),
+                'test_mode': test,
+                'tax': os.environ.get('ROBOKASSA_TAX', 'none'),
+                # Простая ссылка без чека и меток: если банк примет её,
+                # значит пароль верный, а дело в чеке или метках
+                'simple_url': (
+                    f"{PAY_URL}?MerchantLogin={quote(login)}&OutSum=100.00&InvId=1"
+                    f"&Description={quote('Проверка')}&SignatureValue={probe}"
+                ),
+            })
+
         # Пробное письмо. Уходит ТОЛЬКО на собственный ящик магазина:
         # так проверка доступна без входа, но разослать письма кому
         # угодно через неё нельзя
@@ -407,10 +433,6 @@ def handler(event, context):
             )
             ok, note = mailer.send(own, 'Проверка отправки — ПВ-Система PDF', text, html, wait=20)
             return _resp(200, {'ok': ok, 'note': note, 'to': own})
-
-        # --- Панель управления ---
-        if not _auth(cur, event, body):
-            return _resp(401, {'error': 'Нужен вход в панель'})
 
         if action == 'admin_tariffs':
             cur.execute(f"SELECT {TARIFF_FIELDS} FROM {SCHEMA}.tariffs ORDER BY sort, id")
