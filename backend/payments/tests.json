@@ -1,0 +1,36 @@
+{
+  "tests": [
+    {
+      "name": "Список тарифов доступен без входа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "tariffs" },
+      "expectedStatus": 200
+    },
+    {
+      "name": "Неизвестный заказ не находится",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "order_status", "token": "нет-такого-заказа" },
+      "expectedStatus": 404,
+      "expectedBody": { "error": "string" },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Уведомление с чужой подписью отклоняется",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "result", "OutSum": "2900.00", "InvId": "1", "SignatureValue": "подделка" },
+      "expectedStatus": 400
+    },
+    {
+      "name": "Панель управления закрыта без входа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "orders" },
+      "expectedStatus": 401,
+      "expectedBody": { "error": "string" },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

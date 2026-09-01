@@ -3,6 +3,7 @@ import Icon from '@/components/ui/icon';
 import { LOGO_URL } from '@/lib/brand';
 import { useLicense } from '@/context/LicenseContext';
 import { toast } from '@/hooks/use-toast';
+import BuyDialog from '@/components/app/BuyDialog';
 
 const FREE = ['Просмотр документов', 'Поворот и порядок страниц', 'Поиск по тексту'];
 const PAID = [
@@ -31,6 +32,8 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
   const [key, setKey] = useState(license?.key ?? 'PVPDF-');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // Пустая строка — обычная покупка, ключ — продление действующей лицензии
+  const [buyFor, setBuyFor] = useState<string | null>(null);
 
   const submit = async () => {
     setErr('');
@@ -83,6 +86,26 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
               ))}
             </div>
 
+            {/* Ближе к концу срока предлагаем продлить: после
+                окончания программа вернётся к бесплатной версии */}
+            {(license?.daysLeft ?? 0) <= 60 && (
+              <button
+                onClick={() => setBuyFor(license?.key ?? '')}
+                className="mt-5 flex w-full items-center gap-3 border border-primary bg-primary/5 px-4 py-3.5 text-left transition-colors hover:bg-primary/10"
+              >
+                <Icon name="Repeat" size={20} className="shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-head text-[0.92rem] font-bold">
+                    Продлить лицензию
+                  </span>
+                  <span className="mt-0.5 block text-[0.8rem] text-muted-foreground">
+                    Осталось дней: {license?.daysLeft}. Срок прибавится к текущему
+                  </span>
+                </span>
+                <Icon name="ArrowRight" size={16} className="shrink-0 text-primary" />
+              </button>
+            )}
+
             <div className="mt-6 flex gap-3">
               <button className="btn-block flex-1 justify-center" onClick={onClose}>
                 <Icon name="Check" size={16} />
@@ -102,8 +125,32 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
           </div>
         ) : (
           <div className="p-6">
+            <button
+              onClick={() => setBuyFor('')}
+              className="flex w-full items-center gap-3 border border-primary bg-primary/5 px-4 py-3.5 text-left transition-colors hover:bg-primary/10"
+            >
+              <Icon name="ShoppingCart" size={20} className="shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">
+                <span className="block font-head text-[0.92rem] font-bold">
+                  Купить лицензию на год
+                </span>
+                <span className="mt-0.5 block text-[0.8rem] text-muted-foreground">
+                  Оплата картой или через СБП — ключ включится сам
+                </span>
+              </span>
+              <Icon name="ArrowRight" size={16} className="shrink-0 text-primary" />
+            </button>
+
+            <div className="my-5 flex items-center gap-3">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-[0.76rem] uppercase tracking-[0.1em] text-muted-foreground">
+                или
+              </span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+
             <p className="text-[0.9rem] text-muted-foreground">
-              Введите ключ активации, выданный вашей организации.
+              Введите ключ активации, если он уже у вас есть.
             </p>
 
             <label className="label-caps mt-5 block">Ключ активации</label>
@@ -159,6 +206,17 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
           </div>
         )}
       </div>
+
+      {buyFor !== null && (
+        <BuyDialog
+          renewKey={buyFor}
+          onClose={() => {
+            setBuyFor(null);
+            // Ключ мог включиться прямо в окне оплаты
+            if (isFull) onClose();
+          }}
+        />
+      )}
     </div>
   );
 };

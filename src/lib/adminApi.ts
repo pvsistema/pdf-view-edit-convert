@@ -1,6 +1,7 @@
 const AUTH_URL = 'https://functions.poehali.dev/01789cff-13e5-495c-97c6-ab32c229a8f8';
 const LIC_URL = 'https://functions.poehali.dev/75aa9cca-1901-4a09-ae83-b403dbd9062c';
 const VER_URL = 'https://functions.poehali.dev/30df1eed-1f2b-4871-a057-0dd656d6f09f';
+const PAY_URL = 'https://functions.poehali.dev/c3b8df06-2a49-4c03-a2aa-cc13498ab792';
 
 const TOKEN_KEY = 'pv_admin_token';
 
@@ -168,3 +169,77 @@ export const publishRelease = (data: Partial<Release>) =>
   post(VER_URL, { action: 'publish', ...data });
 
 export const unpublishRelease = (id: number) => post(VER_URL, { action: 'unpublish', id });
+
+// --- Оплата лицензии ---
+
+export type Tariff = {
+  id: number;
+  code: string;
+  title: string;
+  note: string;
+  price: number;
+  months: number;
+  seats: number;
+  sort: number;
+  is_active: boolean;
+};
+
+// ready = приём оплаты настроен: заданы доступы к Робокассе
+export const listTariffs = () =>
+  post(PAY_URL, { action: 'tariffs' }) as Promise<{ items: Tariff[]; ready: boolean }>;
+
+export const createOrder = (data: {
+  tariff: string;
+  email?: string;
+  org_name?: string;
+  machine_id?: string;
+  renew_key?: string;
+}) =>
+  post(PAY_URL, { action: 'create_order', ...data }) as Promise<{
+    order_id?: number;
+    token?: string;
+    pay_url?: string;
+    price?: number;
+    title?: string;
+    error?: string;
+  }>;
+
+// Программа спрашивает о своём заказе, пока клиент платит в браузере
+export const orderStatus = (token: string) =>
+  post(PAY_URL, { action: 'order_status', token }) as Promise<{
+    status: string;
+    paid: boolean;
+    license_key: string;
+    title: string;
+    price: number;
+  }>;
+
+export const adminTariffs = () =>
+  post(PAY_URL, { action: 'admin_tariffs' }) as Promise<{ items: Tariff[] }>;
+
+export const saveTariff = (data: Partial<Tariff>) =>
+  post(PAY_URL, { action: 'save_tariff', ...data }) as Promise<{ item: Tariff }>;
+
+export const deleteTariff = (id: number) => post(PAY_URL, { action: 'delete_tariff', id });
+
+export type Order = {
+  id: number;
+  title: string;
+  price: number;
+  status: string;
+  email: string;
+  org_name: string;
+  license_key: string;
+  created_at: string;
+  paid_at: string;
+};
+
+export const listOrders = (limit = 100) =>
+  post(PAY_URL, { action: 'orders', limit }) as Promise<{
+    items: Order[];
+    stats: { paid: number; total_sum: number };
+  }>;
+
+// Выдать ключ вручную: деньги пришли мимо банка — счётом или переводом
+export const markOrderPaid = (id: number) =>
+  post(PAY_URL, { action: 'mark_paid', id }) as Promise<{ ok: boolean; license_key: string }>;

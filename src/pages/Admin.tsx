@@ -7,6 +7,7 @@ import HistoryPanel from "@/components/admin/HistoryPanel";
 import MachinesPanel from "@/components/admin/MachinesPanel";
 import ReleasesPanel from "@/components/admin/ReleasesPanel";
 import BuildPanel from "@/components/admin/BuildPanel";
+import SalesPanel from "@/components/admin/SalesPanel";
 import {
   clearToken,
   deleteLicense,
@@ -46,7 +47,9 @@ const Admin = () => {
     open: false,
     item: null,
   });
-  const [tab, setTab] = useState<"licenses" | "history" | "releases" | "build">("licenses");
+  const [tab, setTab] = useState<
+    "licenses" | "sales" | "history" | "releases" | "build"
+  >("licenses");
   const [histFor, setHistFor] = useState<License | null>(null);
   const [machFor, setMachFor] = useState<License | null>(null);
 
@@ -170,6 +173,7 @@ const Admin = () => {
           {(
             [
               ["licenses", "Лицензии"],
+              ["sales", "Продажи"],
               ["history", "История проверок"],
               ["releases", "Версии программы"],
               ["build", "Сборка"],
@@ -187,7 +191,9 @@ const Admin = () => {
           ))}
         </div>
 
-        {tab === "build" ? (
+        {tab === "sales" ? (
+          <SalesPanel />
+        ) : tab === "build" ? (
           <BuildPanel />
         ) : tab === "releases" ? (
           <ReleasesPanel />
