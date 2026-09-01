@@ -133,7 +133,7 @@ def _add_months(day, months: int):
 
 
 def _mail_key(cur, order_id: int, key: str, title: str, until: str,
-              seats: int, email: str, renew: bool = False) -> None:
+              seats: int, email: str, renew: bool = False, manual: bool = False) -> None:
     '''Письмо с ключом покупателю. Ошибка отправки НЕ должна ронять оплату:
     деньги уже получены и ключ уже выдан — иначе банк, не увидев ответа,
     прислал бы уведомление снова. Что не отправилось, видно в панели'''
@@ -143,7 +143,9 @@ def _mail_key(cur, order_id: int, key: str, title: str, until: str,
     try:
         subject = 'Продление лицензии — ПВ-Система PDF' if renew else 'Ваш ключ активации — ПВ-Система PDF'
         text, html = mailer.key_letter(key, title or 'Лицензия', until, int(seats or 1))
-        ok, note = mailer.send(email, subject, text, html)
+        # При оплате ждём почту недолго, при отправке из панели — дольше:
+        # там никто не ждёт ответа банка, и медленная почта не помешает
+        ok, note = mailer.send(email, subject, text, html, wait=20 if manual else 0)
     except Exception as e:
         ok, note = False, f'Сбой отправки: {e}'
 
@@ -376,6 +378,20 @@ def handler(event, context):
         if action == 'mail_ready':
             return _resp(200, {'ready': mailer.ready()})
 
+        # Пробное письмо. Уходит ТОЛЬКО на собственный ящик магазина:
+        # так проверка доступна без входа, но разослать письма кому
+        # угодно через неё нельзя
+        if action == 'test_mail':
+            own = os.environ.get('SMTP_USER', '').strip()
+            if not own:
+                return _resp(200, {'ok': False, 'note': 'Отправка почты не настроена'})
+
+            text, html = mailer.key_letter(
+                'PVPDF-XXXXX-XXXXX-XXXXX-XXXXX', 'Проверка отправки', '2027-09-01', 1
+            )
+            ok, note = mailer.send(own, 'Проверка отправки — ПВ-Система PDF', text, html, wait=20)
+            return _resp(200, {'ok': ok, 'note': note, 'to': own})
+
         # --- Панель управления ---
         if not _auth(cur, event, body):
             return _resp(401, {'error': 'Нужен вход в панель'})
@@ -477,7 +493,7 @@ def handler(event, context):
             found = cur.fetchone()
             until = str(found[0]) if found else ''
 
-            _mail_key(cur, order_id, key, title, until, int(seats or 1), to)
+            _mail_key(cur, order_id, key, title, until, int(seats or 1), to, manual=True)
 
             cur.execute(f"SELECT mail_sent, mail_note FROM {SCHEMA}.orders WHERE id = {order_id}")
             sent, note = cur.fetchone()

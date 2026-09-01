@@ -252,3 +252,11 @@ export const resendKeyMail = (id: number, email = '') =>
 
 export const mailReady = () =>
   post(PAY_URL, { action: 'mail_ready' }) as Promise<{ ready: boolean }>;
+
+// Пробное письмо уходит на собственный ящик магазина
+export const testMail = () =>
+  post(PAY_URL, { action: 'test_mail' }) as Promise<{
+    ok: boolean;
+    note: string;
+    to: string;
+  }>;

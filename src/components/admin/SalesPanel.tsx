@@ -8,6 +8,7 @@ import {
   markOrderPaid,
   resendKeyMail,
   saveTariff,
+  testMail,
   type Order,
   type Tariff,
 } from '@/lib/adminApi';
@@ -33,6 +34,7 @@ const SalesPanel = () => {
   const [busy, setBusy] = useState(false);
   const [mailOn, setMailOn] = useState(true);
   const [sending, setSending] = useState(0);
+  const [checking, setChecking] = useState(false);
 
   const loadTariffs = useCallback(() => {
     adminTariffs()
@@ -56,6 +58,23 @@ const SalesPanel = () => {
       .then((r) => setMailOn(r.ready))
       .catch(() => undefined);
   }, [loadTariffs, loadOrders]);
+
+  // Проверка почты: письмо уходит на собственный ящик магазина
+  const checkMail = async () => {
+    setChecking(true);
+    try {
+      const r = await testMail();
+      toast({
+        title: r.ok ? 'Письмо отправлено' : 'Письмо не ушло',
+        description: r.ok ? `Проверьте ящик ${r.to}` : r.note,
+      });
+      setMailOn(r.ok);
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : 'Не удалось проверить' });
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const resend = async (o: Order) => {
     const to = window.prompt('Отправить ключ на адрес:', o.email || '');
@@ -212,16 +231,30 @@ const SalesPanel = () => {
         </>
       ) : (
         <>
-          {!mailOn && (
-            <div className="mt-5 flex items-start gap-2.5 border border-destructive bg-destructive/5 px-4 py-3 text-[0.85rem]">
-              <Icon name="TriangleAlert" size={15} className="mt-0.5 shrink-0 text-destructive" />
-              <span>
-                Отправка писем не настроена — покупатели не получат ключ на почту.
-                Ключ по-прежнему включается в программе сам, а здесь его можно
-                скопировать и отправить вручную.
-              </span>
-            </div>
-          )}
+          <div
+            className={`mt-5 flex flex-wrap items-center gap-3 border px-4 py-3 text-[0.85rem] ${
+              mailOn ? 'border-border bg-card' : 'border-destructive bg-destructive/5'
+            }`}
+          >
+            <Icon
+              name={mailOn ? 'Check' : 'TriangleAlert'}
+              size={15}
+              className={`shrink-0 ${mailOn ? 'text-primary' : 'text-destructive'}`}
+            />
+            <span className="min-w-0 flex-1">
+              {mailOn
+                ? 'Ключ уходит покупателю письмом сразу после оплаты.'
+                : 'Отправка писем не настроена — покупатели не получат ключ на почту. В программе ключ всё равно включится сам.'}
+            </span>
+            <button
+              onClick={checkMail}
+              disabled={checking}
+              className="shrink-0 border border-border bg-background px-3 py-1.5 text-[0.78rem] transition-colors hover:border-foreground disabled:opacity-50"
+              title="Отправить пробное письмо на ваш ящик"
+            >
+              {checking ? 'Отправляю…' : 'Проверить почту'}
+            </button>
+          </div>
 
           <div className="mt-5 grid grid-cols-2 border-l border-t border-border">
             <div className="border-b border-r border-border p-5">

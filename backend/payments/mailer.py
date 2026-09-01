@@ -33,9 +33,12 @@ def ready() -> bool:
     return bool(os.environ.get('SMTP_USER') and os.environ.get('SMTP_PASSWORD'))
 
 
-def send(to: str, subject: str, text: str, html: str = '') -> tuple:
+def send(to: str, subject: str, text: str, html: str = '', wait: int = 0) -> tuple:
     '''Отправка письма. Возвращает (успех, пояснение) — письмо не должно
-    ронять оплату: деньги уже получены, ключ уже выдан'''
+    ронять оплату: деньги уже получены, ключ уже выдан.
+
+    wait — сколько секунд ждать почтовый сервер. При оплате ждём мало,
+    при отправке вручную из панели можно подождать дольше'''
     user = os.environ.get('SMTP_USER', '').strip()
     password = os.environ.get('SMTP_PASSWORD', '').strip()
 
@@ -60,15 +63,21 @@ def send(to: str, subject: str, text: str, html: str = '') -> tuple:
     if html:
         msg.attach(MIMEText(html, 'html', 'utf-8'))
 
+    # Ждать почту долго нельзя: вся операция обязана уложиться в отведённое
+    # время, иначе банк не увидит ответа и пришлёт уведомление об оплате
+    # заново. Ключ к этому моменту уже выдан, поэтому лучше бросить
+    # медленную отправку и отправить письмо позже из панели
+    wait = wait or int(os.environ.get('SMTP_TIMEOUT', '3'))
+
     try:
         context = ssl.create_default_context()
         if port == 587:
-            with smtplib.SMTP(host, port, timeout=20) as srv:
+            with smtplib.SMTP(host, port, timeout=wait) as srv:
                 srv.starttls(context=context)
                 srv.login(user, password)
                 srv.sendmail(user, [to], msg.as_string())
         else:
-            with smtplib.SMTP_SSL(host, port, timeout=20, context=context) as srv:
+            with smtplib.SMTP_SSL(host, port, timeout=wait, context=context) as srv:
                 srv.login(user, password)
                 srv.sendmail(user, [to], msg.as_string())
         return True, 'Письмо отправлено'
