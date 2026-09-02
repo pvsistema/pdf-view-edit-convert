@@ -258,6 +258,10 @@ const Viewer = ({ tool, setTool }: Props) => {
     return () => box.removeEventListener('wheel', onWheel);
   }, []);
 
+  // Номер страницы, к которому лента уже подведена. Пока он совпадает
+  // с текущим, самовольных перелётов не делаем
+  const lastJump = useRef(active);
+
   // Номер страницы обновляется по ходу прокрутки: показываем тот лист,
   // который занимает середину окна
   useEffect(() => {
@@ -277,6 +281,10 @@ const Viewer = ({ tool, setTool }: Props) => {
           if (el.offsetTop <= middle) at = i;
           else break;
         }
+        // Номер сменился оттого, что человек крутит колесо. Лента уже
+        // там, где нужно, — подводить её ещё раз нельзя: встречный
+        // плавный перелёт цеплялся бы за прокрутку и дёргал её
+        lastJump.current = at;
         setActive((cur: number) => (cur === at ? cur : at));
       });
     };
@@ -288,8 +296,9 @@ const Viewer = ({ tool, setTool }: Props) => {
     };
   }, [setActive, pages.length]);
 
-  // Когда страницу выбирают в левой панели, лента подъезжает к ней
-  const lastJump = useRef(active);
+  // Когда страницу выбирают в левой панели, лента подъезжает к ней.
+  // Если же номер сменился от прокрутки колесом, lastJump уже равен
+  // новому — и мы ничего не двигаем, не мешая человеку крутить
   useEffect(() => {
     if (lastJump.current === active) return;
     lastJump.current = active;
