@@ -332,21 +332,28 @@ def handler(event, context):
         if machine:
             name = _esc(str(body.get('machine_name', '')).strip())[:160]
             ip = _esc(((event.get('requestContext') or {}).get('identity') or {}).get('sourceIp', ''))[:60]
-            cur.execute(
-                f"INSERT INTO {SCHEMA}.trial_events "
-                f"(machine_id, machine_name, event, tool, used_count, app_version, ip) "
-                f"VALUES ('{machine}', '{name}', '{kind}', '{tool}', {used}, '{ver}', '{ip}')"
-            )
 
-            # В ответ возвращаем свой счёт по этому компьютеру. Отдельного
-            # запроса не делаем: считаем на том же обращении, что уже пришло.
-            # Если человек очистил память программы, его счётчик обнулился,
-            # а наш — нет, и программа примет большее из двух
+            # Сколько проб мы уже помним за этим компьютером
             cur.execute(
                 f"SELECT COUNT(*) FROM {SCHEMA}.trial_events "
                 f"WHERE machine_id = '{machine}' AND event = 'used'"
             )
-            server_used = max(used, cur.fetchone()[0] or 0)
+            known = cur.fetchone()[0] or 0
+
+            # Программа прислала номер пробы меньше нашего счёта — значит
+            # счётчик в ней обнулили. Помечаем запись: в панели будет видно,
+            # с каких компьютеров пробуют заново
+            reset = 'TRUE' if (kind == 'used' and used <= known) else 'FALSE'
+
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.trial_events "
+                f"(machine_id, machine_name, event, tool, used_count, app_version, ip, was_reset) "
+                f"VALUES ('{machine}', '{name}', '{kind}', '{tool}', {used}, '{ver}', '{ip}', {reset})"
+            )
+
+            # В ответ отдаём свой счёт: он старше и правдивее. Отдельного
+            # запроса не делаем — считаем на том же обращении, что уже пришло
+            server_used = max(used, known + (1 if kind == 'used' else 0))
 
         cur.close()
         conn.close()
@@ -365,7 +372,8 @@ def handler(event, context):
         # Служебные отметки в счёт не идут: при каждом обновлении
         # программы автопроверка оставляет свою запись
         SKIP = (
-            "machine_id NOT LIKE 'CHECK-%' AND machine_id NOT LIKE 'testmachine%'"
+            "machine_id NOT LIKE 'CHECK-%' AND machine_id NOT LIKE 'testmachine%' "
+            "AND machine_id NOT LIKE 'PROBE-%' AND machine_id NOT LIKE 'RESET-%'"
         )
         cur.execute(f"SELECT COUNT(DISTINCT machine_id) FROM {SCHEMA}.trial_events WHERE {SKIP}")
         tried = cur.fetchone()[0] or 0
@@ -381,7 +389,8 @@ def handler(event, context):
             f"SELECT COUNT(DISTINCT t.machine_id) FROM {SCHEMA}.trial_events t "
             f"JOIN {SCHEMA}.orders o ON o.machine_id = t.machine_id AND o.status = 'paid' "
             f"WHERE t.event = 'limit' AND t.machine_id NOT LIKE 'CHECK-%' "
-            f"AND t.machine_id NOT LIKE 'testmachine%'"
+            f"AND t.machine_id NOT LIKE 'testmachine%' "
+            f"AND t.machine_id NOT LIKE 'PROBE-%' AND t.machine_id NOT LIKE 'RESET-%'"
         )
         bought = cur.fetchone()[0] or 0
 
@@ -396,9 +405,37 @@ def handler(event, context):
         )
         by_tool = [{'tool': r[0], 'count': r[1]} for r in cur.fetchall()]
 
+        # Компьютеры, где счётчик обнуляли. Всего запусков против пробных
+        # попыток: если запусков сильно больше пяти — пробуют по кругу
+        cur.execute(
+            f"SELECT machine_id, MAX(machine_name), COUNT(*) FILTER (WHERE was_reset), "
+            f"COUNT(*) FILTER (WHERE event = 'used'), MAX(created_at) "
+            f"FROM {SCHEMA}.trial_events WHERE {SKIP} "
+            f"GROUP BY machine_id HAVING COUNT(*) FILTER (WHERE was_reset) > 0 "
+            f"ORDER BY COUNT(*) FILTER (WHERE was_reset) DESC LIMIT 30"
+        )
+        resets = [
+            {
+                'machine_id': (r[0] or '')[:14],
+                'machine_name': r[1] or '',
+                'resets': r[2] or 0,
+                'runs': r[3] or 0,
+                'last': r[4].strftime('%Y-%m-%d %H:%M') if r[4] else '',
+            }
+            for r in cur.fetchall()
+        ]
+
+        # Сколько всего компьютеров с обнулениями и сколько лишних запусков
+        # они получили сверх положенных пяти
+        cur.execute(
+            f"SELECT COUNT(DISTINCT machine_id) FROM {SCHEMA}.trial_events "
+            f"WHERE was_reset AND {SKIP}"
+        )
+        reset_machines = cur.fetchone()[0] or 0
+
         # Последние события — чтобы видеть живую картину
         cur.execute(
-            f"SELECT machine_name, machine_id, event, tool, used_count, created_at "
+            f"SELECT machine_name, machine_id, event, tool, used_count, created_at, was_reset "
             f"FROM {SCHEMA}.trial_events WHERE {SKIP} ORDER BY created_at DESC LIMIT 50"
         )
         recent = [
@@ -409,6 +446,7 @@ def handler(event, context):
                 'tool': r[3] or '',
                 'used': r[4] or 0,
                 'when': r[5].strftime('%Y-%m-%d %H:%M') if r[5] else '',
+                'was_reset': bool(r[6]),
             }
             for r in cur.fetchall()
         ]
@@ -424,6 +462,8 @@ def handler(event, context):
             'rate': round(bought * 100 / hit_limit) if hit_limit else 0,
             'by_tool': by_tool,
             'recent': recent,
+            'reset_machines': reset_machines,
+            'resets': resets,
         })
 
     if action == 'build_info':

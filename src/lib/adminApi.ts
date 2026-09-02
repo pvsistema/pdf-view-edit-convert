@@ -146,6 +146,15 @@ export const trialStats = () =>
       tool: string;
       used: number;
       when: string;
+      was_reset: boolean;
+    }[];
+    reset_machines: number;
+    resets: {
+      machine_id: string;
+      machine_name: string;
+      resets: number;
+      runs: number;
+      last: string;
     }[];
   }>;
 

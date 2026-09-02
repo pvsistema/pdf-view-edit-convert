@@ -55,7 +55,13 @@ const TrialPanel = () => {
 
   if (!data) return null;
 
-  const cards = [
+  const cards: {
+    label: string;
+    value: string | number;
+    icon: string;
+    note: string;
+    alert?: boolean;
+  }[] = [
     {
       label: 'Пробовали',
       value: data.tried,
@@ -80,16 +86,27 @@ const TrialPanel = () => {
       icon: 'TrendingUp',
       note: 'Из тех, кто израсходовал пробы',
     },
+    {
+      label: 'Обнуляли счётчик',
+      value: data.reset_machines,
+      icon: 'ShieldAlert',
+      note: 'Пытались получить пробы заново — сервер не даёт',
+      alert: data.reset_machines > 0,
+    },
   ];
 
   const most = data.by_tool[0]?.count || 1;
 
   return (
     <div className="mt-6">
-      <div className="grid grid-cols-2 border-l border-t border-border lg:grid-cols-4">
+      <div className="grid grid-cols-2 border-l border-t border-border lg:grid-cols-5">
         {cards.map((c) => (
           <div key={c.label} className="border-b border-r border-border p-5">
-            <Icon name={c.icon} size={18} className="text-primary" />
+            <Icon
+              name={c.icon}
+              size={18}
+              className={c.alert ? 'text-destructive' : 'text-primary'}
+            />
             <div className="mt-3 font-head text-[1.8rem] font-black leading-none">{c.value}</div>
             <div className="mt-1 text-[0.78rem] uppercase tracking-[0.1em] text-muted-foreground">
               {c.label}
@@ -114,6 +131,63 @@ const TrialPanel = () => {
           Обновить
         </button>
       </div>
+
+      {/* Обнуления счётчика. Показываем, только если они вообще были:
+          пустой раздел на глазах каждый день внушал бы ложную тревогу */}
+      {data.reset_machines > 0 && (
+        <div className="mt-6 border border-border">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+            <Icon name="ShieldAlert" size={15} className="text-destructive" />
+            <span className="label-caps">Обнуляли счётчик</span>
+            <span className="ml-auto text-[0.78rem] text-muted-foreground">
+              Компьютеров: <b className="text-foreground">{data.reset_machines}</b>
+            </span>
+          </div>
+
+          <div className="border-b border-border bg-card px-4 py-3 text-[0.8rem] leading-relaxed text-muted-foreground">
+            Здесь компьютеры, где пробный счётчик сбрасывали, чтобы получить попытки заново.
+            Сейчас это не срабатывает — сервер помнит израсходованные пробы и восстанавливает счёт
+            при следующем запуске. Список нужен, чтобы видеть, есть ли злоупотребления вообще
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[0.84rem]">
+              <thead>
+                <tr className="border-b border-border text-[0.72rem] uppercase tracking-[0.08em] text-muted-foreground">
+                  <th className="px-4 py-2.5 font-medium">Компьютер</th>
+                  <th className="px-4 py-2.5 font-medium">Сбросов</th>
+                  <th className="px-4 py-2.5 font-medium">Всего запусков</th>
+                  <th className="px-4 py-2.5 font-medium">Последний раз</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.resets.map((r) => (
+                  <tr key={r.machine_id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2.5">
+                      {r.machine_name || (
+                        <span className="text-muted-foreground">{r.machine_id}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1.5 text-destructive">
+                        <Icon name="RotateCcw" size={13} />
+                        {r.resets}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={r.runs > 5 ? 'font-bold text-destructive' : ''}>
+                        {r.runs}
+                      </span>
+                      <span className="ml-1 text-muted-foreground">из 5 положенных</span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-muted-foreground">{r.last}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {data.by_tool.length > 0 && (
         <div className="mt-6 border border-border">
@@ -169,7 +243,18 @@ const TrialPanel = () => {
                   <tr key={i} className="border-b border-border last:border-0">
                     <td className="whitespace-nowrap px-4 py-2.5 text-muted-foreground">{r.when}</td>
                     <td className="px-4 py-2.5">
-                      {r.machine_name || <span className="text-muted-foreground">{r.machine_id}</span>}
+                      <span className="inline-flex items-center gap-1.5">
+                        {r.was_reset && (
+                          <Icon
+                            name="RotateCcw"
+                            size={12}
+                            className="shrink-0 text-destructive"
+                          />
+                        )}
+                        {r.machine_name || (
+                          <span className="text-muted-foreground">{r.machine_id}</span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5">{toolName(r.tool)}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{r.used} из 5</td>
