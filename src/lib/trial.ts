@@ -4,6 +4,7 @@
 
 import { desktopVersion, machineId, machineName } from '@/lib/desktop';
 import { APP_VERSION } from '@/lib/brand';
+import { sendTrialEvent } from '@/lib/adminApi';
 
 export const TRIAL_LIMIT = 5;
 
@@ -60,17 +61,14 @@ export const spendTrial = (tool = '') => {
 // Сообщаем на сервер в стороне от работы: интернета может не быть,
 // и это не повод мешать человеку получить свой файл
 const report = (event: 'used' | 'limit', tool: string, used: number) => {
-  import('@/lib/adminApi')
-    .then((api) =>
-      api.sendTrialEvent({
-        event,
-        tool,
-        used,
-        machine_id: machineId() || browserId(),
-        machine_name: machineName(),
-        app_version: desktopVersion() || APP_VERSION,
-      }),
-    )
+  sendTrialEvent({
+    event,
+    tool,
+    used,
+    machine_id: machineId() || browserId(),
+    machine_name: machineName(),
+    app_version: desktopVersion() || APP_VERSION,
+  })
     // Сервер отвечает своим счётом — он мог сохранить больше нашего
     .then((r) => applyServerUsed(Number((r as { used?: number })?.used)))
     .catch(() => undefined);
