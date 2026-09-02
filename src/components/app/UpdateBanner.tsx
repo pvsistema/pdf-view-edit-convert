@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { checkUpdate, type UpdateInfo } from '@/lib/adminApi';
+import { applyServerUsed, trialMachineId } from '@/lib/trial';
 import {
   desktopVersion,
   isDesktop,
@@ -57,10 +58,12 @@ const UpdateBanner = () => {
     // У активированных программ ответ обычно уже пришёл вместе с лицензией
     const timer = setTimeout(() => {
       if (!updateCheckDue() || isLicenseAsking()) return;
-      checkUpdate(current)
+      checkUpdate(current, trialMachineId())
         .then((r) => {
           saveUpdateInfo(r);
           show(r);
+          // Тем же ответом приходит серверный счёт проб
+          if (typeof r.trial_used === 'number') applyServerUsed(r.trial_used);
         })
         .catch(() => undefined);
     }, 6000);

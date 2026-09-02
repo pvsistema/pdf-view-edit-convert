@@ -7,12 +7,12 @@
       "expectedStatus": 200
     },
     {
-      "name": "Проверка версии без релизов",
+      "name": "Проверка версии отвечает номером последней",
       "method": "POST",
       "path": "/",
       "body": { "action": "check", "version": "1.0.0" },
       "expectedStatus": 200,
-      "expectedBody": { "update_available": false },
+      "expectedBody": { "latest": "string" },
       "bodyMatcher": "partial"
     },
     {
@@ -21,6 +21,15 @@
       "path": "/",
       "body": { "action": "publish", "version": "9.9.9" },
       "expectedStatus": 401
+    },
+    {
+      "name": "Проверка версии возвращает счёт проб",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "check", "version": "1.0.0", "machine_id": "testmachine-never-used" },
+      "expectedStatus": 200,
+      "expectedBody": { "trial_used": 0 },
+      "bodyMatcher": "partial"
     }
   ]
 }

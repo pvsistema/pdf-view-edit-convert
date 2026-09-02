@@ -328,6 +328,7 @@ def handler(event, context):
         if kind not in ('used', 'limit'):
             kind = 'used'
 
+        server_used = used
         if machine:
             name = _esc(str(body.get('machine_name', '')).strip())[:160]
             ip = _esc(((event.get('requestContext') or {}).get('identity') or {}).get('sourceIp', ''))[:60]
@@ -337,9 +338,19 @@ def handler(event, context):
                 f"VALUES ('{machine}', '{name}', '{kind}', '{tool}', {used}, '{ver}', '{ip}')"
             )
 
+            # В ответ возвращаем свой счёт по этому компьютеру. Отдельного
+            # запроса не делаем: считаем на том же обращении, что уже пришло.
+            # Если человек очистил память программы, его счётчик обнулился,
+            # а наш — нет, и программа примет большее из двух
+            cur.execute(
+                f"SELECT COUNT(*) FROM {SCHEMA}.trial_events "
+                f"WHERE machine_id = '{machine}' AND event = 'used'"
+            )
+            server_used = max(used, cur.fetchone()[0] or 0)
+
         cur.close()
         conn.close()
-        return _resp(200, {'ok': True})
+        return _resp(200, {'ok': True, 'used': server_used})
 
     if not _auth(cur, event, body):
         cur.close()

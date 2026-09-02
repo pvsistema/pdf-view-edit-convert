@@ -189,8 +189,12 @@ export type Release = {
   published_at: string;
 };
 
-export const checkUpdate = (version: string) =>
-  post(VER_URL, { action: 'check', version }) as Promise<UpdateInfo>;
+// Отпечаток компьютера передаём, чтобы тем же ответом узнать
+// серверный счёт проб — без отдельного обращения
+export const checkUpdate = (version: string, machineId = '') =>
+  post(VER_URL, { action: 'check', version, machine_id: machineId }) as Promise<
+    UpdateInfo & { trial_used?: number }
+  >;
 
 export const listReleases = () =>
   post(VER_URL, { action: 'list' }) as Promise<{ items: Release[] }>;

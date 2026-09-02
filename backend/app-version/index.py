@@ -64,6 +64,23 @@ def handler(event, context):
 
     if action == 'check':
         current = _esc(str(body.get('version') or params.get('version', '0.0.0')).strip())
+
+        # Заодно сообщаем, сколько проб этот компьютер уже израсходовал.
+        # Отдельного обращения не нужно: о версии программа спрашивает
+        # при запуске в любом случае. Так очистка памяти программы
+        # перестаёт обнулять пробный счёт
+        machine = _esc(str(body.get('machine_id') or params.get('machine_id', '')).strip())[:60]
+        trial_used = None
+        if machine:
+            # Считаем строго по отпечатку компьютера. По сетевому адресу
+            # считать нельзя: в конторе весь отдел выходит через один адрес,
+            # и пробы одного сотрудника съели бы попытки у всех остальных
+            cur.execute(
+                f"SELECT COUNT(*) FROM {SCHEMA}.trial_events "
+                f"WHERE machine_id = '{machine}' AND event = 'used'"
+            )
+            trial_used = cur.fetchone()[0] or 0
+
         cur.execute(
             f"SELECT version, download_url, notes, is_required, published_at "
             f"FROM {SCHEMA}.app_releases WHERE is_published = TRUE "
@@ -72,11 +89,18 @@ def handler(event, context):
         row = cur.fetchone()
         cur.close()
         conn.close()
+
+        out = {}
+        if trial_used is not None:
+            out['trial_used'] = trial_used
+
         if not row:
-            return _resp(200, {'update_available': False, 'latest': current})
+            out.update({'update_available': False, 'latest': current})
+            return _resp(200, out)
+
         version, url, notes, required, published = row
         newer = _num(version) > _num(current)
-        return _resp(200, {
+        out.update({
             'update_available': newer,
             'latest': version,
             'download_url': url or '',
@@ -84,6 +108,7 @@ def handler(event, context):
             'required': bool(required) and newer,
             'published_at': published.strftime('%Y-%m-%d') if published else '',
         })
+        return _resp(200, out)
 
     if not _auth(cur, event, body):
         cur.close()

@@ -30,6 +30,15 @@ const read = (): number => {
   return Number.isFinite(n) && n > 0 ? Math.min(n, TRIAL_LIMIT) : 0;
 };
 
+// Сервер помнит пробы по компьютеру. Если у него насчитано больше —
+// значит счётчик здесь обнулили, и верить надо серверу. Приходит
+// попутно с проверкой версии, отдельных обращений не делаем
+export const applyServerUsed = (used: number) => {
+  if (!Number.isFinite(used) || used <= read()) return;
+  localStorage.setItem(STORE, String(Math.min(used, TRIAL_LIMIT)));
+  window.dispatchEvent(new CustomEvent('pv-trial-change'));
+};
+
 export const trialUsed = () => read();
 
 export const trialLeft = () => Math.max(0, TRIAL_LIMIT - read());
@@ -62,8 +71,13 @@ const report = (event: 'used' | 'limit', tool: string, used: number) => {
         app_version: desktopVersion() || APP_VERSION,
       }),
     )
+    // Сервер отвечает своим счётом — он мог сохранить больше нашего
+    .then((r) => applyServerUsed(Number((r as { used?: number })?.used)))
     .catch(() => undefined);
 };
+
+// Отпечаток компьютера для запросов: в программе свой, в браузере — наш
+export const trialMachineId = () => machineId() || browserId();
 
 // В браузере отпечатка компьютера нет — заводим свой, чтобы
 // не считать один и тот же компьютер за десяток разных
