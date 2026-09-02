@@ -95,7 +95,7 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
 
       // Попытку списываем за готовый файл, а не за нажатие кнопки
       if (trial) {
-        const rest = spendTrial();
+        const rest = spendTrial(tool.id);
         setLeft(rest);
         toast({
           title: rest > 0 ? `Осталось ${leftWord(rest)}` : 'Пробные попытки закончились',

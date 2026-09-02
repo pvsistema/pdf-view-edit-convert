@@ -104,6 +104,32 @@
         "action": "build_info"
       },
       "expectedStatus": 401
+    },
+    {
+      "name": "Отметка о пробном запуске принимается",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "trial_event",
+        "event": "used",
+        "tool": "to-word",
+        "used": 1,
+        "machine_id": "testmachine01"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "ok": true
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Статистика проб закрыта без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "trial_stats"
+      },
+      "expectedStatus": 401
     }
   ]
 }

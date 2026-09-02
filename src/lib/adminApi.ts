@@ -119,6 +119,36 @@ export const getBuildInfo = () =>
     public_key: string;
   }>;
 
+// Отметка о пробном запуске. Счёт программа ведёт у себя, серверу
+// сообщает лишь факт — чтобы в панели была видна отдача пробного режима
+export const sendTrialEvent = (data: {
+  event: 'used' | 'limit';
+  tool: string;
+  used: number;
+  machine_id: string;
+  machine_name: string;
+  app_version: string;
+}) => post(LIC_URL, { action: 'trial_event', ...data });
+
+// Сколько людей пробовало, упёрлось в лимит и купило после этого
+export const trialStats = () =>
+  post(LIC_URL, { action: 'trial_stats' }) as Promise<{
+    tried: number;
+    hit_limit: number;
+    bought: number;
+    runs: number;
+    rate: number;
+    by_tool: { tool: string; count: number }[];
+    recent: {
+      machine_name: string;
+      machine_id: string;
+      event: string;
+      tool: string;
+      used: number;
+      when: string;
+    }[];
+  }>;
+
 // Ключ к платному модулю: сервер отдаёт его только по действующей лицензии
 export const getModuleKey = (module: string, key: string, machine = '') =>
   post(LIC_URL, { action: 'module_key', module, key, machine_id: machine }) as Promise<{

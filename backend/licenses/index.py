@@ -315,10 +315,105 @@ def handler(event, context):
         conn.close()
         return _resp(200, {'secret': secret})
 
+    if action == 'trial_event':
+        # Отметка о пробном запуске. Шлёт сама программа: счёт она ведёт
+        # у себя, сюда сообщает только факт — чтобы в панели было видно,
+        # сколько людей упирается в лимит и сколько потом покупает ключ
+        machine = _esc(str(body.get('machine_id', '')).strip())[:60]
+        kind = _esc(str(body.get('event', 'used')).strip().lower())[:20]
+        tool = _esc(str(body.get('tool', '')).strip())[:40]
+        used = int(body.get('used') or 0)
+        ver = _esc(str(body.get('app_version', '')).strip())[:20]
+
+        if kind not in ('used', 'limit'):
+            kind = 'used'
+
+        if machine:
+            name = _esc(str(body.get('machine_name', '')).strip())[:160]
+            ip = _esc(((event.get('requestContext') or {}).get('identity') or {}).get('sourceIp', ''))[:60]
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.trial_events "
+                f"(machine_id, machine_name, event, tool, used_count, app_version, ip) "
+                f"VALUES ('{machine}', '{name}', '{kind}', '{tool}', {used}, '{ver}', '{ip}')"
+            )
+
+        cur.close()
+        conn.close()
+        return _resp(200, {'ok': True})
+
     if not _auth(cur, event, body):
         cur.close()
         conn.close()
         return _resp(401, {'error': 'Нет доступа'})
+
+    if action == 'trial_stats':
+        # Сколько человек пробовало, сколько упёрлось в лимит и сколько
+        # из упёршихся купило. Считаем по компьютерам, а не по нажатиям:
+        # один человек с пятью запусками — это один интересующийся
+        #
+        # Служебные отметки в счёт не идут: при каждом обновлении
+        # программы автопроверка оставляет свою запись
+        SKIP = (
+            "machine_id NOT LIKE 'CHECK-%' AND machine_id NOT LIKE 'testmachine%'"
+        )
+        cur.execute(f"SELECT COUNT(DISTINCT machine_id) FROM {SCHEMA}.trial_events WHERE {SKIP}")
+        tried = cur.fetchone()[0] or 0
+
+        cur.execute(
+            f"SELECT COUNT(DISTINCT machine_id) FROM {SCHEMA}.trial_events "
+            f"WHERE event = 'limit' AND {SKIP}"
+        )
+        hit_limit = cur.fetchone()[0] or 0
+
+        # Купившие среди упёршихся: заказ оплачен с того же компьютера
+        cur.execute(
+            f"SELECT COUNT(DISTINCT t.machine_id) FROM {SCHEMA}.trial_events t "
+            f"JOIN {SCHEMA}.orders o ON o.machine_id = t.machine_id AND o.status = 'paid' "
+            f"WHERE t.event = 'limit' AND t.machine_id NOT LIKE 'CHECK-%' "
+            f"AND t.machine_id NOT LIKE 'testmachine%'"
+        )
+        bought = cur.fetchone()[0] or 0
+
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.trial_events WHERE event = 'used' AND {SKIP}")
+        runs = cur.fetchone()[0] or 0
+
+        # Какими инструментами пробуют чаще всего
+        cur.execute(
+            f"SELECT tool, COUNT(*) FROM {SCHEMA}.trial_events "
+            f"WHERE event = 'used' AND tool <> '' AND {SKIP} "
+            f"GROUP BY tool ORDER BY COUNT(*) DESC LIMIT 8"
+        )
+        by_tool = [{'tool': r[0], 'count': r[1]} for r in cur.fetchall()]
+
+        # Последние события — чтобы видеть живую картину
+        cur.execute(
+            f"SELECT machine_name, machine_id, event, tool, used_count, created_at "
+            f"FROM {SCHEMA}.trial_events WHERE {SKIP} ORDER BY created_at DESC LIMIT 50"
+        )
+        recent = [
+            {
+                'machine_name': r[0] or '',
+                'machine_id': (r[1] or '')[:12],
+                'event': r[2],
+                'tool': r[3] or '',
+                'used': r[4] or 0,
+                'when': r[5].strftime('%Y-%m-%d %H:%M') if r[5] else '',
+            }
+            for r in cur.fetchall()
+        ]
+
+        cur.close()
+        conn.close()
+        return _resp(200, {
+            'tried': tried,
+            'hit_limit': hit_limit,
+            'bought': bought,
+            'runs': runs,
+            # Доля купивших среди тех, кто дошёл до конца проб
+            'rate': round(bought * 100 / hit_limit) if hit_limit else 0,
+            'by_tool': by_tool,
+            'recent': recent,
+        })
 
     if action == 'build_info':
         # Ключи, нужные при сборке программы. Доступны только из панели:

@@ -2,6 +2,9 @@
 // Человек видит настоящий результат на своих файлах и решает, покупать ли.
 // Счёт ведём на месте, чтобы пробный режим работал и без интернета
 
+import { desktopVersion, machineId, machineName } from '@/lib/desktop';
+import { APP_VERSION } from '@/lib/brand';
+
 export const TRIAL_LIMIT = 5;
 
 const STORE = 'pv_trial_used';
@@ -35,11 +38,44 @@ export const trialOver = () => trialLeft() === 0;
 
 // Засчитываем попытку только после успешного результата: если файл
 // не открылся или обработка сорвалась, попытка не должна пропадать
-export const spendTrial = () => {
+export const spendTrial = (tool = '') => {
   const next = Math.min(read() + 1, TRIAL_LIMIT);
   localStorage.setItem(STORE, String(next));
   window.dispatchEvent(new CustomEvent('pv-trial-change'));
-  return TRIAL_LIMIT - next;
+
+  const rest = TRIAL_LIMIT - next;
+  report(rest === 0 ? 'limit' : 'used', tool, next);
+  return rest;
+};
+
+// Сообщаем на сервер в стороне от работы: интернета может не быть,
+// и это не повод мешать человеку получить свой файл
+const report = (event: 'used' | 'limit', tool: string, used: number) => {
+  import('@/lib/adminApi')
+    .then((api) =>
+      api.sendTrialEvent({
+        event,
+        tool,
+        used,
+        machine_id: machineId() || browserId(),
+        machine_name: machineName(),
+        app_version: desktopVersion() || APP_VERSION,
+      }),
+    )
+    .catch(() => undefined);
+};
+
+// В браузере отпечатка компьютера нет — заводим свой, чтобы
+// не считать один и тот же компьютер за десяток разных
+const BROWSER_ID = 'pv_trial_id';
+
+const browserId = () => {
+  let id = localStorage.getItem(BROWSER_ID) || '';
+  if (!id) {
+    id = 'web-' + Math.random().toString(36).slice(2, 12);
+    localStorage.setItem(BROWSER_ID, id);
+  }
+  return id;
 };
 
 export const onTrialChange = (cb: () => void) => {

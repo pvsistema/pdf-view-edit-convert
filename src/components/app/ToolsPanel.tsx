@@ -40,7 +40,7 @@ const ToolsPanel = () => {
       // Попытку списываем только за удавшуюся работу: сорвалась —
       // человек не должен терять пробный запуск
       if (trial) {
-        const rest = spendTrial();
+        const rest = spendTrial(key);
         setLeft(rest);
         toast({
           title: rest > 0 ? `Осталось ${leftWord(rest)}` : 'Пробные попытки закончились',
