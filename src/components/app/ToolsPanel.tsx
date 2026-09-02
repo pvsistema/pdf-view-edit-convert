@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { canvasToBlob, downloadBlob } from '@/lib/files';
@@ -8,6 +8,14 @@ import { useLicense } from '@/context/LicenseContext';
 import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
+import {
+  isTrialTool,
+  leftWord,
+  onTrialChange,
+  spendTrial,
+  trialLeft,
+  TRIAL_LIMIT,
+} from '@/lib/trial';
 
 const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
@@ -18,13 +26,31 @@ const ToolsPanel = () => {
   const [progress, setProgress] = useState(0);
   const [ocrText, setOcrText] = useState('');
   const [showAct, setShowAct] = useState(false);
+  const [left, setLeft] = useState(() => trialLeft());
   const desktop = isDesktop();
 
-  const run = async (key: string, fn: () => Promise<void>) => {
+  // Остаток попыток может измениться в другом окне программы
+  useEffect(() => onTrialChange(() => setLeft(trialLeft())), []);
+
+  const run = async (key: string, trial: boolean, fn: () => Promise<void>) => {
     setBusy(key);
     setProgress(0);
     try {
       await fn();
+      // Попытку списываем только за удавшуюся работу: сорвалась —
+      // человек не должен терять пробный запуск
+      if (trial) {
+        const rest = spendTrial();
+        setLeft(rest);
+        toast({
+          title: rest > 0 ? `Осталось ${leftWord(rest)}` : 'Пробные попытки закончились',
+          description:
+            rest > 0
+              ? 'Пробный режим: платные инструменты работают ограниченное число раз'
+              : 'Активируйте полную версию, чтобы продолжить',
+        });
+        if (rest === 0) setShowAct(true);
+      }
     } catch (e) {
       // Модуль не открылся: лицензия кончилась или компьютер не активирован
       if (e instanceof ModuleLocked) {
@@ -69,7 +95,7 @@ const ToolsPanel = () => {
   };
 
   const toPdf = () =>
-    run('pdf', async () => {
+    run('pdf', false, async () => {
       const bytes = await buildPdf();
       downloadBlob(
         new Blob([bytes as BlobPart], { type: 'application/pdf' }),
@@ -79,7 +105,7 @@ const ToolsPanel = () => {
     });
 
   const toWord = () =>
-    run('word', async () => {
+    run('word', !isFull, async () => {
       const chunks = await collectText();
       const body = chunks
         .map(
@@ -97,7 +123,7 @@ const ToolsPanel = () => {
     });
 
   const toExcel = () =>
-    run('excel', async () => {
+    run('excel', !isFull, async () => {
       const chunks = await collectText();
       const rows = chunks
         .flatMap((t, i) =>
@@ -118,7 +144,7 @@ const ToolsPanel = () => {
     });
 
   const toText = () =>
-    run('text', async () => {
+    run('text', false, async () => {
       const chunks = await collectText();
       const text = chunks.map((t, i) => `--- Страница ${i + 1} ---\n${t}`).join('\n\n');
       downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${baseName(name)}.txt`);
@@ -126,7 +152,7 @@ const ToolsPanel = () => {
     });
 
   const toImages = () =>
-    run('jpg', async () => {
+    run('jpg', !isFull, async () => {
       const items: { blob: Blob; name: string }[] = [];
       for (let i = 0; i < pages.length; i++) {
         const doc = docOf(pages[i]);
@@ -154,7 +180,7 @@ const ToolsPanel = () => {
     });
 
   const splitCurrent = () =>
-    run('split', async () => {
+    run('split', false, async () => {
       const bytes = await buildPdf([pages[active]]);
       downloadBlob(
         new Blob([bytes as BlobPart], { type: 'application/pdf' }),
@@ -164,7 +190,7 @@ const ToolsPanel = () => {
     });
 
   const runOcr = () =>
-    run('ocr', async () => {
+    run('ocr', false, async () => {
       const p = pages[active];
       const doc = docOf(p);
       if (!doc) return;
@@ -203,14 +229,17 @@ const ToolsPanel = () => {
         <span className="label-caps">Инструменты</span>
         {!isFull && (
           <span className="font-head text-[0.66rem] font-bold uppercase tracking-[0.08em] text-muted-foreground">
-            Бесплатная версия
+            {left > 0 ? `Проба: ${left} из ${TRIAL_LIMIT}` : 'Бесплатная версия'}
           </span>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {TOOLS.map((t) => {
-          const locked = !!t.pro && !isFull;
+          // Пробные инструменты работают, пока остались попытки:
+          // человек видит настоящий результат, а не замок
+          const trial = !!t.pro && !isFull && isTrialTool(t.key);
+          const locked = !!t.pro && !isFull && (!trial || left === 0);
           return (
           <button
             key={t.key}
@@ -230,7 +259,11 @@ const ToolsPanel = () => {
                 {t.label}
               </span>
               <span className="mt-0.5 block text-[0.8rem] text-muted-foreground">
-                {locked ? 'Доступно в полной версии' : t.note}
+                {locked
+                  ? 'Доступно в полной версии'
+                  : trial
+                    ? `${t.note} — проба, осталось ${left}`
+                    : t.note}
               </span>
               {busy === t.key && (
                 <>
@@ -263,7 +296,9 @@ const ToolsPanel = () => {
                 Активировать
               </span>
               <span className="mt-0.5 block text-[0.78rem] text-muted-foreground">
-                Открыть все возможности
+                {left > 0
+                  ? `Пробных попыток осталось: ${left}`
+                  : 'Пробные попытки закончились'}
               </span>
             </span>
           </button>

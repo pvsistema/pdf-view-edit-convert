@@ -7,6 +7,7 @@ import { useLicense } from '@/context/LicenseContext';
 import { countPages } from '@/lib/convert/pdfOps';
 import { DEFAULT_SETTINGS, runTool, type ToolSettings } from '@/lib/convert/runTool';
 import type { ToolDef } from '@/lib/convert/catalog';
+import { isTrialTool, leftWord, onTrialChange, spendTrial, trialLeft } from '@/lib/trial';
 
 type Props = {
   tool: ToolDef;
@@ -40,8 +41,14 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
   const [error, setError] = useState('');
   const [done, setDone] = useState<string>('');
 
+  const [left, setLeft] = useState(() => trialLeft());
+  useEffect(() => onTrialChange(() => setLeft(trialLeft())), []);
+
   const needsRange = ['remove-pages', 'extract-pages', 'reorder'].includes(tool.id);
-  const locked = tool.pro && !isFull;
+  // Пока остались пробные попытки, платный инструмент отрабатывает
+  // по-настоящему — с готовым файлом на выходе
+  const trial = !!tool.pro && !isFull && isTrialTool(tool.id);
+  const locked = !!tool.pro && !isFull && (!trial || left === 0);
 
   // Узнаём количество страниц: без него подсказка про номера
   // страниц была бы гаданием
@@ -85,6 +92,19 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
       );
       setDone(r.note || r.message);
       toast({ title: r.message, description: r.note });
+
+      // Попытку списываем за готовый файл, а не за нажатие кнопки
+      if (trial) {
+        const rest = spendTrial();
+        setLeft(rest);
+        toast({
+          title: rest > 0 ? `Осталось ${leftWord(rest)}` : 'Пробные попытки закончились',
+          description:
+            rest > 0
+              ? 'Пробный режим: инструмент работает ограниченное число раз'
+              : 'Активируйте полную версию, чтобы продолжить',
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось выполнить');
     } finally {
@@ -107,7 +127,7 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
             <span className="label-caps truncate">{tool.title}</span>
             {tool.pro && !isFull && (
               <span className="border border-primary px-1.5 font-head text-[0.6rem] font-bold uppercase tracking-[0.08em] text-primary">
-                Полная версия
+                {trial ? `Проба: осталось ${left}` : 'Полная версия'}
               </span>
             )}
           </div>

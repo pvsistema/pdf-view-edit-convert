@@ -4,8 +4,14 @@ import { LOGO_URL } from '@/lib/brand';
 import { useLicense } from '@/context/LicenseContext';
 import { toast } from '@/hooks/use-toast';
 import BuyDialog from '@/components/app/BuyDialog';
+import { trialLeft, TRIAL_LIMIT } from '@/lib/trial';
 
-const FREE = ['Просмотр документов', 'Поворот и порядок страниц', 'Поиск по тексту'];
+const FREE = [
+  'Просмотр документов',
+  'Поворот и порядок страниц',
+  'Поиск по тексту',
+  `Конвертация — ${TRIAL_LIMIT} пробных запуска`,
+];
 const PAID = [
   'Конвертация в Word, Excel и JPG',
   'Распознавание сканов (OCR)',
@@ -34,6 +40,7 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
   const [err, setErr] = useState('');
   // Пустая строка — обычная покупка, ключ — продление действующей лицензии
   const [buyFor, setBuyFor] = useState<string | null>(null);
+  const left = trialLeft();
 
   const submit = async () => {
     setErr('');
@@ -125,6 +132,29 @@ const ActivateDialog = ({ onClose }: { onClose: () => void }) => {
           </div>
         ) : (
           <div className="p-6">
+            {/* Сначала — положение дел: сколько проб осталось */}
+            <div
+              className={`mb-5 flex items-center gap-3 border p-4 ${
+                left > 0 ? 'border-border bg-card' : 'border-destructive bg-destructive/10'
+              }`}
+            >
+              <Icon
+                name={left > 0 ? 'Gift' : 'LockKeyhole'}
+                size={22}
+                className={`shrink-0 ${left > 0 ? 'text-primary' : 'text-destructive'}`}
+              />
+              <div className="min-w-0">
+                <div className="font-head text-[0.92rem] font-bold uppercase">
+                  {left > 0 ? `Пробных запусков: ${left} из ${TRIAL_LIMIT}` : 'Пробные запуски закончились'}
+                </div>
+                <div className="mt-0.5 text-[0.82rem] text-muted-foreground">
+                  {left > 0
+                    ? 'Конвертация в Word, Excel и картинки работает полностью — без пометок на файлах'
+                    : 'Просмотр документов остаётся бесплатным. Для конвертации нужен ключ'}
+                </div>
+              </div>
+            </div>
+
             <button
               onClick={() => setBuyFor('')}
               className="flex w-full items-center gap-3 border border-primary bg-primary/5 px-4 py-3.5 text-left transition-colors hover:bg-primary/10"

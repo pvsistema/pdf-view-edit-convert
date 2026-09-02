@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import ToolRunner from '@/components/app/ToolRunner';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { GROUPS, findTool, searchTools, type ToolDef } from '@/lib/convert/catalog';
 import { useLicense } from '@/context/LicenseContext';
+import { isTrialTool, onTrialChange, trialLeft, TRIAL_LIMIT } from '@/lib/trial';
 
 type Props = { start?: string; onClose: () => void };
 
@@ -12,6 +13,9 @@ const ConvertDialog = ({ start = '', onClose }: Props) => {
   const [openId, setOpenId] = useState(start);
   const [query, setQuery] = useState('');
   const [showAct, setShowAct] = useState(false);
+  const [left, setLeft] = useState(() => trialLeft());
+
+  useEffect(() => onTrialChange(() => setLeft(trialLeft())), []);
 
   const found = useMemo(() => searchTools(query), [query]);
   const tool = openId ? findTool(openId) : undefined;
@@ -29,7 +33,13 @@ const ConvertDialog = ({ start = '', onClose }: Props) => {
         <span className="flex items-center gap-1.5">
           <span className="font-head text-[0.86rem] font-bold">{t.title}</span>
           {t.pro && !isFull && (
-            <Icon name="Lock" size={11} className="shrink-0 text-muted-foreground" />
+            <Icon
+              name={isTrialTool(t.id) && left > 0 ? 'Gift' : 'Lock'}
+              size={11}
+              className={`shrink-0 ${
+                isTrialTool(t.id) && left > 0 ? 'text-primary' : 'text-muted-foreground'
+              }`}
+            />
           )}
         </span>
         <span className="mt-1 block text-[0.78rem] leading-snug text-muted-foreground">
@@ -60,7 +70,11 @@ const ConvertDialog = ({ start = '', onClose }: Props) => {
               <div>
                 <div className="label-caps">Конвертировать</div>
                 <p className="mt-1 text-[0.8rem] text-muted-foreground">
-                  Все инструменты работают на вашем компьютере
+                  {isFull
+                    ? 'Все инструменты работают на вашем компьютере'
+                    : left > 0
+                      ? `Пробный режим: ${left} из ${TRIAL_LIMIT} бесплатных запусков`
+                      : 'Пробные запуски закончились — нужна полная версия'}
                 </p>
               </div>
               <div className="flex items-center gap-3">
