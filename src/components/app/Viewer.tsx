@@ -82,15 +82,35 @@ const Viewer = ({ tool, setTool }: Props) => {
     return out;
   }, [pages, spread]);
 
-  // Плавно подводим ленту к нужному листу
-  const scrollToPage = useCallback((i: number) => {
+  // Номер страницы, к которому лента уже подведена. Пока он совпадает
+  // с текущим, самовольных перелётов не делаем
+  const lastJump = useRef(active);
+
+  // Подводим ленту к нужному месту. Вблизи — плавно, издалека — сразу:
+  // на длинном документе плавный перелёт через тысячи листов идёт долго
+  // и рвано, ведь листы вдали ещё не нарисованы и их высота уточняется
+  // на лету, из-за чего цель уезжает прямо во время движения
+  const scrollTo = useCallback((top: number) => {
     const box = scroller.current;
-    const el = box?.querySelector(`[data-sheet="${i}"]`) as HTMLElement | null;
-    if (!box || !el) return;
+    if (!box) return;
+    const target = Math.max(0, top);
+    const far = Math.abs(target - box.scrollTop) > box.clientHeight * 3;
     jumping.current = true;
-    box.scrollTo({ top: el.offsetTop - 24, behavior: 'smooth' });
-    setTimeout(() => (jumping.current = false), 700);
+    box.scrollTo({ top: target, behavior: far ? 'auto' : 'smooth' });
+    // Пока лента едет, номер страницы не пересчитываем: иначе
+    // промежуточные листы перебивали бы выбранную цель
+    window.setTimeout(() => (jumping.current = false), far ? 60 : 420);
   }, []);
+
+  const scrollToPage = useCallback(
+    (i: number) => {
+      const box = scroller.current;
+      const el = box?.querySelector(`[data-sheet="${i}"]`) as HTMLElement | null;
+      if (!el) return;
+      scrollTo(el.offsetTop - 24);
+    },
+    [scrollTo],
+  );
 
   // Считаем масштаб так, чтобы лист вписался в окно
   const applyFit = useCallback(
@@ -227,18 +247,31 @@ const Viewer = ({ tool, setTool }: Props) => {
         go(-1);
       } else if (e.key === 'Home') {
         e.preventDefault();
+        // Сначала двигаем ленту, потом ставим номер: так смена номера
+        // не запустит встречный перелёт, который дёргал бы прокрутку
+        lastJump.current = 0;
+        scrollTo(0);
         setActive(0);
-        box?.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (e.key === 'End') {
         e.preventDefault();
-        setActive(pages.length - 1);
-        box?.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+        const last = pages.length - 1;
+        lastJump.current = last;
+        if (box) {
+          scrollTo(box.scrollHeight);
+          // Листы в конце ещё не нарисованы, и настоящая высота ленты
+          // становится известна лишь после перехода — доводим до низа
+          window.setTimeout(() => {
+            const b = scroller.current;
+            if (b) b.scrollTop = b.scrollHeight;
+          }, 120);
+        }
+        setActive(last);
       }
     };
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, pages.length, setActive, onScreen]);
+  }, [go, pages.length, setActive, onScreen, scrollTo]);
 
   // Колесо мыши с Ctrl меняет масштаб. Обычная прокрутка идёт
   // непрерывно через все листы, как в привычных читалках PDF
@@ -257,10 +290,6 @@ const Viewer = ({ tool, setTool }: Props) => {
     box.addEventListener('wheel', onWheel, { passive: false });
     return () => box.removeEventListener('wheel', onWheel);
   }, []);
-
-  // Номер страницы, к которому лента уже подведена. Пока он совпадает
-  // с текущим, самовольных перелётов не делаем
-  const lastJump = useRef(active);
 
   // Номер страницы обновляется по ходу прокрутки: показываем тот лист,
   // который занимает середину окна
