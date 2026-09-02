@@ -25,6 +25,23 @@ export const readUpdateInfo = (): UpdateInfo | null => {
   }
 };
 
+// Запрет работы на устаревшей версии. Держим отдельно от сведений
+// об обновлении: те живут сутки, а запрет должен пережить перезапуск
+// и отключённый интернет — иначе его снимали бы, просто выдернув сеть
+const BLOCK_KEY = 'pv_min_version';
+
+export const saveBlock = (info: UpdateInfo) => {
+  // Сервер ответил — верим только ему. Снял запрет, значит сняли
+  if (info.blocked && info.min_version) {
+    localStorage.setItem(BLOCK_KEY, info.min_version);
+  } else if (typeof info.blocked === 'boolean') {
+    localStorage.removeItem(BLOCK_KEY);
+  }
+};
+
+// Запомненный запрет: применяем, пока сервер не сказал обратного
+export const readBlock = (): string => localStorage.getItem(BLOCK_KEY) || '';
+
 // Версия, которую человек отложил кнопкой «Потом». Ручная проверка
 // эту отметку снимает: раз попросили проверить — значит, хотят видеть
 export const SKIP_KEY = 'pv_skip_version';

@@ -31,6 +31,10 @@ export type UpdateInfo = {
   notes?: string;
   required?: boolean;
   published_at?: string;
+  // Версия старее минимальной, заданной в панели: работать нельзя,
+  // пока человек не обновится
+  blocked?: boolean;
+  min_version?: string;
 };
 
 // Дольше этого ответа не ждём: при обрыве связи запрос мог висеть
@@ -204,6 +208,19 @@ export const checkUpdate = (version: string, machineId = '') =>
   post(VER_URL, { action: 'check', version, machine_id: machineId }) as Promise<
     UpdateInfo & { trial_used?: number }
   >;
+
+// Минимальная версия: программы старее неё перестают работать
+export const getVersionSettings = () =>
+  post(VER_URL, { action: 'get_settings' }) as Promise<{
+    min_version: string;
+    latest_version: string;
+  }>;
+
+export const setMinVersion = (min_version: string) =>
+  post(VER_URL, { action: 'set_min_version', min_version }) as Promise<{
+    ok: boolean;
+    min_version: string;
+  }>;
 
 export const listReleases = () =>
   post(VER_URL, { action: 'list' }) as Promise<{ items: Release[] }>;

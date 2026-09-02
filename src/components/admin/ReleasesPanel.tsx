@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { listReleases, publishRelease, unpublishRelease, type Release } from '@/lib/adminApi';
 import { toast } from '@/hooks/use-toast';
+import MinVersionCard from '@/components/admin/MinVersionCard';
 
 const empty = {
   version: '',
@@ -56,7 +57,9 @@ const ReleasesPanel = () => {
 
   return (
     <div className="mt-6">
-      <div className="border border-border p-5">
+      <MinVersionCard items={items} />
+
+      <div className="mt-6 border border-border p-5">
         <div className="label-caps">Опубликовать новую версию</div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">

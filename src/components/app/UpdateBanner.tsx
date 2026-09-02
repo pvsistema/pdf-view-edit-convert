@@ -54,8 +54,9 @@ const UpdateBanner = () => {
     const onInfo = (e: Event) => show((e as CustomEvent).detail as UpdateInfo);
     window.addEventListener('pvspdf-update', onInfo);
 
-    // Спрашиваем сервер, только если за сутки о версии ещё не узнали.
-    // У активированных программ ответ обычно уже пришёл вместе с лицензией
+    // Обычно спрашивать не приходится: ответ уже принесла проверка
+    // обязательной версии при запуске либо проверка лицензии.
+    // Этот запрос — подстраховка на случай, если оба промолчали
     const timer = setTimeout(() => {
       if (!updateCheckDue() || isLicenseAsking()) return;
       checkUpdate(current, trialMachineId())

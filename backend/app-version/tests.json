@@ -23,6 +23,29 @@
       "expectedStatus": 401
     },
     {
+      "name": "Настройки закрыты без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "get_settings" },
+      "expectedStatus": 401
+    },
+    {
+      "name": "Минимальную версию не задать без доступа",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "set_min_version", "min_version": "9.9.9" },
+      "expectedStatus": 401
+    },
+    {
+      "name": "Проверка версии сообщает о блокировке",
+      "method": "POST",
+      "path": "/",
+      "body": { "action": "check", "version": "1.0.0" },
+      "expectedStatus": 200,
+      "expectedBody": { "blocked": false },
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Проверка версии возвращает счёт проб",
       "method": "POST",
       "path": "/",

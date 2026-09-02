@@ -37,6 +37,28 @@ def _num(v: str):
     return tuple(out)
 
 
+def _setting(cur, key: str, default: str = '') -> str:
+    '''Читает общую настройку программы. Нет записи — берём значение по умолчанию'''
+    cur.execute(f"SELECT value FROM {SCHEMA}.app_settings WHERE key = '{_esc(key)}'")
+    row = cur.fetchone()
+    return (row[0] if row and row[0] is not None else default)
+
+
+def _outdated(cur, current: str) -> dict:
+    '''Проверяет, не старее ли версия у человека той, что задана в панели.
+
+    Пустая настройка означает, что блокировка выключена — так и задумано:
+    включать её должен администратор осознанно
+    '''
+    min_ver = (_setting(cur, 'min_version') or '').strip()
+    if not min_ver:
+        return {'blocked': False, 'min_version': ''}
+    return {
+        'blocked': _num(current) < _num(min_ver),
+        'min_version': min_ver,
+    }
+
+
 def _auth(cur, event, body) -> bool:
     headers = event.get('headers') or {}
     token = headers.get('X-Auth-Token') or headers.get('x-auth-token') or body.get('token', '')
@@ -87,10 +109,13 @@ def handler(event, context):
             f"ORDER BY published_at DESC LIMIT 1"
         )
         row = cur.fetchone()
+
+        # Не пора ли этой версии на покой — решаем до закрытия соединения
+        out = dict(_outdated(cur, current))
+
         cur.close()
         conn.close()
 
-        out = {}
         if trial_used is not None:
             out['trial_used'] = trial_used
 
@@ -114,6 +139,54 @@ def handler(event, context):
         cur.close()
         conn.close()
         return _resp(401, {'error': 'Нет доступа'})
+
+    if action == 'get_settings':
+        cur.execute(
+            f"SELECT version FROM {SCHEMA}.app_releases WHERE is_published = TRUE "
+            f"ORDER BY published_at DESC LIMIT 1"
+        )
+        top = cur.fetchone()
+        min_ver = _setting(cur, 'min_version')
+        cur.close()
+        conn.close()
+        return _resp(200, {
+            'min_version': min_ver,
+            'latest_version': top[0] if top else '',
+        })
+
+    if action == 'set_min_version':
+        ver = str(body.get('min_version', '')).strip()
+
+        # Пустое значение выключает блокировку — это законный случай
+        if ver:
+            parts = ver.split('.')
+            if len(parts) != 3 or not all(p.isdigit() for p in parts):
+                cur.close()
+                conn.close()
+                return _resp(400, {'error': 'Номер версии должен быть вида 1.0.0'})
+
+            # Нельзя требовать версию, которой ещё нет: иначе люди
+            # окажутся заперты — обновиться будет не на что
+            cur.execute(
+                f"SELECT 1 FROM {SCHEMA}.app_releases "
+                f"WHERE version = '{_esc(ver)}' AND is_published = TRUE"
+            )
+            if not cur.fetchone():
+                cur.close()
+                conn.close()
+                return _resp(400, {
+                    'error': 'Такая версия не опубликована. Сначала выложите её, '
+                             'иначе людям некуда будет обновиться'
+                })
+
+        cur.execute(
+            f"INSERT INTO {SCHEMA}.app_settings (key, value, updated_at) "
+            f"VALUES ('min_version', '{_esc(ver)}', NOW()) "
+            f"ON CONFLICT (key) DO UPDATE SET value = '{_esc(ver)}', updated_at = NOW()"
+        )
+        cur.close()
+        conn.close()
+        return _resp(200, {'ok': True, 'min_version': ver})
 
     if action == 'list':
         cur.execute(

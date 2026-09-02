@@ -10,6 +10,7 @@ import { TabsProvider, useTabs } from '@/context/TabsContext';
 import { isDesktop, onDesktopFile, onPrintDone, onSaveDone, setNativeTitle } from '@/lib/desktop';
 import { toast } from '@/hooks/use-toast';
 import UpdateBanner from '@/components/app/UpdateBanner';
+import VersionGate from '@/components/app/VersionGate';
 
 const Workspace = () => {
   const tabsApi = useTabs()!;
@@ -92,6 +93,7 @@ const Workspace = () => {
           </>
         )}
         <UpdateBanner />
+        <VersionGate />
       </div>
     </AppWindow>
   );
