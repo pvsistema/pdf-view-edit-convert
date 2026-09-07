@@ -19,6 +19,8 @@ type Props = {
   // и не заставляет читать весь файл ради размеров
   hint?: { w: number; h: number } | null;
   onPlace: (page: PageMeta, x: number, y: number) => void;
+  // Закраска области, обведённой мышью
+  onCover: (page: PageMeta, x: number, y: number, w: number, h: number) => void;
   onRemoveMark: (id: string) => void;
   // Действия меню по правой кнопке: их выполняет окно просмотра,
   // потому что они касаются всего документа, а не одного листа
@@ -37,6 +39,7 @@ const SheetView = ({
   found,
   hint,
   onPlace,
+  onCover,
   onRemoveMark,
   menuActions,
 }: Props) => {
@@ -179,9 +182,52 @@ const SheetView = ({
   };
 
   const click = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool === 'hand') return;
+    // Надпись ставится щелчком, а закраска — протяжкой,
+    // поэтому по щелчку её не создаём
+    if (tool !== 'text') return;
     const rect = e.currentTarget.getBoundingClientRect();
     onPlace(page, (e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height);
+  };
+
+  // Рамка, которую человек тянет мышью, чтобы закрасить область целиком
+  const [frame, setFrame] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(
+    null,
+  );
+  const dragging = useRef(false);
+
+  const spot = (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    };
+  };
+
+  const dragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== 'block' || e.button !== 0) return;
+    e.preventDefault();
+    const p = spot(e);
+    dragging.current = true;
+    setFrame({ x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+  };
+
+  const dragMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    const p = spot(e);
+    setFrame((f) => (f ? { ...f, x2: p.x, y2: p.y } : f));
+  };
+
+  const dragEnd = () => {
+    if (!dragging.current || !frame) return;
+    dragging.current = false;
+    const x = Math.min(frame.x1, frame.x2);
+    const y = Math.min(frame.y1, frame.y2);
+    const w = Math.abs(frame.x2 - frame.x1);
+    const h = Math.abs(frame.y2 - frame.y1);
+    setFrame(null);
+    // Случайный щелчок без протяжки не должен оставлять точку на листе
+    if (w < 0.004 || h < 0.004) return;
+    onCover(page, x, y, w, h);
   };
 
   return (
@@ -193,8 +239,25 @@ const SheetView = ({
         style={{ width: `${width}px`, height: `${height}px` }}
         onClick={click}
         onContextMenu={rightClick}
+        onMouseDown={dragStart}
+        onMouseMove={dragMove}
+        onMouseUp={dragEnd}
+        onMouseLeave={dragEnd}
       >
         <div ref={host} />
+
+        {/* Рамка под курсором: показывает, что именно будет закрашено */}
+        {frame && (
+          <div
+            className="pointer-events-none absolute border-2 border-dashed border-foreground bg-foreground/25"
+            style={{
+              left: `${Math.min(frame.x1, frame.x2) * 100}%`,
+              top: `${Math.min(frame.y1, frame.y2) * 100}%`,
+              width: `${Math.abs(frame.x2 - frame.x1) * 100}%`,
+              height: `${Math.abs(frame.y2 - frame.y1) * 100}%`,
+            }}
+          />
+        )}
 
         {/* Настоящий текст поверх картинки: доступен для выделения,
             пока не выбран инструмент расстановки пометок */}

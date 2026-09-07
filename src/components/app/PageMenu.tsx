@@ -17,6 +17,7 @@ export type MenuActions = {
   onHideText: (spans: NonNullable<MenuPoint['spans']>) => void;
   onEraseText: (spans: NonNullable<MenuPoint['spans']>) => void;
   onSelectText: () => void;
+  onCoverArea: () => void;
   onPaste: () => void;
   onDeletePage: () => void;
   onRotate: (dir: number) => void;
@@ -106,6 +107,12 @@ const PageMenu = ({ at, onClose, ...act }: Props) => {
       label: 'Удалить текст',
       on: marked,
       fn: run(() => act.onEraseText(spans)),
+    },
+    {
+      icon: 'SquareDashed',
+      label: 'Закрасить область',
+      on: true,
+      fn: run(act.onCoverArea),
     },
     {
       icon: 'Copy',

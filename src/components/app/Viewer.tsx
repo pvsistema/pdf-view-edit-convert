@@ -426,11 +426,28 @@ const Viewer = ({ tool, setTool }: Props) => {
         const text = window.prompt('Текст надписи');
         if (!text) return;
         addAnnot({ pageUid: target.uid, x, y, text, size: 14, color: '#14181C', kind: 'text' });
-      } else if (tool === 'block') {
-        addAnnot({ pageUid: target.uid, x, y, text: '', size: 14, color: '#14181C', kind: 'block' });
       }
     },
     [tool, addAnnot],
+  );
+
+  // Закраска области, обведённой мышью: закрывает всё внутри рамки —
+  // и текст, и печати, и подписи на скане
+  const cover = useCallback(
+    (target: typeof pages[number], x: number, y: number, w: number, h: number) => {
+      addAnnot({
+        pageUid: target.uid,
+        x,
+        y,
+        w,
+        h,
+        text: '',
+        size: 14,
+        color: '#14181C',
+        kind: 'block',
+      });
+    },
+    [addAnnot],
   );
 
   // Действия меню по правой кнопке. Работают с той страницей,
@@ -481,6 +498,14 @@ const Viewer = ({ tool, setTool }: Props) => {
       toast({
         title: 'Выделяйте текст мышью',
         description: 'Проведите по нужным словам, удерживая левую кнопку',
+      });
+    },
+
+    onCoverArea: () => {
+      setTool('block');
+      toast({
+        title: 'Закрашивание области',
+        description: 'Обведите мышью то, что нужно закрыть',
       });
     },
 
@@ -654,7 +679,7 @@ const Viewer = ({ tool, setTool }: Props) => {
         <div className="flex items-center border border-border bg-background">
           {toolBtn('hand', 'MousePointer2', 'Просмотр')}
           {toolBtn('text', 'Type', 'Добавить надпись')}
-          {toolBtn('block', 'Square', 'Закрасить данные')}
+          {toolBtn('block', 'Square', 'Закрасить данные: обведите область мышью')}
         </div>
 
         <div className="ml-auto flex items-center border border-border bg-background">
@@ -744,6 +769,7 @@ const Viewer = ({ tool, setTool }: Props) => {
                   found={found}
                   hint={hint}
                   onPlace={place}
+                  onCover={cover}
                   onRemoveMark={removeAnnot}
                   menuActions={menuFor(p)}
                 />
