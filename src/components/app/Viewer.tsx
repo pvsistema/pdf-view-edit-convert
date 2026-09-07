@@ -11,6 +11,15 @@ import { toast } from '@/hooks/use-toast';
 
 export type Tool = 'hand' | 'text' | 'block';
 
+// Готовые цвета заливки: чёрным скрывают сведения, белым убирают
+// лишнее с листа, серый и бежевый подходят под бланки на цветной бумаге
+const FILLS = [
+  { value: '#14181C', title: 'Чёрный — скрыть сведения' },
+  { value: '#FFFFFF', title: 'Белый — убрать с листа' },
+  { value: '#E8E8E8', title: 'Светло-серый' },
+  { value: '#F5EFE0', title: 'Бежевый — под цвет бланка' },
+];
+
 type Props = { tool: Tool; setTool: (t: Tool) => void };
 
 const Viewer = ({ tool, setTool }: Props) => {
@@ -54,6 +63,28 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Подгонка масштаба: по ширине окна или страница целиком.
   // Пока режим включён, масштаб пересчитывается при смене размера окна
   const [fit, setFit] = useState<'none' | 'width' | 'page'>('none');
+
+  // Цвет заливки. Чёрным скрывают сведения, белым — убирают лишнее
+  // с листа, а пипеткой берут цвет прямо с бланка, чтобы заплатка
+  // не бросалась в глаза. Выбор запоминается до следующего запуска
+  const [fill, setFillRaw] = useState(() => {
+    try {
+      return localStorage.getItem('pvs-fill') || '#14181C';
+    } catch {
+      return '#14181C';
+    }
+  });
+  const setFill = (c: string) => {
+    setFillRaw(c);
+    try {
+      localStorage.setItem('pvs-fill', c);
+    } catch {
+      /* хранилище недоступно — не страшно */
+    }
+  };
+
+  // Пипетка: следующий щелчок по странице возьмёт цвет из этой точки
+  const [picking, setPicking] = useState(false);
 
   // Размер первой страницы — ориентир для всей ленты. Благодаря ему полоса
   // прокрутки сразу верной длины, а файл не читается целиком ради размеров
@@ -443,17 +474,18 @@ const Viewer = ({ tool, setTool }: Props) => {
         h,
         text: '',
         size: 14,
-        color: '#14181C',
+        color: fill,
         kind: 'block',
       });
     },
-    [addAnnot],
+    [addAnnot, fill],
   );
 
   // Действия меню по правой кнопке. Работают с той страницей,
   // на которой человек щёлкнул, — она же считается текущей
   const menuFor = (target: typeof pages[number]) => ({
-    // Закрываем выделенное сплошной заливкой. Цвет чёрный: так принято
+    // Закрываем выделенное сплошной заливкой — тем цветом,
+    // что выбран на панели. По умолчанию чёрный: так принято
     // в документах, где сведения скрывают перед передачей
     onHideText: (spans: { x: number; y: number; w: number; h: number }[]) => {
       spans.forEach((s) =>
@@ -465,7 +497,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           h: s.h,
           text: '',
           size: 14,
-          color: '#14181C',
+          color: fill,
           kind: 'block',
         }),
       );
@@ -682,6 +714,55 @@ const Viewer = ({ tool, setTool }: Props) => {
           {toolBtn('block', 'Square', 'Закрасить данные: обведите область мышью')}
         </div>
 
+        {/* Цвет заливки: виден, только когда выбрано закрашивание */}
+        {tool === 'block' && (
+          <div className="flex items-center gap-1 border border-border bg-background px-1">
+            {FILLS.map((c) => (
+              <button
+                key={c.value}
+                onClick={() => {
+                  setPicking(false);
+                  setFill(c.value);
+                }}
+                title={c.title}
+                className={`h-6 w-6 border transition-transform ${
+                  fill.toUpperCase() === c.value && !picking
+                    ? 'border-primary ring-2 ring-primary'
+                    : 'border-border hover:scale-110'
+                }`}
+                style={{ background: c.value }}
+              />
+            ))}
+
+            <button
+              onClick={() => setPicking((v) => !v)}
+              title="Взять цвет с листа: нажмите, затем щёлкните по нужному месту"
+              className={`px-2 py-1.5 transition-colors ${
+                picking ? 'bg-primary text-primary-foreground' : 'hover:bg-card'
+              }`}
+            >
+              <Icon name="Pipette" size={15} />
+            </button>
+
+            {/* Свой цвет из палитры Windows */}
+            <label
+              title="Свой цвет"
+              className="flex cursor-pointer items-center px-1 py-1.5 hover:bg-card"
+            >
+              <Icon name="Palette" size={15} />
+              <input
+                type="color"
+                value={fill}
+                onChange={(e) => {
+                  setPicking(false);
+                  setFill(e.target.value.toUpperCase());
+                }}
+                className="h-0 w-0 opacity-0"
+              />
+            </label>
+          </div>
+        )}
+
         <div className="ml-auto flex items-center border border-border bg-background">
           <input
             ref={searchBox}
@@ -770,6 +851,13 @@ const Viewer = ({ tool, setTool }: Props) => {
                   hint={hint}
                   onPlace={place}
                   onCover={cover}
+                  fill={fill}
+                  picking={picking}
+                  onPick={(c) => {
+                    setFill(c);
+                    setPicking(false);
+                    toast({ title: 'Цвет взят с листа', description: c });
+                  }}
                   onRemoveMark={removeAnnot}
                   menuActions={menuFor(p)}
                 />

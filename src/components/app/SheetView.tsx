@@ -21,10 +21,23 @@ type Props = {
   onPlace: (page: PageMeta, x: number, y: number) => void;
   // Закраска области, обведённой мышью
   onCover: (page: PageMeta, x: number, y: number, w: number, h: number) => void;
+  // Включена пипетка: следующий щелчок берёт цвет из точки на листе
+  picking?: boolean;
+  onPick?: (color: string) => void;
+  // Выбранный цвет заливки — им же красится рамка при обводке
+  fill?: string;
   onRemoveMark: (id: string) => void;
   // Действия меню по правой кнопке: их выполняет окно просмотра,
   // потому что они касаются всего документа, а не одного листа
   menuActions: Omit<MenuActions, 'onCopyPage'>;
+};
+
+// Светлый ли цвет: на белом листе такую заливку почти не видно
+const isPale = (hex: string) => {
+  const v = hex.replace('#', '');
+  if (v.length < 6) return false;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16));
+  return (r * 299 + g * 587 + b * 114) / 1000 > 190;
 };
 
 // Один лист в непрерывной ленте. Рисуется, только когда подходит
@@ -40,6 +53,9 @@ const SheetView = ({
   hint,
   onPlace,
   onCover,
+  picking,
+  onPick,
+  fill = '#14181C',
   onRemoveMark,
   menuActions,
 }: Props) => {
@@ -182,10 +198,27 @@ const SheetView = ({
   };
 
   const click = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+
+    // Пипетка: берём цвет ровно той точки листа, куда попал курсор
+    if (picking) {
+      const canvas = host.current?.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!canvas) return;
+      const px = Math.round(((e.clientX - rect.left) / rect.width) * canvas.width);
+      const py = Math.round(((e.clientY - rect.top) / rect.height) * canvas.height);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const data = ctx?.getImageData(px, py, 1, 1).data;
+      if (!data) return;
+      const hex = `#${[data[0], data[1], data[2]]
+        .map((v) => v.toString(16).padStart(2, '0'))
+        .join('')}`.toUpperCase();
+      onPick?.(hex);
+      return;
+    }
+
     // Надпись ставится щелчком, а закраска — протяжкой,
     // поэтому по щелчку её не создаём
     if (tool !== 'text') return;
-    const rect = e.currentTarget.getBoundingClientRect();
     onPlace(page, (e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height);
   };
 
@@ -204,7 +237,8 @@ const SheetView = ({
   };
 
   const dragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool !== 'block' || e.button !== 0) return;
+    // Пока включена пипетка, рамку не тянем: щелчок берёт цвет
+    if (tool !== 'block' || e.button !== 0 || picking) return;
     e.preventDefault();
     const p = spot(e);
     dragging.current = true;
@@ -234,7 +268,7 @@ const SheetView = ({
     <div ref={box} data-sheet={index} className="mb-6 flex flex-col items-center">
       <div
         className={`relative bg-white shadow-[0_2px_14px_rgba(20,24,28,0.16)] ${
-          tool === 'hand' ? '' : 'cursor-crosshair'
+          picking ? 'cursor-copy' : tool === 'hand' ? '' : 'cursor-crosshair'
         }`}
         style={{ width: `${width}px`, height: `${height}px` }}
         onClick={click}
@@ -249,12 +283,16 @@ const SheetView = ({
         {/* Рамка под курсором: показывает, что именно будет закрашено */}
         {frame && (
           <div
-            className="pointer-events-none absolute border-2 border-dashed border-foreground bg-foreground/25"
+            className="pointer-events-none absolute border-2 border-dashed border-foreground"
             style={{
               left: `${Math.min(frame.x1, frame.x2) * 100}%`,
               top: `${Math.min(frame.y1, frame.y2) * 100}%`,
               width: `${Math.abs(frame.x2 - frame.x1) * 100}%`,
               height: `${Math.abs(frame.y2 - frame.y1) * 100}%`,
+              // Полупрозрачная заливка выбранным цветом: сразу видно,
+              // каким он ляжет на лист
+              background: fill,
+              opacity: 0.55,
             }}
           />
         )}
@@ -305,6 +343,10 @@ const SheetView = ({
                   // поэтому размеры считаем от страницы, а не от шрифта
                   width: m.w ? `${m.w * width}px` : `${m.size * 8}px`,
                   height: m.h ? `${m.h * height}px` : `${m.size * 1.5}px`,
+                  // Светлую заливку на белом листе не видно — обводим её
+                  // еле заметной рамкой, чтобы пометку можно было найти
+                  // и убрать. В сохранённый файл рамка не попадает
+                  outline: isPale(m.color) ? '1px dashed rgba(20,24,28,.28)' : undefined,
                 }}
               />
             ) : (
