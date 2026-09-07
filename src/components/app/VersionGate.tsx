@@ -17,7 +17,13 @@ import { applyServerUsed, trialMachineId } from '@/lib/trial';
 // выполняет — и помнит запрет, чтобы его не снимали отключением сети
 const VersionGate = () => {
   const current = desktopVersion() || APP_VERSION;
-  const [need, setNeed] = useState(() => readBlock());
+
+  // Блокировка сторожит установленные программы: у них версия
+  // застывает до обновления. Страница в браузере каждый раз
+  // приходит с сервера и устареть не может — запирать её незачем
+  const installed = isDesktop();
+
+  const [need, setNeed] = useState(() => (installed ? readBlock() : ''));
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [job, setJob] = useState<UpdateState | null>(null);
 
@@ -29,6 +35,7 @@ const VersionGate = () => {
       const r = (e as CustomEvent).detail as UpdateInfo;
       if (typeof r?.blocked !== 'boolean') return;
       saveBlock(r);
+      if (!installed) return;
       setNeed(r.blocked ? r.min_version || '' : '');
       if (r.blocked) setInfo(r);
     };
@@ -39,8 +46,10 @@ const VersionGate = () => {
     checkUpdate(current, trialMachineId())
       .then((r) => {
         saveBlock(r);
-        setNeed(r.blocked ? r.min_version || '' : '');
-        if (r.blocked) setInfo(r);
+        if (installed) {
+          setNeed(r.blocked ? r.min_version || '' : '');
+          if (r.blocked) setInfo(r);
+        }
         // Этим же ответом делимся с остальными: баннер обновления и
         // пробный счётчик берут его отсюда, второй раз сервер не тревожим
         saveUpdateInfo(r);
@@ -49,7 +58,7 @@ const VersionGate = () => {
       .catch(() => undefined);
 
     return () => window.removeEventListener('pvspdf-update', onInfo);
-  }, [current]);
+  }, [current, installed]);
 
   if (!need) return null;
 
