@@ -56,14 +56,22 @@ const ORIENT: { id: Orientation; label: string; icon: string }[] = [
   { id: 'landscape', label: 'Альбомная', icon: 'RectangleHorizontal' },
 ];
 
-const PrintDialog = ({ onClose }: { onClose: () => void }) => {
+const PrintDialog = ({
+  onClose,
+  start,
+}: {
+  onClose: () => void;
+  start?: { scope?: 'current'; tab?: 'paper' };
+}) => {
   const { pages, active, name, buildPdf } = useDoc();
-  const [scope, setScope] = useState<Scope>('all');
+  // Из меню по правой кнопке окно открывается сразу на нужном:
+  // на текущей странице или на выборе размера листа
+  const [scope, setScope] = useState<Scope>(start?.scope ?? 'all');
   const [range, setRange] = useState(`${active + 1}`);
   const [copies, setCopies] = useState(1);
   const [busy, setBusy] = useState(false);
   const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT);
-  const [tab, setTab] = useState<'pages' | 'paper'>('pages');
+  const [tab, setTab] = useState<'pages' | 'paper'>(start?.tab ?? 'pages');
   const [preview, setPreview] = useState(0);
 
   const desktop = isDesktop();

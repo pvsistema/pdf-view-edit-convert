@@ -4,7 +4,7 @@ import { renderPage, pageSize, screenDensity, findOnPage, pageText, PRIORITY, ty
 import type { Annot, PageMeta } from '@/context/DocContext';
 import type { Tool } from '@/components/app/Viewer';
 import TextLayer from '@/components/app/TextLayer';
-import PageMenu, { type MenuPoint } from '@/components/app/PageMenu';
+import PageMenu, { type MenuPoint, type MenuActions } from '@/components/app/PageMenu';
 import { toast } from '@/hooks/use-toast';
 
 type Props = {
@@ -20,6 +20,9 @@ type Props = {
   hint?: { w: number; h: number } | null;
   onPlace: (page: PageMeta, x: number, y: number) => void;
   onRemoveMark: (id: string) => void;
+  // Действия меню по правой кнопке: их выполняет окно просмотра,
+  // потому что они касаются всего документа, а не одного листа
+  menuActions: Omit<MenuActions, 'onCopyPage'>;
 };
 
 // Один лист в непрерывной ленте. Рисуется, только когда подходит
@@ -35,6 +38,7 @@ const SheetView = ({
   hint,
   onPlace,
   onRemoveMark,
+  menuActions,
 }: Props) => {
   const box = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -126,14 +130,35 @@ const SheetView = ({
 
     const sel = window.getSelection();
     let text = sel?.toString() ?? '';
+    const sheet = e.currentTarget.getBoundingClientRect();
+    let spans: { x: number; y: number; w: number; h: number }[] = [];
+
+    // Запоминаем, где именно лежит выделенное: замазывание и удаление
+    // должны накрыть ровно эти слова
+    const toSpan = (r: DOMRect) => ({
+      x: (r.left - sheet.left) / sheet.width,
+      y: (r.top - sheet.top) / sheet.height,
+      w: r.width / sheet.width,
+      h: r.height / sheet.height,
+    });
+
+    if (text.trim() && sel && sel.rangeCount > 0) {
+      const rects = Array.from(sel.getRangeAt(0).getClientRects());
+      spans = rects
+        // Строки за пределами этого листа не наши: выделение могло
+        // растянуться на соседние страницы ленты
+        .filter((r) => r.width > 0 && r.bottom > sheet.top && r.top < sheet.bottom)
+        .map(toSpan);
+    }
 
     if (!text.trim()) {
       const target = e.target as HTMLElement | null;
-      const word = target?.closest('.pvs-text-layer span')?.textContent ?? '';
-      text = word.trim();
+      const word = target?.closest('.pvs-text-layer span');
+      text = (word?.textContent ?? '').trim();
+      if (word) spans = [toSpan(word.getBoundingClientRect())];
     }
 
-    setMenu({ x: e.clientX, y: e.clientY, text });
+    setMenu({ x: e.clientX, y: e.clientY, text, spans });
   };
 
   // Весь текст листа — на случай, когда выделять вручную неудобно
@@ -211,7 +236,13 @@ const SheetView = ({
           >
             {m.kind === 'block' ? (
               <div
-                style={{ background: m.color, width: `${m.size * 8}px`, height: `${m.size * 1.5}px` }}
+                style={{
+                  background: m.color,
+                  // Пометка по выделенному тексту закрывает ровно его,
+                  // поэтому размеры считаем от страницы, а не от шрифта
+                  width: m.w ? `${m.w * width}px` : `${m.size * 8}px`,
+                  height: m.h ? `${m.h * height}px` : `${m.size * 1.5}px`,
+                }}
               />
             ) : (
               <span style={{ color: m.color, fontSize: `${m.size}px`, whiteSpace: 'nowrap' }}>
@@ -241,6 +272,7 @@ const SheetView = ({
           at={menu}
           onClose={() => setMenu(null)}
           onCopyPage={() => void copyPageText()}
+          {...menuActions}
         />
       )}
     </div>

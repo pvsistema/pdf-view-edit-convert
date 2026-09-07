@@ -6,7 +6,7 @@ import { downloadBlob, formatSize } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';
-import { onPrintRequest } from '@/lib/printBus';
+import { onPrintRequest, type PrintStart } from '@/lib/printBus';
 import { isDesktop } from '@/lib/desktop';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { useLicense } from '@/context/LicenseContext';
@@ -21,13 +21,13 @@ const AppBar = () => {
     if (!isDesktop()) toast({ title: 'Документ сохранён' });
   };
 
-  const [showPrint, setShowPrint] = useState(false);
+  const [showPrint, setShowPrint] = useState<PrintStart | null>(null);
   const [showAct, setShowAct] = useState(false);
   const { isFull, license } = useLicense();
 
   // Окно печати открывает только та вкладка, что сейчас на экране
   const onScreen = useTabActive();
-  useEffect(() => onPrintRequest(() => onScreen && setShowPrint(true)), [onScreen]);
+  useEffect(() => onPrintRequest((s) => onScreen && setShowPrint(s)), [onScreen]);
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);
 
@@ -70,7 +70,7 @@ const AppBar = () => {
           {name && (
             <>
               <button
-                onClick={() => setShowPrint(true)}
+                onClick={() => setShowPrint({})}
                 className="inline-flex h-10 items-center gap-2 border border-foreground px-4 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
                 title="Печать (Ctrl+P)"
               >
@@ -110,7 +110,7 @@ const AppBar = () => {
         </div>
       </div>
 
-      {showPrint && <PrintDialog onClose={() => setShowPrint(false)} />}
+      {showPrint && <PrintDialog start={showPrint} onClose={() => setShowPrint(null)} />}
       {showAct && <ActivateDialog onClose={() => setShowAct(false)} />}
     </header>
   );

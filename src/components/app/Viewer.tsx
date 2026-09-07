@@ -5,13 +5,28 @@ import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
 import { onSearchRequest } from '@/lib/searchBus';
+import { requestPrint } from '@/lib/printBus';
+import { downloadBlob } from '@/lib/files';
+import { toast } from '@/hooks/use-toast';
 
 export type Tool = 'hand' | 'text' | 'block';
 
 type Props = { tool: Tool; setTool: (t: Tool) => void };
 
 const Viewer = ({ tool, setTool }: Props) => {
-  const { pages, active, setActive, docOf, rotate, annots, addAnnot, removeAnnot } = useDoc();
+  const {
+    pages,
+    active,
+    setActive,
+    docOf,
+    rotate,
+    annots,
+    addAnnot,
+    removeAnnot,
+    remove,
+    buildPdf,
+    name,
+  } = useDoc();
   // Клавиши слушает только вкладка, открытая на экране
   const onScreen = useTabActive();
   const scroller = useRef<HTMLDivElement>(null);
@@ -204,6 +219,20 @@ const Viewer = ({ tool, setTool }: Props) => {
       if (e.key === 'F3') {
         e.preventDefault();
         jumpRef.current(e.shiftKey ? -1 : 1);
+        return;
+      }
+
+      // Shift+Ctrl+D удаляет страницу, на которой человек сейчас находится
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault();
+        const cur = pages[active];
+        if (!cur) return;
+        if (pages.length < 2) {
+          toast({ title: 'Это единственная страница', description: 'Удалить её нельзя' });
+          return;
+        }
+        remove(cur.uid);
+        toast({ title: 'Страница удалена' });
         return;
       }
 
@@ -404,6 +433,126 @@ const Viewer = ({ tool, setTool }: Props) => {
     [tool, addAnnot],
   );
 
+  // Действия меню по правой кнопке. Работают с той страницей,
+  // на которой человек щёлкнул, — она же считается текущей
+  const menuFor = (target: typeof pages[number]) => ({
+    // Закрываем выделенное сплошной заливкой. Цвет чёрный: так принято
+    // в документах, где сведения скрывают перед передачей
+    onHideText: (spans: { x: number; y: number; w: number; h: number }[]) => {
+      spans.forEach((s) =>
+        addAnnot({
+          pageUid: target.uid,
+          x: s.x,
+          y: s.y,
+          w: s.w,
+          h: s.h,
+          text: '',
+          size: 14,
+          color: '#14181C',
+          kind: 'block',
+        }),
+      );
+      window.getSelection()?.removeAllRanges();
+      toast({ title: 'Текст замазан' });
+    },
+
+    // «Удалить текст» закрывает его цветом листа — белым. Внешне слова
+    // исчезают, а сам файл остаётся с той же разметкой
+    onEraseText: (spans: { x: number; y: number; w: number; h: number }[]) => {
+      spans.forEach((s) =>
+        addAnnot({
+          pageUid: target.uid,
+          x: s.x,
+          y: s.y,
+          w: s.w,
+          h: s.h,
+          text: '',
+          size: 14,
+          color: '#FFFFFF',
+          kind: 'block',
+        }),
+      );
+      window.getSelection()?.removeAllRanges();
+      toast({ title: 'Текст удалён' });
+    },
+
+    onSelectText: () => {
+      setTool('hand');
+      toast({
+        title: 'Выделяйте текст мышью',
+        description: 'Проведите по нужным словам, удерживая левую кнопку',
+      });
+    },
+
+    onPaste: async () => {
+      const text = await navigator.clipboard.readText().catch(() => '');
+      if (!text.trim()) {
+        toast({ title: 'В буфере обмена нет текста' });
+        return;
+      }
+      // Вставляем надписью в середину листа: перетащить её потом
+      // проще, чем угадывать место заранее
+      addAnnot({
+        pageUid: target.uid,
+        x: 0.1,
+        y: 0.1,
+        text: text.slice(0, 200),
+        size: 14,
+        color: '#14181C',
+        kind: 'text',
+      });
+      toast({ title: 'Текст вставлен' });
+    },
+
+    onDeletePage: () => {
+      if (pages.length < 2) {
+        toast({ title: 'Это единственная страница', description: 'Удалить её нельзя' });
+        return;
+      }
+      remove(target.uid);
+      toast({ title: 'Страница удалена' });
+    },
+
+    onRotate: (dir: number) => rotate(target.uid, dir),
+
+    onEditDoc: () => {
+      setTool('text');
+      toast({
+        title: 'Правка документа',
+        description: 'Щёлкните по странице, чтобы добавить надпись',
+      });
+    },
+
+    onPrint: () => {
+      setActive(pages.indexOf(target));
+      requestPrint({ scope: 'current' });
+    },
+
+    // Экспорт одной страницы: отдельный файл PDF только с ней
+    onExport: async () => {
+      setBusy(true);
+      try {
+        const bytes = await buildPdf([target]);
+        const base = (name || 'document').replace(/\.pdf$/i, '');
+        downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), `${base}-стр-${pages.indexOf(target) + 1}.pdf`);
+      } finally {
+        setBusy(false);
+      }
+    },
+
+    onSavePdf: async () => {
+      setBusy(true);
+      try {
+        const bytes = await buildPdf();
+        downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
+      } finally {
+        setBusy(false);
+      }
+    },
+
+    onPageSetup: () => requestPrint({ tab: 'paper' }),
+  });
+
   if (!page) return null;
 
   const toolBtn = (id: Tool, icon: string, title: string) => (
@@ -596,6 +745,7 @@ const Viewer = ({ tool, setTool }: Props) => {
                   hint={hint}
                   onPlace={place}
                   onRemoveMark={removeAnnot}
+                  menuActions={menuFor(p)}
                 />
               ))}
             </div>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { forgetDoc, closeDoc, loadDocFromBytes, loadDocFromUrl } from '@/lib/pdf';
+import { forgetDoc, closeDoc, loadDocFromBytes, loadDocFromUrl, renderPageOnce } from '@/lib/pdf';
 import { holdFiles, releaseOwner } from '@/lib/pageSwap';
 
 export type PageMeta = {
@@ -18,6 +18,10 @@ export type Annot = {
   size: number;
   color: string;
   kind: 'text' | 'block';
+  // Точные размеры в долях страницы. Есть у пометок, поставленных
+  // по выделенному тексту: они закрывают ровно его, буква в букву
+  w?: number;
+  h?: number;
 };
 
 // Документ, который уже доступен по адресу — так его передаёт программа
@@ -440,7 +444,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       let done = 0;
       const onWork = () => onStep?.(done, list.length);
       // Сборщик PDF подключаем при сохранении, а не при запуске программы
-      const { PDFDocument, degrees } = await import('pdf-lib');
+      const { PDFDocument, degrees, PDFName } = await import('pdf-lib');
       const out = await PDFDocument.create();
       const cache = new Map<string, any>();
 
@@ -543,12 +547,30 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           canvas.width = Math.round(width * k);
           canvas.height = Math.round(height * k);
           const ctx = canvas.getContext('2d')!;
+
+          // Закрашивание должно скрывать сведения по-настоящему. Чёрный
+          // прямоугольник поверх текста оставил бы слова в файле — их
+          // прочитала бы любая программа. Поэтому страницу с закраской
+          // переносим в картинку: букв под ней уже не остаётся
+          const hides = marks.some((m) => m.kind === 'block');
+          if (hides) {
+            const view = filesRef.current.find((f) => f.id === p.fileId)?.doc;
+            if (view) {
+              const shot = await renderPageOnce(view, p.src, k, p.rotation).catch(() => null);
+              if (shot) ctx.drawImage(shot, 0, 0, canvas.width, canvas.height);
+            }
+          }
+
           for (const m of marks) {
             const px = m.x * canvas.width;
             const py = m.y * canvas.height;
             if (m.kind === 'block') {
               ctx.fillStyle = m.color;
-              ctx.fillRect(px, py, m.size * k * 8, m.size * k * 1.5);
+              // У пометки по выделенному тексту размеры свои: закрываем
+              // ровно его. У поставленной вручную — прежний размер
+              const bw = m.w ? m.w * canvas.width : m.size * k * 8;
+              const bh = m.h ? m.h * canvas.height : m.size * k * 1.5;
+              ctx.fillRect(px, py, bw, bh);
             } else {
               ctx.fillStyle = m.color;
               ctx.font = `${m.size * k}px Inter, Arial, sans-serif`;
@@ -558,6 +580,19 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           }
           const png = await new Promise<Blob>((res) => canvas.toBlob((b) => res(b!), 'image/png'));
           const img = await out.embedPng(await png.arrayBuffer());
+
+          // Есть закраска — страница уже целиком перерисована в картинку.
+          // Убираем исходное содержимое, иначе скрытые слова останутся
+          // в файле под непрозрачным слоем
+          if (hides) {
+            added.node.set(PDFName.of('Contents'), out.context.obj([]));
+            const res = added.node.Resources();
+            if (res) {
+              res.set(PDFName.of('Font'), out.context.obj({}));
+              res.set(PDFName.of('XObject'), out.context.obj({}));
+            }
+          }
+
           added.drawImage(img, { x: 0, y: 0, width, height });
         }
 
