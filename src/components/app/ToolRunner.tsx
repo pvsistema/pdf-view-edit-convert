@@ -45,6 +45,19 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
   useEffect(() => onTrialChange(() => setLeft(trialLeft())), []);
 
   const needsRange = ['remove-pages', 'extract-pages', 'reorder'].includes(tool.id);
+
+  // Там, где файлы склеиваются друг за другом, порядок определяет
+  // вид готового документа — даём им управлять
+  const ordered =
+    tool.multiple &&
+    ['merge', 'from-jpg', 'from-scan', 'from-heic', 'from-tiff'].includes(tool.id);
+
+  const swap = (from: number, to: number) => {
+    if (to < 0 || to >= files.length) return;
+    const next = [...files];
+    [next[from], next[to]] = [next[to], next[from]];
+    setFiles(next);
+  };
   // Пока остались пробные попытки, платный инструмент отрабатывает
   // по-настоящему — с готовым файлом на выходе
   const trial = !!tool.pro && !isFull && isTrialTool(tool.id);
@@ -53,17 +66,21 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
   // Узнаём количество страниц: без него подсказка про номера
   // страниц была бы гаданием
   useEffect(() => {
-    const f = files[0];
     setPages(null);
-    if (!f || !f.name.toLowerCase().endsWith('.pdf')) return;
+    // При объединении считаем все файлы: человеку важно, сколько
+    // страниц окажется в готовом документе, а не в первом файле
+    const list = (ordered ? files : files.slice(0, 1)).filter((f) =>
+      f.name.toLowerCase().endsWith('.pdf'),
+    );
+    if (!list.length) return;
     let off = false;
-    countPages(f)
-      .then((n) => !off && setPages(n))
+    Promise.all(list.map((f) => countPages(f).catch(() => 0)))
+      .then((all) => !off && setPages(all.reduce((s, n) => s + n, 0)))
       .catch(() => undefined);
     return () => {
       off = true;
     };
-  }, [files]);
+  }, [files, ordered]);
 
   const pick = (list: FileList | null) => {
     if (!list?.length) return;
@@ -166,18 +183,50 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
           </button>
         ) : (
           <>
-            <div className="label-caps">Выбрано</div>
+            <div className="label-caps">
+              {ordered ? 'Порядок в готовом документе' : 'Выбрано'}
+            </div>
             <div className="mt-2 space-y-1.5">
               {files.map((f, i) => (
                 <div
                   key={`${f.name}-${i}`}
                   className="flex items-center gap-3 border border-border bg-card px-3 py-2.5"
                 >
-                  <Icon name="File" size={15} className="shrink-0 text-muted-foreground" />
+                  {/* При объединении важен порядок: показываем номер,
+                      под которым файл войдёт в документ */}
+                  {ordered ? (
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center bg-primary text-[0.7rem] font-bold text-primary-foreground">
+                      {i + 1}
+                    </span>
+                  ) : (
+                    <Icon name="File" size={15} className="shrink-0 text-muted-foreground" />
+                  )}
                   <span className="min-w-0 flex-1 truncate text-[0.86rem]">{f.name}</span>
                   <span className="shrink-0 text-[0.76rem] text-muted-foreground">
                     {formatSize(f.size)}
                   </span>
+
+                  {ordered && (
+                    <>
+                      <button
+                        onClick={() => swap(i, i - 1)}
+                        disabled={busy || i === 0}
+                        title="Выше"
+                        className="shrink-0 text-muted-foreground hover:text-primary disabled:opacity-25"
+                      >
+                        <Icon name="ArrowUp" size={14} />
+                      </button>
+                      <button
+                        onClick={() => swap(i, i + 1)}
+                        disabled={busy || i === files.length - 1}
+                        title="Ниже"
+                        className="shrink-0 text-muted-foreground hover:text-primary disabled:opacity-25"
+                      >
+                        <Icon name="ArrowDown" size={14} />
+                      </button>
+                    </>
+                  )}
+
                   <button
                     onClick={() => setFiles(files.filter((_, k) => k !== i))}
                     disabled={busy}
@@ -189,6 +238,12 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
                 </div>
               ))}
             </div>
+
+            {ordered && files.length > 1 && (
+              <p className="mt-2 text-[0.74rem] text-muted-foreground">
+                Файлы войдут в документ сверху вниз. Порядок меняйте стрелками.
+              </p>
+            )}
 
             <div className="mt-3 flex flex-wrap items-center gap-4 text-[0.78rem] text-muted-foreground">
               <button
@@ -202,7 +257,8 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
               <span>Общий размер: {formatSize(totalSize)}</span>
               {pages !== null && (
                 <span>
-                  В документе {pages} {plural(pages)}
+                  {ordered ? 'В готовом документе будет' : 'В документе'} {pages}{' '}
+                  {plural(pages)}
                 </span>
               )}
             </div>
