@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import { onScanRequest, onConvertRequest } from '@/lib/startBus';
 import { requestBookmark } from '@/lib/markBus';
+import { requestCloseTab } from '@/lib/closeBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import ScanDialog from '@/components/app/ScanDialog';
 import ConvertDialog from '@/components/app/ConvertDialog';
@@ -30,6 +31,7 @@ const MenuBar = () => {
     append,
     reset,
     buildPdf,
+    markSaved,
     undo,
     redo,
     canUndo,
@@ -112,6 +114,7 @@ const MenuBar = () => {
   const save = async () => {
     close();
     downloadBlob(await makeBlob(), name || 'document.pdf');
+    markSaved();
     if (!isDesktop()) toast({ title: 'Документ сохранён' });
   };
 
@@ -120,6 +123,7 @@ const MenuBar = () => {
     // В десктопной версии имя и папку спрашивает системное окно Windows
     if (isDesktop()) {
       downloadBlob(await makeBlob(), name || 'document.pdf');
+      markSaved();
       return;
     }
     setDraft((name || 'document.pdf').replace(/\.pdf$/i, ''));
@@ -130,6 +134,7 @@ const MenuBar = () => {
     const file = `${draft.trim() || 'document'}.pdf`;
     setAskName(false);
     downloadBlob(await makeBlob(), file);
+    markSaved();
     toast({ title: 'Файл сохранён', description: file });
   };
 
@@ -180,9 +185,10 @@ const MenuBar = () => {
         e.preventDefault();
         requestBookmark();
       } else if (k === 'w' && tabsApi?.activeId) {
-        // Закрываем текущий документ, как вкладку в браузере
+        // Закрываем текущий документ, как вкладку в браузере.
+        // Про несохранённые правки спросит полоса вкладок
         e.preventDefault();
-        tabsApi.closeTab(tabsApi.activeId);
+        requestCloseTab(tabsApi.activeId);
       } else if (e.key === 'Tab' && tabsApi && tabsApi.tabs.length > 1) {
         // Переход к следующему открытому документу
         e.preventDefault();

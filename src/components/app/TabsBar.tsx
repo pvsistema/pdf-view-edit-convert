@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { heldPage, dropInto } from '@/lib/pageSwap';
+import { onCloseTabRequest } from '@/lib/closeBus';
 
 // Полоса вкладок: каждый открытый документ занимает свою вкладку,
 // переключение между ними мгновенное
@@ -11,9 +12,37 @@ const TabsBar = () => {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState<string | null>(null);
   const hold = useRef<number>(0);
+  // Вкладка, которую просят закрыть с несохранёнными правками
+  const [ask, setAsk] = useState<{ id: string; title: string } | null>(null);
+
+  // Ctrl+W просит закрыть вкладку — вопрос задаём здесь же
+  const api = tabsApi;
+  useEffect(
+    () =>
+      onCloseTabRequest((id) => {
+        const tab = api?.tabs.find((t) => t.id === id);
+        if (!api || !tab) return;
+        if (!api.isTabDirty(id)) {
+          api.closeTab(id);
+          return;
+        }
+        setAsk({ id, title: tab.title });
+      }),
+    [api],
+  );
 
   if (!tabsApi || tabsApi.tabs.length < 1) return null;
-  const { tabs, activeId, selectTab, closeTab, openTab } = tabsApi;
+  const { tabs, activeId, selectTab, closeTab, openTab, isTabDirty } = tabsApi;
+
+  // Закрываем сразу, если терять нечего. Иначе спрашиваем:
+  // работу человека нельзя выбрасывать молча
+  const tryClose = (id: string, title: string) => {
+    if (!isTabDirty(id)) {
+      closeTab(id);
+      return;
+    }
+    setAsk({ id, title });
+  };
 
   const pick = (file?: File) => {
     if (!file) return;
@@ -99,7 +128,7 @@ const TabsBar = () => {
                 </span>
               </button>
               <button
-                onClick={() => closeTab(t.id)}
+                onClick={() => tryClose(t.id, t.title)}
                 title="Закрыть документ"
                 className="shrink-0 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
               >
@@ -128,6 +157,40 @@ const TabsBar = () => {
           e.target.value = '';
         }}
       />
+
+      {/* Последний шанс не потерять работу: документ правили,
+          но в файл эти правки ещё не записаны */}
+      {ask && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/40 px-4">
+          <div className="w-full max-w-[420px] border border-border bg-background shadow-xl">
+            <div className="flex items-center gap-2.5 border-b border-border px-5 py-3.5">
+              <Icon name="TriangleAlert" size={17} className="shrink-0 text-primary" />
+              <span className="label-caps">Документ не сохранён</span>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-[0.88rem] leading-relaxed">
+                В документе «{ask.title}» есть изменения, которых нет в файле. Если
+                закрыть, они пропадут.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 border-t border-border px-5 py-3.5">
+              <button onClick={() => setAsk(null)} className="btn-block">
+                <Icon name="ArrowLeft" size={15} />
+                Вернуться
+              </button>
+              <button
+                onClick={() => {
+                  closeTab(ask.id);
+                  setAsk(null);
+                }}
+                className="px-3 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.08em] text-destructive hover:underline"
+              >
+                Закрыть без сохранения
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

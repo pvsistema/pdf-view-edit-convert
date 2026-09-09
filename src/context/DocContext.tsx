@@ -101,6 +101,10 @@ type Ctx = {
     onStep?: (done: number, total: number) => void,
   ) => Promise<Uint8Array>;
   version: number;
+  // Есть правки, которые ещё не сохранены в файл
+  dirty: boolean;
+  // Отметить документ сохранённым: вызывается после записи файла
+  markSaved: () => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
@@ -125,6 +129,11 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const [version, setVersion] = useState(0);
+  // Версия, на которой документ последний раз сохраняли.
+  // Если текущая ушла вперёд — есть несохранённые правки
+  const [savedAt, setSavedAt] = useState(0);
+  const versionRef = useRef(0);
+  versionRef.current = version;
   const [past, setPast] = useState<Snapshot[]>([]);
   const [future, setFuture] = useState<Snapshot[]>([]);
   // Свежие списки истории для отмены и возврата
@@ -350,7 +359,11 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         setActive(0);
         setPast([]);
         setFuture([]);
-        setVersion((v) => v + 1);
+        // Только что открытый документ совпадает с файлом на диске
+        setVersion((v) => {
+          setSavedAt(v + 1);
+          return v + 1;
+        });
       } finally {
         setLoading(false);
       }
@@ -461,8 +474,15 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     setActive(0);
     setPast([]);
     setFuture([]);
-    setVersion((v) => v + 1);
+    // Пустой документ терять нечего: считаем его сохранённым
+    setVersion((v) => {
+      setSavedAt(v + 1);
+      return v + 1;
+    });
   }, [ownerId]);
+
+  // Документ записан в файл — правок «в долгу» больше нет
+  const markSaved = useCallback(() => setSavedAt(versionRef.current), []);
 
   const docOf = useCallback(
     (p: PageMeta) => filesRef.current.find((f) => f.id === p.fileId)?.doc,
@@ -837,6 +857,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       docOf,
       buildPdf,
       version,
+      dirty: version !== savedAt,
+      markSaved,
       undo,
       redo,
       canUndo: past.length > 0,
@@ -868,6 +890,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       docOf,
       buildPdf,
       version,
+      savedAt,
+      markSaved,
       undo,
       redo,
       past,

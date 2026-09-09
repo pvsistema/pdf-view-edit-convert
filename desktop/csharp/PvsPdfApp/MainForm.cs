@@ -55,6 +55,13 @@ public class MainForm : Form
     string _openDir = "";
     CancellationTokenSource? _scanCancel;
 
+    // Есть ли в открытых документах правки, которых нет в файлах.
+    // Об этом сообщает сам интерфейс при каждом изменении
+    bool _unsaved;
+    string _unsavedNames = "";
+    // Человек уже ответил на вопрос о несохранённом — закрываемся молча
+    bool _closeConfirmed;
+
     public MainForm(string[]? openFiles = null)
     {
         _openFiles = openFiles ?? Array.Empty<string>();
@@ -383,6 +390,39 @@ public class MainForm : Form
         }
     }
 
+    // Последняя застава перед потерей работы: сюда приходит и крестик окна,
+    // и Alt+F4, и закрытие через панель задач
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // Windows выключается или программа сама попросила закрыться —
+        // задерживать нельзя
+        bool forced = e.CloseReason == CloseReason.WindowsShutDown
+                   || e.CloseReason == CloseReason.TaskManagerClosing;
+
+        if (!_closeConfirmed && !forced && _unsaved)
+        {
+            string what = string.IsNullOrWhiteSpace(_unsavedNames)
+                ? "В открытых документах есть изменения, которых нет в файлах."
+                : "Не сохранены изменения в документах:\r\n\r\n" + _unsavedNames;
+
+            var answer = MessageBox.Show(
+                what + "\r\n\r\nЗакрыть программу и потерять эти изменения?",
+                "ПВ-Система PDF",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+
+            if (answer != DialogResult.Yes)
+            {
+                e.Cancel = true;
+                base.OnFormClosing(e);
+                return;
+            }
+        }
+
+        base.OnFormClosing(e);
+    }
+
     void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         try
@@ -396,8 +436,18 @@ public class MainForm : Form
                 string t = root.GetProperty("title").GetString() ?? "ПВ-Система PDF";
                 Text = t;
             }
+            else if (type == "unsaved")
+            {
+                // Интерфейс сообщает, есть ли работа, которой нет в файлах
+                _unsaved = root.TryGetProperty("dirty", out var d) && d.ValueKind == JsonValueKind.True;
+                _unsavedNames = root.TryGetProperty("names", out var n)
+                    ? (n.GetString() ?? "")
+                    : "";
+            }
             else if (type == "close")
             {
+                // Закрытие изнутри программы: вопрос уже задан там
+                _closeConfirmed = true;
                 Close();
             }
             else if (type == "minimize")
@@ -556,8 +606,10 @@ public class MainForm : Form
 
             Updater.RunInstaller(setup);
 
-            // Помощник установки уже ждёт закрытия окна
+            // Помощник установки уже ждёт закрытия окна.
+            // Человек согласился на обновление — лишний вопрос не задаём
             await Task.Delay(400);
+            _closeConfirmed = true;
             Close();
         }
         catch (OperationCanceledException)

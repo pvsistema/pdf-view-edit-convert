@@ -32,6 +32,11 @@ const send = (msg: Record<string, unknown>) => {
 
 export const setNativeTitle = (title: string) => send({ type: 'setTitle', title });
 export const nativeClose = () => send({ type: 'close' });
+
+// Сообщаем программе, есть ли правки, которых нет в файлах: по этому
+// признаку она спросит подтверждение при закрытии окна
+export const reportUnsaved = (dirty: boolean, names: string) =>
+  send({ type: 'unsaved', dirty, names });
 export const nativeMinimize = () => send({ type: 'minimize' });
 export const nativeToggleMax = () => send({ type: 'toggleMax' });
 

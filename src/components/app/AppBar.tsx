@@ -13,11 +13,12 @@ import { useLicense } from '@/context/LicenseContext';
 import { useTabActive } from '@/context/TabsContext';
 
 const AppBar = () => {
-  const { name, pages, files, buildPdf, undo, redo, canUndo, canRedo } = useDoc();
+  const { name, pages, files, buildPdf, markSaved, undo, redo, canUndo, canRedo } = useDoc();
 
   const save = async () => {
     const bytes = await buildPdf();
     downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
+    markSaved();
     if (!isDesktop()) toast({ title: 'Документ сохранён' });
   };
 
