@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
+import Shape from '@/components/app/Shape';
 import { renderPage, pageSize, screenDensity, findOnPage, pageText, PRIORITY, type TextHit } from '@/lib/pdf';
 import type { Annot, PageMeta } from '@/context/DocContext';
 import type { Tool } from '@/components/app/Viewer';
@@ -28,6 +29,16 @@ type Props = {
   fill?: string;
   // Новая заметка в точке щелчка
   onNote?: (page: PageMeta, x: number, y: number) => void;
+  // Нарисованная фигура: стрелка, линия, рамка или овал
+  onShape?: (
+    page: PageMeta,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    kind: 'arrow' | 'line' | 'rect' | 'oval',
+    dir: { flipX: boolean; flipY: boolean },
+  ) => void;
   // Заметки этой страницы: рисуем их значки поверх листа
   notes?: { id: string; x: number; y: number; done?: boolean; author: string }[];
   onOpenNote?: (id: string) => void;
@@ -62,6 +73,7 @@ const SheetView = ({
   onPick,
   fill = '#14181C',
   onNote,
+  onShape,
   notes,
   onOpenNote,
   onRemoveMark,
@@ -255,9 +267,12 @@ const SheetView = ({
     };
   };
 
+  // Протяжкой мыши рисуются и закраска, и фигуры
+  const DRAWN = ['block', 'arrow', 'line', 'rect', 'oval'];
+
   const dragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     // Пока включена пипетка, рамку не тянем: щелчок берёт цвет
-    if (tool !== 'block' || e.button !== 0 || picking) return;
+    if (!DRAWN.includes(tool) || e.button !== 0 || picking) return;
     e.preventDefault();
     const p = spot(e);
     dragging.current = true;
@@ -278,6 +293,19 @@ const SheetView = ({
     const w = Math.abs(frame.x2 - frame.x1);
     const h = Math.abs(frame.y2 - frame.y1);
     setFrame(null);
+
+    // Фигуры: стрелка и линия могут быть почти вертикальными или
+    // горизонтальными, поэтому им хватает длины хотя бы по одной стороне
+    if (tool !== 'block') {
+      const thin = tool === 'arrow' || tool === 'line';
+      if (thin ? w < 0.01 && h < 0.01 : w < 0.01 || h < 0.01) return;
+      onShape?.(page, x, y, w, h, tool as 'arrow' | 'line' | 'rect' | 'oval', {
+        flipX: frame.x2 < frame.x1,
+        flipY: frame.y2 < frame.y1,
+      });
+      return;
+    }
+
     // Случайный щелчок без протяжки не должен оставлять точку на листе
     if (w < 0.004 || h < 0.004) return;
     onCover(page, x, y, w, h);
@@ -299,21 +327,37 @@ const SheetView = ({
       >
         <div ref={host} />
 
-        {/* Рамка под курсором: показывает, что именно будет закрашено */}
+        {/* Подсказка под курсором: видно, что получится, ещё до того
+            как отпустили кнопку */}
         {frame && (
           <div
-            className="pointer-events-none absolute border-2 border-dashed border-foreground"
+            className="pointer-events-none absolute"
             style={{
               left: `${Math.min(frame.x1, frame.x2) * 100}%`,
               top: `${Math.min(frame.y1, frame.y2) * 100}%`,
               width: `${Math.abs(frame.x2 - frame.x1) * 100}%`,
               height: `${Math.abs(frame.y2 - frame.y1) * 100}%`,
+              opacity: 0.65,
+            }}
+          >
+            {tool === 'block' ? (
               // Полупрозрачная заливка выбранным цветом: сразу видно,
               // каким он ляжет на лист
-              background: fill,
-              opacity: 0.55,
-            }}
-          />
+              <div
+                className="h-full w-full border-2 border-dashed border-foreground"
+                style={{ background: fill }}
+              />
+            ) : (
+              <Shape
+                kind={tool as 'arrow' | 'line' | 'rect' | 'oval'}
+                color={fill}
+                w={Math.abs(frame.x2 - frame.x1) * width}
+                h={Math.abs(frame.y2 - frame.y1) * height}
+                flipX={frame.x2 < frame.x1}
+                flipY={frame.y2 < frame.y1}
+              />
+            )}
+          </div>
         )}
 
         {/* Настоящий текст поверх картинки: доступен для выделения,
@@ -373,7 +417,18 @@ const SheetView = ({
             className="group absolute"
             style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%` }}
           >
-            {m.kind === 'mark' ? (
+            {m.kind === 'arrow' || m.kind === 'line' || m.kind === 'rect' || m.kind === 'oval' ? (
+              // Фигуры рисуем вектором: они остаются чёткими на любом
+              // масштабе и не съедают память под большие картинки
+              <Shape
+                kind={m.kind}
+                color={m.color}
+                w={(m.w ?? 0.1) * width}
+                h={(m.h ?? 0.05) * height}
+                flipX={m.flipX}
+                flipY={m.flipY}
+              />
+            ) : m.kind === 'mark' ? (
               // Маркер: полупрозрачная полоса поверх строки.
               // Умножение цветов оставляет буквы читаемыми — как настоящий
               // текстовыделитель по бумаге

@@ -11,7 +11,7 @@ import { toast } from '@/hooks/use-toast';
 import { readNotes, saveNotes, makeNote, readAuthor, saveAuthor } from '@/lib/notes';
 import { notesChanged, onNotesChanged, openNotes } from '@/lib/noteBus';
 
-export type Tool = 'hand' | 'text' | 'block' | 'note';
+export type Tool = 'hand' | 'text' | 'block' | 'note' | 'arrow' | 'line' | 'rect' | 'oval';
 
 // Цвета рецензирования: жёлтый маркер и красная линия — привычные
 // по бумажным документам
@@ -496,6 +496,35 @@ const Viewer = ({ tool, setTool }: Props) => {
     [tool, addAnnot],
   );
 
+  // Нарисованная фигура. Цвет берём тот же, что выбран на панели,
+  // но для фигур по умолчанию красный: им указывают, а не прячут
+  const shape = useCallback(
+    (
+      target: typeof pages[number],
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      kind: 'arrow' | 'line' | 'rect' | 'oval',
+      dir: { flipX: boolean; flipY: boolean },
+    ) => {
+      addAnnot({
+        pageUid: target.uid,
+        x,
+        y,
+        w,
+        h,
+        text: '',
+        size: 14,
+        color: PEN.line,
+        kind,
+        flipX: dir.flipX,
+        flipY: dir.flipY,
+      });
+    },
+    [addAnnot],
+  );
+
   // Закраска области, обведённой мышью: закрывает всё внутри рамки —
   // и текст, и печати, и подписи на скане
   const cover = useCallback(
@@ -772,6 +801,10 @@ const Viewer = ({ tool, setTool }: Props) => {
           {toolBtn('text', 'Type', 'Добавить надпись')}
           {toolBtn('block', 'Square', 'Закрасить данные: обведите область мышью')}
           {toolBtn('note', 'MessageSquarePlus', 'Заметка: щёлкните по странице')}
+          {toolBtn('arrow', 'ArrowUpRight', 'Стрелка: протяните мышью')}
+          {toolBtn('line', 'Minus', 'Линия: протяните мышью')}
+          {toolBtn('rect', 'RectangleHorizontal', 'Рамка: обведите мышью')}
+          {toolBtn('oval', 'Circle', 'Овал: обведите мышью')}
         </div>
 
         {/* Цвет заливки: виден, только когда выбрано закрашивание */}
@@ -911,11 +944,12 @@ const Viewer = ({ tool, setTool }: Props) => {
                   hint={hint}
                   onPlace={place}
                   onCover={cover}
-                  fill={fill}
+                  fill={tool === 'block' ? fill : PEN.line}
                   notes={notes
                     .filter((n) => n.page === pages.indexOf(p))
                     .map((n) => ({ id: n.id, x: n.x, y: n.y, done: n.done, author: n.author }))}
                   onNote={addNote}
+                  onShape={shape}
                   onOpenNote={() => openNotes()}
                   picking={picking}
                   onPick={(c) => {

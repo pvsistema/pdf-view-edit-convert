@@ -20,11 +20,17 @@ export type Annot = {
   // block — сплошная заливка, скрывающая данные;
   // mark — маркер поверх текста, текст остаётся читаемым;
   // under — подчёркивание, strike — зачёркивание
-  kind: 'text' | 'block' | 'mark' | 'under' | 'strike';
+  // arrow — стрелка, line — линия, rect — рамка, oval — овал:
+  // ими указывают на место в документе
+  kind: 'text' | 'block' | 'mark' | 'under' | 'strike' | 'arrow' | 'line' | 'rect' | 'oval';
   // Точные размеры в долях страницы. Есть у пометок, поставленных
   // по выделенному тексту: они закрывают ровно его, буква в букву
   w?: number;
   h?: number;
+  // У фигур протяжка идёт от угла к углу, и направление важно:
+  // стрелка должна смотреть туда, куда её вели
+  flipX?: boolean;
+  flipY?: boolean;
 };
 
 // Документ, который уже доступен по адресу — так его передаёт программа
@@ -200,6 +206,10 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         mark: 'выделение маркером',
         under: 'подчёркивание',
         strike: 'зачёркивание',
+        arrow: 'стрелка',
+        line: 'линия',
+        rect: 'рамка',
+        oval: 'овал',
       };
       apply(LABEL[a.kind] ?? 'пометка', {
         annots: [...annotsRef.current, { ...a, id: `a${++seq}` }],
@@ -569,16 +579,23 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         // Рецензирование (маркер, подчёркивание, зачёркивание) рисуем
         // средствами самого PDF: буквы под пометкой остаются настоящим
         // текстом — чётким при увеличении, доступным поиску и копированию
+        const SHAPES = ['arrow', 'line', 'rect', 'oval'];
         const pen = all.filter(
-          (a) => a.kind === 'mark' || a.kind === 'under' || a.kind === 'strike',
+          (a) =>
+            a.kind === 'mark' ||
+            a.kind === 'under' ||
+            a.kind === 'strike' ||
+            SHAPES.includes(a.kind),
         );
         // Закраска стирает всё содержимое страницы и заменяет картинкой,
         // поэтому вместе с ней пометки рисуются ниже, на самой картинке
         const hidesData = all.some((a) => a.kind === 'block');
         for (const m of hidesData ? [] : pen) {
           const { width: pwd, height: phd } = added.getSize();
-          const mw = m.w ? m.w * pwd : m.size * 8;
-          const mh = m.h ? m.h * phd : m.size * 1.5;
+          // Сверяемся с undefined: у ровной линии высота честно равна нулю,
+          // и подменять её размером шрифта нельзя — линия пойдёт наискось
+          const mw = m.w !== undefined ? m.w * pwd : m.size * 8;
+          const mh = m.h !== undefined ? m.h * phd : m.size * 1.5;
           // В PDF начало координат внизу листа, у нас — вверху
           const top = phd - m.y * phd;
           const rgbOf = (hex: string) => {
@@ -591,7 +608,63 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           };
           const [cr, cg, cb] = rgbOf(m.color);
 
-          if (m.kind === 'mark') {
+          if (SHAPES.includes(m.kind)) {
+            // Фигуры рисуем линиями PDF: чёткие при любом увеличении
+            const lw = Math.min(6, Math.max(1.6, Math.min(mw, mh) * 0.035 + 1.4));
+            const left = m.x * pwd;
+            const bottom = top - mh;
+            const col = rgb(cr, cg, cb);
+
+            if (m.kind === 'rect') {
+              added.drawRectangle({
+                x: left,
+                y: bottom,
+                width: mw,
+                height: mh,
+                borderColor: col,
+                borderWidth: lw,
+                opacity: 0,
+              });
+            } else if (m.kind === 'oval') {
+              added.drawEllipse({
+                x: left + mw / 2,
+                y: bottom + mh / 2,
+                xScale: mw / 2,
+                yScale: mh / 2,
+                borderColor: col,
+                borderWidth: lw,
+                opacity: 0,
+              });
+            } else {
+              // Линия и стрелка: концы зависят от того, куда её вели
+              const sx = m.flipX ? left + mw : left;
+              const sy = m.flipY ? bottom : top;
+              const ex = m.flipX ? left : left + mw;
+              const ey = m.flipY ? top : bottom;
+              added.drawLine({
+                start: { x: sx, y: sy },
+                end: { x: ex, y: ey },
+                thickness: lw,
+                color: col,
+              });
+              if (m.kind === 'arrow') {
+                const ang = Math.atan2(ey - sy, ex - sx);
+                const len = Math.min(22, Math.max(9, Math.hypot(mw, mh) * 0.18));
+                const sp = 0.42;
+                [-sp, sp].forEach((d) =>
+                  added.drawLine({
+                    start: { x: ex, y: ey },
+                    end: {
+                      x: ex - len * Math.cos(ang + d),
+                      y: ey - len * Math.sin(ang + d),
+                    },
+                    thickness: lw,
+                    color: col,
+                  }),
+                );
+              }
+            }
+          } else if (m.kind === 'mark') {
             added.drawRectangle({
               x: m.x * pwd,
               y: top - mh,
@@ -641,10 +714,46 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           for (const m of marks) {
             const px = m.x * canvas.width;
             const py = m.y * canvas.height;
-            const mw = m.w ? m.w * canvas.width : m.size * k * 8;
-            const mh = m.h ? m.h * canvas.height : m.size * k * 1.5;
+            const mw = m.w !== undefined ? m.w * canvas.width : m.size * k * 8;
+            const mh = m.h !== undefined ? m.h * canvas.height : m.size * k * 1.5;
 
-            if (m.kind === 'block') {
+            if (SHAPES.includes(m.kind)) {
+              // Страница уже стала картинкой из-за закраски —
+              // фигуры дорисовываем прямо на ней
+              const lw = Math.min(6 * k, Math.max(1.6 * k, Math.min(mw, mh) * 0.035 + 1.4 * k));
+              ctx.save();
+              ctx.strokeStyle = m.color;
+              ctx.lineWidth = lw;
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+              if (m.kind === 'rect') {
+                ctx.strokeRect(px, py, mw, mh);
+              } else if (m.kind === 'oval') {
+                ctx.beginPath();
+                ctx.ellipse(px + mw / 2, py + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+                ctx.stroke();
+              } else {
+                const sx = m.flipX ? px + mw : px;
+                const sy = m.flipY ? py + mh : py;
+                const ex = m.flipX ? px : px + mw;
+                const ey = m.flipY ? py : py + mh;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(ex, ey);
+                ctx.stroke();
+                if (m.kind === 'arrow') {
+                  const ang = Math.atan2(ey - sy, ex - sx);
+                  const len = Math.min(22 * k, Math.max(9 * k, Math.hypot(mw, mh) * 0.18));
+                  [-0.42, 0.42].forEach((d) => {
+                    ctx.beginPath();
+                    ctx.moveTo(ex, ey);
+                    ctx.lineTo(ex - len * Math.cos(ang + d), ey - len * Math.sin(ang + d));
+                    ctx.stroke();
+                  });
+                }
+              }
+              ctx.restore();
+            } else if (m.kind === 'block') {
               ctx.fillStyle = m.color;
               // У пометки по выделенному тексту размеры свои: закрываем
               // ровно его. У поставленной вручную — прежний размер
