@@ -6,6 +6,7 @@ import { pageText } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
 import { onScanRequest, onConvertRequest } from '@/lib/startBus';
+import { requestBookmark } from '@/lib/markBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import ScanDialog from '@/components/app/ScanDialog';
 import ConvertDialog from '@/components/app/ConvertDialog';
@@ -174,6 +175,10 @@ const MenuBar = () => {
       } else if ((k === 'z' && e.shiftKey) || k === 'y') {
         e.preventDefault();
         redo();
+      } else if (k === 'b' && has) {
+        // Закладка на текущую страницу
+        e.preventDefault();
+        requestBookmark();
       } else if (k === 'w' && tabsApi?.activeId) {
         // Закрываем текущий документ, как вкладку в браузере
         e.preventDefault();

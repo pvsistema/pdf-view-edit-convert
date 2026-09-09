@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { DocProvider, useDoc, type DocSource } from '@/context/DocContext';
-import PagesPanel from '@/components/app/PagesPanel';
+import SidePanel from '@/components/app/SidePanel';
 import Viewer, { type Tool } from '@/components/app/Viewer';
 import ToolsPanel from '@/components/app/ToolsPanel';
 import AppBar from '@/components/app/AppBar';
@@ -69,8 +69,9 @@ const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
     <div className="flex min-h-0 flex-1 flex-col">
       <AppBar />
       <div className="relative flex min-h-0 flex-1">
+        {/* Слева переключаются два вида: миниатюры страниц и закладки */}
         <div className="hidden lg:flex">
-          <PagesPanel />
+          <SidePanel />
         </div>
 
         <Viewer tool={tool} setTool={setTool} />
@@ -87,7 +88,7 @@ const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
               aria-label="Закрыть панель"
             />
             <div className="animate-fade-in h-full bg-card shadow-2xl">
-              {panel === 'pages' ? <PagesPanel /> : <ToolsPanel />}
+              {panel === 'pages' ? <SidePanel /> : <ToolsPanel />}
             </div>
           </div>
         )}

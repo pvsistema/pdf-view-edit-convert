@@ -57,7 +57,7 @@ const AppBar = () => {
               </button>
             </div>
 
-            <div className="hidden min-w-0 items-baseline gap-3 border-l border-border pl-3 lg:flex">
+            <div className="hidden min-w-0 shrink items-baseline gap-3 overflow-hidden border-l border-border pl-3 lg:flex">
               <span className="truncate font-head text-[0.88rem] font-bold">{name}</span>
               <span className="shrink-0 text-[0.72rem] uppercase tracking-[0.1em] text-muted-foreground">
                 {pages.length} стр. · {formatSize(totalSize)}
@@ -66,7 +66,9 @@ const AppBar = () => {
           </>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
+        {/* Кнопки справа не сжимаются: имя документа уступает им место,
+            иначе на узком окне надписи наезжают друг на друга */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {name && (
             <>
               <button

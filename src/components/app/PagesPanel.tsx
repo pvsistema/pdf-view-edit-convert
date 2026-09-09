@@ -86,7 +86,7 @@ const PagesPanel = () => {
   };
 
   return (
-    <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-border bg-card">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <span className="label-caps">Страницы</span>
         <button
@@ -142,7 +142,7 @@ const PagesPanel = () => {
           С клавишей Ctrl страница копируется.
         </p>
       </div>
-    </aside>
+    </div>
   );
 };
 

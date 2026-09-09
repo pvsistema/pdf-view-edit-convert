@@ -14,6 +14,7 @@ const GROUPS: Group[] = [
       { keys: ['Ctrl', 'Shift', 'S'], label: 'Сохранить как…' },
       { keys: ['Ctrl', 'P'], label: 'Печать' },
       { keys: ['Ctrl', 'W'], label: 'Закрыть документ' },
+      { keys: ['Ctrl', 'B'], label: 'Закладка на текущую страницу' },
     ],
   },
   {
