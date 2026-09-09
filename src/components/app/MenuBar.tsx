@@ -5,6 +5,7 @@ import { downloadBlob } from '@/lib/files';
 import { pageText } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
+import { onScanRequest, onConvertRequest } from '@/lib/startBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import ScanDialog from '@/components/app/ScanDialog';
 import ConvertDialog from '@/components/app/ConvertDialog';
@@ -352,6 +353,32 @@ const MenuBar = () => {
       setQuick(false);
       setShowScan(true);
     });
+
+  // Задачи со стартового окна открывают те же окна, что и пункты меню
+  useEffect(
+    () =>
+      onScanRequest((batch) => {
+        if (!onScreen) return;
+        if (!canScan) {
+          toast({
+            title: 'Сканирование в программе',
+            description:
+              'Установите ПВ-Систему PDF на компьютер — браузеру доступ к сканеру закрыт',
+          });
+          return;
+        }
+        setScanMode(batch ? 'batch' : 'single');
+        setScanAppend(false);
+        setQuick(false);
+        setShowScan(true);
+      }),
+    [onScreen, canScan],
+  );
+
+  useEffect(
+    () => onConvertRequest((kind) => onScreen && setConvertAt(kind)),
+    [onScreen],
+  );
 
   // Прошлые настройки: если человек уже сканировал, повтор делаем
   // сразу — окно с настройками для этого открывать незачем.

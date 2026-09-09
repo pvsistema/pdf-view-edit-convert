@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import AppBar from '@/components/app/AppBar';
-import Dropzone from '@/components/app/Dropzone';
+import StartScreen from '@/components/app/StartScreen';
+import { requestScan, requestConvert } from '@/lib/startBus';
 import TabsBar from '@/components/app/TabsBar';
 import DocWorkspace from '@/components/app/DocWorkspace';
 import AppWindow from '@/components/app/AppWindow';
@@ -68,12 +69,14 @@ const Workspace = () => {
     <AppWindow title={activeTitle ? `${activeTitle} — ПВ-Система PDF` : undefined}>
       <div className="flex h-full flex-col overflow-hidden bg-background font-body text-foreground">
         {tabs.length === 0 ? (
-          // Пока ничего не открыто, показываем стартовый экран
+          // Пока ничего не открыто, показываем стартовое окно с задачами
           <DocProvider>
             <AppBar />
-            <div className="flex-1 overflow-y-auto">
-              <Dropzone />
-            </div>
+            <StartScreen
+              onFile={(f) => openTab(f)}
+              onScan={(batch) => requestScan(batch)}
+              onConvert={(kind) => requestConvert(kind)}
+            />
           </DocProvider>
         ) : (
           <>

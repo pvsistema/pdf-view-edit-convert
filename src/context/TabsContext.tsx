@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import type { DocSource } from '@/context/DocContext';
+import { addRecent } from '@/lib/recent';
 
 export type TabItem = {
   id: string;
@@ -36,6 +37,13 @@ export const TabsProvider = ({ children }: { children: React.ReactNode }) => {
     const id = `t${++tabSeq}`;
     setTabs((list) => [...list, { id, title: titleOf(source), source }]);
     setActiveId(id);
+
+    // Запоминаем документ для списка последних на стартовом окне
+    addRecent(
+      source instanceof File
+        ? { name: source.name, size: source.size }
+        : { name: source.name, size: source.size ?? 0, url: source.url },
+    );
   }, []);
 
   const closeTab = useCallback((id: string) => {
