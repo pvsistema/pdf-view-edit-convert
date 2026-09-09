@@ -11,6 +11,10 @@ import { toast } from '@/hooks/use-toast';
 
 export type Tool = 'hand' | 'text' | 'block';
 
+// Цвета рецензирования: жёлтый маркер и красная линия — привычные
+// по бумажным документам
+const PEN = { mark: '#FFE14D', line: '#D93025' };
+
 // Готовые цвета заливки: чёрным скрывают сведения, белым убирают
 // лишнее с листа, серый и бежевый подходят под бланки на цветной бумаге
 const FILLS = [
@@ -531,6 +535,31 @@ const Viewer = ({ tool, setTool }: Props) => {
         title: 'Выделяйте текст мышью',
         description: 'Проведите по нужным словам, удерживая левую кнопку',
       });
+    },
+
+    // Маркер, подчёркивание и зачёркивание ложатся ровно по выделенным
+    // словам. Текст под ними остаётся читаемым и доступным для поиска
+    onMarkText: (
+      spans: { x: number; y: number; w: number; h: number }[],
+      kind: 'mark' | 'under' | 'strike',
+    ) => {
+      const color = kind === 'mark' ? PEN.mark : PEN.line;
+      spans.forEach((s) =>
+        addAnnot({
+          pageUid: target.uid,
+          x: s.x,
+          y: s.y,
+          w: s.w,
+          h: s.h,
+          text: '',
+          size: 14,
+          color,
+          kind,
+        }),
+      );
+      const NAME = { mark: 'Выделено маркером', under: 'Подчёркнуто', strike: 'Зачёркнуто' };
+      toast({ title: NAME[kind] });
+      window.getSelection()?.removeAllRanges();
     },
 
     onCoverArea: () => {

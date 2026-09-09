@@ -335,7 +335,44 @@ const SheetView = ({
             className="group absolute"
             style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%` }}
           >
-            {m.kind === 'block' ? (
+            {m.kind === 'mark' ? (
+              // Маркер: полупрозрачная полоса поверх строки.
+              // Умножение цветов оставляет буквы читаемыми — как настоящий
+              // текстовыделитель по бумаге
+              <div
+                className="mix-blend-multiply"
+                style={{
+                  background: m.color,
+                  width: m.w ? `${m.w * width}px` : `${m.size * 8}px`,
+                  height: m.h ? `${m.h * height}px` : `${m.size * 1.5}px`,
+                }}
+              />
+            ) : m.kind === 'under' || m.kind === 'strike' ? (
+              // Линия под текстом или поперёк него: толщину берём от высоты
+              // строки, чтобы на любом масштабе выглядела одинаково
+              <div
+                style={{
+                  width: m.w ? `${m.w * width}px` : `${m.size * 8}px`,
+                  height: m.h ? `${m.h * height}px` : `${m.size * 1.5}px`,
+                  position: 'relative',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    height: `${Math.max(1.2, (m.h ? m.h * height : m.size * 1.5) * 0.07)}px`,
+                    background: m.color,
+                    // Подчёркивание ведём по самому низу строки, иначе
+                    // линия липнет к буквам и читается как зачёркивание
+                    top: m.kind === 'under' ? undefined : '50%',
+                    bottom: m.kind === 'under' ? '-6%' : undefined,
+                    transform: m.kind === 'strike' ? 'translateY(-50%)' : undefined,
+                  }}
+                />
+              </div>
+            ) : m.kind === 'block' ? (
               <div
                 style={{
                   background: m.color,

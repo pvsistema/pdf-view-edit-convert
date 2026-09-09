@@ -17,6 +17,11 @@ export type MenuActions = {
   onHideText: (spans: NonNullable<MenuPoint['spans']>) => void;
   onEraseText: (spans: NonNullable<MenuPoint['spans']>) => void;
   onSelectText: () => void;
+  // Пометка поверх выделенного текста: маркер, подчёркивание, зачёркивание
+  onMarkText: (
+    spans: NonNullable<MenuPoint['spans']>,
+    kind: 'mark' | 'under' | 'strike',
+  ) => void;
   onCoverArea: () => void;
   onPaste: () => void;
   onDeletePage: () => void;
@@ -95,6 +100,24 @@ const PageMenu = ({ at, onClose, ...act }: Props) => {
       label: 'Выделить текст',
       on: true,
       fn: run(act.onSelectText),
+    },
+    {
+      icon: 'Highlighter',
+      label: 'Выделить маркером',
+      on: marked,
+      fn: run(() => act.onMarkText(spans, 'mark')),
+    },
+    {
+      icon: 'Underline',
+      label: 'Подчеркнуть',
+      on: marked,
+      fn: run(() => act.onMarkText(spans, 'under')),
+    },
+    {
+      icon: 'Strikethrough',
+      label: 'Зачеркнуть',
+      on: marked,
+      fn: run(() => act.onMarkText(spans, 'strike')),
     },
     {
       icon: 'Square',

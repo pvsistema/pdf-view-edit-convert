@@ -17,7 +17,10 @@ export type Annot = {
   text: string;
   size: number;
   color: string;
-  kind: 'text' | 'block';
+  // block — сплошная заливка, скрывающая данные;
+  // mark — маркер поверх текста, текст остаётся читаемым;
+  // under — подчёркивание, strike — зачёркивание
+  kind: 'text' | 'block' | 'mark' | 'under' | 'strike';
   // Точные размеры в долях страницы. Есть у пометок, поставленных
   // по выделенному тексту: они закрывают ровно его, буква в букву
   w?: number;
@@ -118,6 +121,11 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const [version, setVersion] = useState(0);
   const [past, setPast] = useState<Snapshot[]>([]);
   const [future, setFuture] = useState<Snapshot[]>([]);
+  // Свежие списки истории для отмены и возврата
+  const pastRef = useRef<Snapshot[]>([]);
+  const futureRef = useRef<Snapshot[]>([]);
+  pastRef.current = past;
+  futureRef.current = future;
   const filesRef = useRef<SourceFile[]>([]);
   const pagesRef = useRef<PageMeta[]>([]);
 
@@ -126,16 +134,18 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const annotsRef = useRef<Annot[]>([]);
 
   const apply = useCallback((label: string, next: { pages?: PageMeta[]; annots?: Annot[] }) => {
-    setPast((h) => [
-      ...h.slice(-49),
+    setPast([
+      ...pastRef.current.slice(-49),
       { pages: pagesRef.current, annots: annotsRef.current, label },
     ]);
     setFuture([]);
-    if (next.pages) {
+    // Сверяемся с undefined, а не с «пустотой»: пустой список — это
+    // тоже изменение (удалили последнюю пометку или страницу)
+    if (next.pages !== undefined) {
       pagesRef.current = next.pages;
       setPages(next.pages);
     }
-    if (next.annots) {
+    if (next.annots !== undefined) {
       annotsRef.current = next.annots;
       setAnnots(next.annots);
     }
@@ -151,32 +161,47 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
     setVersion((v) => v + 1);
   }, []);
 
+  // Текущее состояние снимаем ДО правки списков истории. Раньше снимок
+  // брали внутри обновления состояния, и он успевал испортиться —
+  // возврат действия восстанавливал уже изменённые данные
   const undo = useCallback(() => {
-    setPast((h) => {
-      if (!h.length) return h;
-      const prev = h[h.length - 1];
-      setFuture((f) => [
-        { pages: pagesRef.current, annots: annotsRef.current, label: prev.label },
-        ...f,
-      ]);
-      commit(prev);
-      return h.slice(0, -1);
-    });
+    const h = pastRef.current;
+    if (!h.length) return;
+    const prev = h[h.length - 1];
+    const nowSnap = {
+      pages: pagesRef.current,
+      annots: annotsRef.current,
+      label: prev.label,
+    };
+    setPast(h.slice(0, -1));
+    setFuture([nowSnap, ...futureRef.current]);
+    commit(prev);
   }, [commit]);
 
   const redo = useCallback(() => {
-    setFuture((f) => {
-      if (!f.length) return f;
-      const next = f[0];
-      setPast((h) => [...h, { pages: pagesRef.current, annots: annotsRef.current, label: next.label }]);
-      commit(next);
-      return f.slice(1);
-    });
+    const f = futureRef.current;
+    if (!f.length) return;
+    const next = f[0];
+    const nowSnap = {
+      pages: pagesRef.current,
+      annots: annotsRef.current,
+      label: next.label,
+    };
+    setPast([...pastRef.current, nowSnap]);
+    setFuture(f.slice(1));
+    commit(next);
   }, [commit]);
 
   const addAnnot = useCallback(
     (a: Omit<Annot, 'id'>) => {
-      apply(a.kind === 'text' ? 'добавление надписи' : 'закрашивание', {
+      const LABEL: Record<Annot['kind'], string> = {
+        text: 'добавление надписи',
+        block: 'закрашивание',
+        mark: 'выделение маркером',
+        under: 'подчёркивание',
+        strike: 'зачёркивание',
+      };
+      apply(LABEL[a.kind] ?? 'пометка', {
         annots: [...annotsRef.current, { ...a, id: `a${++seq}` }],
       });
     },
@@ -444,7 +469,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       let done = 0;
       const onWork = () => onStep?.(done, list.length);
       // Сборщик PDF подключаем при сохранении, а не при запуске программы
-      const { PDFDocument, degrees, PDFName } = await import('pdf-lib');
+      const { PDFDocument, degrees, PDFName, rgb, BlendMode } = await import('pdf-lib');
       const out = await PDFDocument.create();
       const cache = new Map<string, any>();
 
@@ -539,7 +564,59 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           });
         }
 
-        const marks = annots.filter((a) => a.pageUid === p.uid);
+        const all = annots.filter((a) => a.pageUid === p.uid);
+
+        // Рецензирование (маркер, подчёркивание, зачёркивание) рисуем
+        // средствами самого PDF: буквы под пометкой остаются настоящим
+        // текстом — чётким при увеличении, доступным поиску и копированию
+        const pen = all.filter(
+          (a) => a.kind === 'mark' || a.kind === 'under' || a.kind === 'strike',
+        );
+        // Закраска стирает всё содержимое страницы и заменяет картинкой,
+        // поэтому вместе с ней пометки рисуются ниже, на самой картинке
+        const hidesData = all.some((a) => a.kind === 'block');
+        for (const m of hidesData ? [] : pen) {
+          const { width: pwd, height: phd } = added.getSize();
+          const mw = m.w ? m.w * pwd : m.size * 8;
+          const mh = m.h ? m.h * phd : m.size * 1.5;
+          // В PDF начало координат внизу листа, у нас — вверху
+          const top = phd - m.y * phd;
+          const rgbOf = (hex: string) => {
+            const v = hex.replace('#', '');
+            return [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16) / 255) as [
+              number,
+              number,
+              number,
+            ];
+          };
+          const [cr, cg, cb] = rgbOf(m.color);
+
+          if (m.kind === 'mark') {
+            added.drawRectangle({
+              x: m.x * pwd,
+              y: top - mh,
+              width: mw,
+              height: mh,
+              color: rgb(cr, cg, cb),
+              blendMode: BlendMode.Multiply,
+            });
+          } else {
+            const thick = Math.max(0.9, mh * 0.07);
+            added.drawRectangle({
+              x: m.x * pwd,
+              y: m.kind === 'under' ? top - mh - mh * 0.06 : top - mh / 2 - thick / 2,
+              width: mw,
+              height: thick,
+              color: rgb(cr, cg, cb),
+            });
+          }
+        }
+
+        // Картинкой поверх страницы ложатся закраска и надписи, а вместе
+        // с закраской — и все остальные пометки этой страницы
+        const marks = hidesData
+          ? all
+          : all.filter((a) => a.kind === 'block' || a.kind === 'text');
         if (marks.length) {
           const { width, height } = added.getSize();
           const k = 2;
@@ -564,13 +641,28 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
           for (const m of marks) {
             const px = m.x * canvas.width;
             const py = m.y * canvas.height;
+            const mw = m.w ? m.w * canvas.width : m.size * k * 8;
+            const mh = m.h ? m.h * canvas.height : m.size * k * 1.5;
+
             if (m.kind === 'block') {
               ctx.fillStyle = m.color;
               // У пометки по выделенному тексту размеры свои: закрываем
               // ровно его. У поставленной вручную — прежний размер
-              const bw = m.w ? m.w * canvas.width : m.size * k * 8;
-              const bh = m.h ? m.h * canvas.height : m.size * k * 1.5;
-              ctx.fillRect(px, py, bw, bh);
+              ctx.fillRect(px, py, mw, mh);
+            } else if (m.kind === 'mark') {
+              // Маркер умножением цветов: буквы под жёлтой полосой
+              // остаются видны, как под настоящим выделителем
+              ctx.save();
+              ctx.globalCompositeOperation = 'multiply';
+              ctx.fillStyle = m.color;
+              ctx.fillRect(px, py, mw, mh);
+              ctx.restore();
+            } else if (m.kind === 'under' || m.kind === 'strike') {
+              const thick = Math.max(1.2 * k, mh * 0.07);
+              const y =
+                m.kind === 'under' ? py + mh + mh * 0.06 - thick : py + mh / 2 - thick / 2;
+              ctx.fillStyle = m.color;
+              ctx.fillRect(px, y, mw, thick);
             } else {
               ctx.fillStyle = m.color;
               ctx.font = `${m.size * k}px Inter, Arial, sans-serif`;
