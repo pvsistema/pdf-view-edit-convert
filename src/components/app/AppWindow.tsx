@@ -164,7 +164,7 @@ const AppWindow = ({ children, title }: { children: React.ReactNode; title?: str
         <div
           onPointerDown={startDrag('move')}
           onDoubleClick={toggleMax}
-          className={`flex h-10 shrink-0 select-none items-center gap-2 border-b border-foreground bg-foreground px-3 text-background ${
+          className={`flex h-10 shrink-0 select-none items-center gap-2 border-b border-panel bg-panel px-3 text-panel-foreground ${
             mode === 'min' ? '' : 'cursor-move'
           }`}
         >
@@ -177,14 +177,14 @@ const AppWindow = ({ children, title }: { children: React.ReactNode; title?: str
             <button
               onClick={() => setMode(mode === 'min' ? 'normal' : 'min')}
               title="Свернуть"
-              className="flex h-10 w-11 items-center justify-center transition-colors hover:bg-background/20"
+              className="flex h-10 w-11 items-center justify-center transition-colors hover:bg-panel-foreground/20"
             >
               <Icon name="Minus" size={15} />
             </button>
             <button
               onClick={toggleMax}
               title={mode === 'max' ? 'Восстановить' : 'Развернуть'}
-              className="flex h-10 w-11 items-center justify-center transition-colors hover:bg-background/20"
+              className="flex h-10 w-11 items-center justify-center transition-colors hover:bg-panel-foreground/20"
             >
               <Icon name={mode === 'max' ? 'Copy' : 'Square'} size={13} />
             </button>

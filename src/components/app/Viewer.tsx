@@ -853,7 +853,7 @@ const Viewer = ({ tool, setTool }: Props) => {
 
       <div
         ref={scroller}
-        className="relative flex-1 overflow-auto overscroll-contain bg-muted"
+        className="relative flex-1 overflow-auto overscroll-contain bg-desk"
         style={{ scrollBehavior: 'auto' }}
       >
         {busy && (

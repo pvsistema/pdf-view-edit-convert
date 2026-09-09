@@ -22,14 +22,14 @@ const SidePanel = () => {
 
   return (
     <div className="flex h-full">
-      <div className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border bg-foreground py-2 text-background">
+      <div className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border bg-panel py-2 text-panel-foreground">
         {VIEWS.map((v) => (
           <button
             key={v.id}
             onClick={() => setView(v.id)}
             title={v.title}
             className={`flex h-9 w-9 items-center justify-center transition-colors ${
-              view === v.id ? 'bg-primary text-primary-foreground' : 'hover:bg-background/10'
+              view === v.id ? 'bg-primary text-primary-foreground' : 'hover:bg-panel-foreground/10'
             }`}
           >
             <Icon name={v.icon} size={17} />

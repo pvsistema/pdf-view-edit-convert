@@ -25,6 +25,13 @@ export default {
 			colors: {
 				rule: 'hsl(var(--rule))',
 				deep: 'hsl(var(--deep))',
+				// Поле вокруг листов документа
+				desk: 'hsl(var(--desk))',
+				// Тёмно-синие панели по краям окна
+				panel: {
+					DEFAULT: 'hsl(var(--panel))',
+					foreground: 'hsl(var(--panel-foreground))',
+				},
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',

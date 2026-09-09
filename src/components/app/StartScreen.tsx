@@ -81,7 +81,7 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
       {/* Закладки видов работ — как в привычных деловых программах */}
-      <div className="flex w-[210px] shrink-0 flex-col border-r border-border bg-foreground py-3 text-background">
+      <div className="flex w-[210px] shrink-0 flex-col border-r border-border bg-panel py-3 text-panel-foreground">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -91,8 +91,8 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
             }}
             className={`flex items-center gap-3 border-l-[3px] px-5 py-3 text-left transition-colors ${
               tab === t.id
-                ? 'border-primary bg-background/10 font-bold'
-                : 'border-transparent hover:bg-background/5'
+                ? 'border-primary bg-panel-foreground/10 font-bold'
+                : 'border-transparent hover:bg-panel-foreground/5'
             }`}
           >
             <Icon name={t.icon} size={17} />
@@ -100,7 +100,7 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
           </button>
         ))}
 
-        <div className="mt-auto px-5 pb-1 pt-4 text-[0.72rem] uppercase tracking-[0.14em] text-background/45">
+        <div className="mt-auto px-5 pb-1 pt-4 text-[0.72rem] uppercase tracking-[0.14em] text-panel-foreground/50">
           Файлы обрабатываются
           <br />
           на вашем компьютере

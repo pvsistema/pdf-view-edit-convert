@@ -4,39 +4,47 @@
 
 @layer base {
   :root {
-    --background: 48 24% 96%;
-    --foreground: 210 17% 9%;
+    /* Деловая палитра: чистое белое поле для работы, тёмно-синие
+       панели по краям и синий как цвет действий */
+    --background: 0 0% 100%;
+    --foreground: 210 24% 16%;
 
-    --card: 47 18% 90%;
-    --card-foreground: 210 17% 9%;
+    --card: 210 20% 96%;
+    --card-foreground: 210 24% 16%;
 
-    --popover: 48 24% 96%;
-    --popover-foreground: 210 17% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 24% 16%;
 
-    --primary: 216 77% 48%;
+    --primary: 209 60% 30%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 47 18% 90%;
-    --secondary-foreground: 210 17% 9%;
+    --secondary: 210 20% 93%;
+    --secondary-foreground: 210 24% 16%;
 
-    --muted: 47 18% 90%;
-    --muted-foreground: 105 4% 39%;
+    --muted: 210 16% 91%;
+    --muted-foreground: 210 10% 42%;
 
-    --accent: 189 74% 62%;
-    --accent-foreground: 220 87% 31%;
+    --accent: 205 65% 45%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 72% 44%;
+    --destructive: 4 68% 48%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 46 15% 83%;
-    --input: 46 15% 83%;
-    --ring: 216 77% 48%;
+    --border: 210 16% 84%;
+    --input: 210 16% 84%;
+    --ring: 209 60% 30%;
 
     --radius: 0rem;
 
-    --rule: 210 17% 9%;
-    --grid-line: 46 15% 83%;
-    --deep: 220 87% 31%;
+    --rule: 210 24% 16%;
+    --grid-line: 210 16% 84%;
+    /* Тёмно-синий для боковых панелей и заголовка окна */
+    --deep: 209 58% 24%;
+    --panel: 209 58% 24%;
+    --panel-foreground: 0 0% 100%;
+    /* Поле вокруг листов: белая страница на нём читается как
+       лист бумаги на столе */
+    --desk: 212 14% 78%;
 
     --sidebar-background: 0 0% 98%;
 
@@ -86,7 +94,10 @@
 
     --rule: 48 24% 96%;
     --grid-line: 210 12% 22%;
-    --deep: 220 87% 31%;
+    --deep: 209 58% 24%;
+    --panel: 210 20% 12%;
+    --panel-foreground: 0 0% 100%;
+    --desk: 210 16% 7%;
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
