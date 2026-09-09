@@ -26,6 +26,11 @@ type Props = {
   onPick?: (color: string) => void;
   // Выбранный цвет заливки — им же красится рамка при обводке
   fill?: string;
+  // Новая заметка в точке щелчка
+  onNote?: (page: PageMeta, x: number, y: number) => void;
+  // Заметки этой страницы: рисуем их значки поверх листа
+  notes?: { id: string; x: number; y: number; done?: boolean; author: string }[];
+  onOpenNote?: (id: string) => void;
   onRemoveMark: (id: string) => void;
   // Действия меню по правой кнопке: их выполняет окно просмотра,
   // потому что они касаются всего документа, а не одного листа
@@ -56,6 +61,9 @@ const SheetView = ({
   picking,
   onPick,
   fill = '#14181C',
+  onNote,
+  notes,
+  onOpenNote,
   onRemoveMark,
   menuActions,
 }: Props) => {
@@ -216,6 +224,17 @@ const SheetView = ({
       return;
     }
 
+    // Заметка встаёт там, куда щёлкнули: значок остаётся на листе,
+    // а сам текст живёт в панели замечаний
+    if (tool === 'note') {
+      onNote?.(
+        page,
+        (e.clientX - rect.left) / rect.width,
+        (e.clientY - rect.top) / rect.height,
+      );
+      return;
+    }
+
     // Надпись ставится щелчком, а закраска — протяжкой,
     // поэтому по щелчку её не создаём
     if (tool !== 'text') return;
@@ -327,6 +346,25 @@ const SheetView = ({
               height: `${s.h * 100}%`,
             }}
           />
+        ))}
+
+        {/* Значки заметок: сам текст замечания живёт в боковой панели,
+            на листе остаётся только метка места */}
+        {(notes ?? []).map((n) => (
+          <button
+            key={n.id}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenNote?.(n.id);
+            }}
+            title={`Замечание — ${n.author}`}
+            style={{ left: `${n.x * 100}%`, top: `${n.y * 100}%` }}
+            className={`absolute z-20 -translate-x-1/2 -translate-y-full p-1 shadow-md transition-transform hover:scale-110 ${
+              n.done ? 'bg-muted text-muted-foreground' : 'bg-primary text-primary-foreground'
+            }`}
+          >
+            <Icon name="MessageSquare" size={13} />
+          </button>
         ))}
 
         {marks.map((m) => (

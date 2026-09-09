@@ -3,12 +3,15 @@ import Icon from '@/components/ui/icon';
 import { onBookmarkRequest } from '@/lib/markBus';
 import PagesPanel from '@/components/app/PagesPanel';
 import BookmarksPanel from '@/components/app/BookmarksPanel';
+import NotesPanel from '@/components/app/NotesPanel';
+import { onOpenNotes } from '@/lib/noteBus';
 
-type View = 'pages' | 'marks';
+type View = 'pages' | 'marks' | 'notes';
 
 const VIEWS: { id: View; icon: string; title: string }[] = [
   { id: 'pages', icon: 'Files', title: 'Страницы' },
   { id: 'marks', icon: 'Bookmark', title: 'Закладки' },
+  { id: 'notes', icon: 'MessageSquare', title: 'Замечания' },
 ];
 
 // Левая часть окна: узкая полоска значков переключает вид,
@@ -19,6 +22,9 @@ const SidePanel = () => {
   // Ctrl+B ставит закладку, даже когда на экране миниатюры:
   // сначала показываем закладки, чтобы человек увидел результат
   useEffect(() => onBookmarkRequest(() => setView('marks')), []);
+
+  // Новая заметка сразу показывает панель замечаний
+  useEffect(() => onOpenNotes(() => setView('notes')), []);
 
   return (
     <div className="flex h-full">
@@ -45,6 +51,9 @@ const SidePanel = () => {
         </div>
         <div className={view === 'marks' ? 'flex h-full flex-col' : 'hidden'}>
           <BookmarksPanel />
+        </div>
+        <div className={view === 'notes' ? 'flex h-full flex-col' : 'hidden'}>
+          <NotesPanel />
         </div>
       </aside>
     </div>

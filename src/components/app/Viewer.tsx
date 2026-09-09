@@ -8,8 +8,10 @@ import { onSearchRequest } from '@/lib/searchBus';
 import { requestPrint } from '@/lib/printBus';
 import { downloadBlob } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
+import { readNotes, saveNotes, makeNote, readAuthor, saveAuthor } from '@/lib/notes';
+import { notesChanged, onNotesChanged, openNotes } from '@/lib/noteBus';
 
-export type Tool = 'hand' | 'text' | 'block';
+export type Tool = 'hand' | 'text' | 'block' | 'note';
 
 // Цвета рецензирования: жёлтый маркер и красная линия — привычные
 // по бумажным документам
@@ -89,6 +91,34 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   // Пипетка: следующий щелчок по странице возьмёт цвет из этой точки
   const [picking, setPicking] = useState(false);
+
+  // Заметки документа: значки рисуются на листах, тексты — в панели
+  const [notes, setNotes] = useState(() => readNotes(name));
+  useEffect(() => setNotes(readNotes(name)), [name]);
+  useEffect(() => onNotesChanged(() => setNotes(readNotes(name))), [name]);
+
+  // Новая заметка в точке щелчка. Имя рецензента спрашиваем один раз
+  const addNote = useCallback(
+    (target: typeof pages[number], x: number, y: number) => {
+      let who = readAuthor();
+      if (!who) {
+        who = (window.prompt('Ваше имя для замечаний') || '').trim();
+        if (!who) return;
+        saveAuthor(who);
+      }
+      const at = pages.indexOf(target);
+      const note = makeNote(at, x, y, who);
+      const quote = (window.getSelection()?.toString() || '').trim();
+      if (quote) note.quote = quote.slice(0, 160);
+      const next = [...readNotes(name), note];
+      saveNotes(name, next);
+      setNotes(next);
+      openNotes();
+      notesChanged(note.id);
+      setTool('hand');
+    },
+    [pages, name, setTool],
+  );
 
   // Размер первой страницы — ориентир для всей ленты. Благодаря ему полоса
   // прокрутки сразу верной длины, а файл не читается целиком ради размеров
@@ -741,6 +771,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           {toolBtn('hand', 'MousePointer2', 'Просмотр')}
           {toolBtn('text', 'Type', 'Добавить надпись')}
           {toolBtn('block', 'Square', 'Закрасить данные: обведите область мышью')}
+          {toolBtn('note', 'MessageSquarePlus', 'Заметка: щёлкните по странице')}
         </div>
 
         {/* Цвет заливки: виден, только когда выбрано закрашивание */}
@@ -881,6 +912,11 @@ const Viewer = ({ tool, setTool }: Props) => {
                   onPlace={place}
                   onCover={cover}
                   fill={fill}
+                  notes={notes
+                    .filter((n) => n.page === pages.indexOf(p))
+                    .map((n) => ({ id: n.id, x: n.x, y: n.y, done: n.done, author: n.author }))}
+                  onNote={addNote}
+                  onOpenNote={() => openNotes()}
                   picking={picking}
                   onPick={(c) => {
                     setFill(c);
