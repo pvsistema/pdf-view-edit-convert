@@ -371,17 +371,26 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                 {devices.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
-                    {d.twain ? ' — драйвер производителя' : ''}
+                    {d.twain ? ' — из драйвера, может быть недоступен' : ''}
                   </option>
                 ))}
               </select>
 
               {current?.twain && (
-                <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
-                  Работаем через драйвер производителя — так же, как программы для
-                  распознавания. Если сканер не отзывается, закройте другие программы
-                  сканирования: драйвер работает только с одной.
-                </p>
+                <div className="mt-2 flex gap-2 border border-border bg-card px-3 py-2.5">
+                  <Icon
+                    name="TriangleAlert"
+                    size={15}
+                    className="mt-0.5 shrink-0 text-primary"
+                  />
+                  <p className="text-[0.76rem] leading-relaxed text-muted-foreground">
+                    Устройство взято из установленного драйвера, а не из списка Windows.
+                    Драйвер сообщает о нём, даже если аппарат выключен, отсоединён или на
+                    его месте теперь другая модель — проверить можно только съёмкой.
+                    Если сканер не отзовётся, закройте другие программы сканирования:
+                    драйвер работает только с одной.
+                  </p>
+                </div>
               )}
 
               <div className="mt-5 grid grid-cols-2 gap-4">
@@ -499,6 +508,28 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           {error && (
             <div className="mt-5 border border-destructive bg-destructive/5 px-4 py-3 text-[0.85rem]">
               {error}
+              {/* Частый случай: драйвер сообщил об аппарате, которого
+                  на самом деле нет под рукой */}
+              {current?.twain && (
+                <>
+                  <p className="mt-2 text-[0.78rem] leading-relaxed text-muted-foreground">
+                    Это устройство взято из драйвера. Возможно, аппарат выключен, не
+                    подключён или установленный драйвер остался от другой модели.
+                    Проверьте питание и кабель.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setError('');
+                      setDevice('');
+                      setDevices(null);
+                      listScanners();
+                    }}
+                    className="mt-2.5 font-head text-[0.7rem] font-bold uppercase tracking-[0.08em] text-primary hover:underline"
+                  >
+                    Искать сканеры заново
+                  </button>
+                </>
+              )}
             </div>
           )}
 
