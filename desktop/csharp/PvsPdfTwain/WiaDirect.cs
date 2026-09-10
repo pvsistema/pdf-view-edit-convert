@@ -153,6 +153,12 @@ internal static class WiaDirect
     delegate int ReadMultipleCall(
         IntPtr self, uint count, [In] PROPSPEC[] spec, [In, Out] PROPVARIANT[] value);
 
+    [DllImport("user32.dll")]
+    static extern IntPtr GetActiveWindow();
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetDesktopWindow();
+
     [DllImport("ole32.dll")]
     static extern int CoCreateInstance(
         ref Guid clsid, IntPtr outer, uint context, ref Guid iid, out IntPtr result);
@@ -492,10 +498,18 @@ internal static class WiaDirect
                     Marshal.ReadIntPtr(table, 7 * IntPtr.Size));
 
                 string folder = Path.GetDirectoryName(path) ?? "";
-                string name = Path.GetFileName(path);
+                Directory.CreateDirectory(folder);
 
-                // Служба сама подставит номер и расширение
-                string template = Path.GetFileNameWithoutExtension(path);
+                // Образец имени служба ждёт С РАСШИРЕНИЕМ: по нему она
+                // понимает, в каком виде сохранять. Без него отвечает
+                // «неверные данные»
+                string template = Path.GetFileName(path);
+
+                // Команда рисует окно и требует настоящее окно-хозяина.
+                // Пустое место она не принимает — это и была причина
+                // отказа 80070057
+                IntPtr owner = GetActiveWindow();
+                if (owner == IntPtr.Zero) owner = GetDesktopWindow();
 
                 // Признаки: 0x02 — один снимок, 0x04 — общее окно
                 // Windows вместо окна производителя. Тихого режима
@@ -512,7 +526,7 @@ internal static class WiaDirect
                     IntPtr paths = IntPtr.Zero;
 
                     int step = getImageDlg(
-                        raw, flags, who, IntPtr.Zero,
+                        raw, flags, who, owner,
                         folder, template, ref count, ref paths, IntPtr.Zero);
 
                     Log.Add($"прямая съёмка ({how}): ответ {step:X8}, файлов {count}");
