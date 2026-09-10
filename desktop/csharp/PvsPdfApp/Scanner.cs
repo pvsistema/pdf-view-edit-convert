@@ -398,7 +398,7 @@ internal static class Scanner
                         bool net = main && low.EndsWith("n");
 
                         string title = main
-                            ? (net ? folder + " — сетевой аппарат"
+                            ? (net ? folder + " — по сети"
                                    : folder + " — по кабелю USB")
                             : folder + " — " + file;
 
@@ -415,10 +415,12 @@ internal static class Scanner
         }
         catch { }
 
-        // Вперёд — сетевые: большинство молчащих МФУ подключены по сети
+        // Вперёд — утилиты добавления аппарата, среди них первой идёт
+        // версия «по кабелю USB»: так подключено большинство аппаратов,
+        // да и сетевую видно рядом — перепутать негде
         return found
-            .OrderByDescending(x => x.Network)
-            .ThenByDescending(x => x.Main)
+            .OrderByDescending(x => x.Main)
+            .ThenBy(x => x.Network)
             .ToList();
     }
 

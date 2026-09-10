@@ -130,6 +130,11 @@ internal static class WiaDirect
     [DllImport("ole32.dll")]
     static extern int PropVariantClear(ref PROPVARIANT pv);
 
+    // Какие устройства перечислять. Пустой набор (0) служба может
+    // понять как «никакие» — поэтому спрашиваем явно
+    const int ENUM_ALL = 0x0000000F;     // все устройства
+    const int ENUM_LOCAL = 0x00000010;   // только подключённые к этому компьютеру
+
     const uint INPROC_SERVER = 1;
     const uint LOCAL_SERVER = 4;
 
@@ -233,11 +238,37 @@ internal static class WiaDirect
 
             var enumDevices = Marshal.GetDelegateForFunctionPointer<EnumDeviceInfoCall>(slot);
 
-            int step0 = enumDevices(raw, 0, out IntPtr itemsRaw);
+            // ЧТО именно перечислять — служба ждёт набор признаков.
+            // Мы передавали 0, то есть пустой набор: служба вправе
+            // понять это как «ничего не перечислять» и вернуть ноль
+            // устройств. Ровно это мы и видели все прошлые разы.
+            //
+            // Просим ВСЕ устройства, а если служба откажет — только
+            // местные, подключённые к этому компьютеру
+            IntPtr itemsRaw = IntPtr.Zero;
+            int step0 = -1;
+
+            foreach (var (flag, what) in new[]
+            {
+                (ENUM_ALL, "все"),
+                (ENUM_LOCAL, "только местные"),
+                (0, "без уточнения"),
+            })
+            {
+                step0 = enumDevices(raw, flag, out itemsRaw);
+
+                if (step0 == 0 && itemsRaw != IntPtr.Zero)
+                {
+                    Log.Add($"{title}: спросили {what} — список получен");
+                    break;
+                }
+
+                Log.Add($"{title}: спросили {what} — отказ (код {step0:X8})");
+            }
 
             if (step0 != 0 || itemsRaw == IntPtr.Zero)
             {
-                Log.Add($"{title}: список устройств не получен (код {step0:X8})");
+                Log.Add($"{title}: список устройств не получен");
                 Marshal.Release(raw);
                 raw = IntPtr.Zero;
                 return;
