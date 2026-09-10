@@ -344,7 +344,11 @@ internal static class Twain
             string dir = Path.Combine(win, Environment.Is64BitProcess ? "twain_64" : "twain_32");
             if (Directory.Exists(dir))
                 foreach (string sub in Directory.GetDirectories(dir))
-                    drivers.Add(Path.GetFileName(sub));
+                {
+                    // Имя папки для необычного пути может не определиться
+                    string? folder = Path.GetFileName(sub);
+                    if (!string.IsNullOrEmpty(folder)) drivers.Add(folder);
+                }
         }
         catch (Exception ex) { drivers.Add("не прочитать: " + ex.Message); }
 

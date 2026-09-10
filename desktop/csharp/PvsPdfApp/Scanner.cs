@@ -196,7 +196,13 @@ internal static class Scanner
                 string dir = Path.Combine(win, name);
                 if (!Directory.Exists(dir)) { text.AppendLine(name + ": папки нет"); continue; }
 
-                var subs = Directory.GetDirectories(dir).Select(Path.GetFileName).ToList();
+                // Имя папки берём с проверкой: для необычного пути оно
+                // может не определиться, и такую запись просто пропускаем
+                var subs = Directory.GetDirectories(dir)
+                    .Select(Path.GetFileName)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Select(n => n!)
+                    .ToList();
                 bool dsm = File.Exists(Path.Combine(dir, "TWAINDSM.dll"));
                 text.AppendLine(name + ": драйверов " + subs.Count +
                                 ", TWAINDSM.dll " + (dsm ? "есть" : "НЕТ"));
