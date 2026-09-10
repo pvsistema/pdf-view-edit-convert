@@ -123,6 +123,24 @@ internal static class WiaDirect
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     delegate int EnumDeviceInfoCall(IntPtr self, int flags, out IntPtr items);
 
+    // Действия списка устройств, вызываемые напрямую
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int NextCall(IntPtr self, uint count, out IntPtr item, out uint taken);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int GetCountCall(IntPtr self, out uint count);
+
+    // Окно съёмки, нарисованное службой Windows
+    [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    delegate int GetImageDlgCall(
+        IntPtr self, IntPtr parent, int deviceType, int flags, int intent,
+        IntPtr rootItem, [MarshalAs(UnmanagedType.BStr)] string file, ref Guid format);
+
+    // Чтение свойств устройства, тоже напрямую
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int ReadMultipleCall(
+        IntPtr self, uint count, [In] PROPSPEC[] spec, [In, Out] PROPVARIANT[] value);
+
     [DllImport("ole32.dll")]
     static extern int CoCreateInstance(
         ref Guid clsid, IntPtr outer, uint context, ref Guid iid, out IntPtr result);
@@ -274,24 +292,32 @@ internal static class WiaDirect
                 return;
             }
 
-            var items = (IEnumWIA_DEV_INFO)Marshal.GetTypedObjectForIUnknown(
-                itemsRaw, typeof(IEnumWIA_DEV_INFO));
-            Marshal.Release(itemsRaw);
+            // Список тоже читаем НАПРЯМУЮ. Сбой «Specified cast is not
+            // valid» переехал сюда: посредник .NET спотыкается и на
+            // самом списке, не только на службе. Берём его действия
+            // из собственной таблицы, как это делают программы на C++
+            var itemsTable = Marshal.ReadIntPtr(itemsRaw);
+
+            var next = Marshal.GetDelegateForFunctionPointer<NextCall>(
+                Marshal.ReadIntPtr(itemsTable, 3 * IntPtr.Size));
+
+            var getCount = Marshal.GetDelegateForFunctionPointer<GetCountCall>(
+                Marshal.ReadIntPtr(itemsTable, 7 * IntPtr.Size));
 
             uint total = 0;
-            try { items.GetCount(out total); } catch { }
+            try { getCount(itemsRaw, out total); } catch { }
             Log.Add($"{title}: устройств {total}");
 
             int number = 0;
             while (true)
             {
-                int step = items.Next(1, out IWiaPropertyStorage item, out uint taken);
-                if (step != 0 || taken == 0) break;
+                int step = next(itemsRaw, 1, out IntPtr itemRaw, out uint taken);
+                if (step != 0 || taken == 0 || itemRaw == IntPtr.Zero) break;
 
                 number++;
                 try
                 {
-                    var dev = Read(item, number, title);
+                    var dev = Read(itemRaw, number, title);
                     if (dev == null) continue;
 
                     // Один аппарат отзывается обоим поколениям —
@@ -301,17 +327,17 @@ internal static class WiaDirect
 
                     found.Add(dev);
                 }
-                finally { Release(item); }
+                finally { Marshal.Release(itemRaw); }
             }
 
-            Release(items);
+            Marshal.Release(itemsRaw);
         }
         catch (Exception ex) { Log.Add($"{title}: сбой — " + Short(ex)); }
         finally { if (raw != IntPtr.Zero) Marshal.Release(raw); }
     }
 
     // Название, код и тип устройства
-    static Device? Read(IWiaPropertyStorage item, int number, string title)
+    static Device? Read(IntPtr itemRaw, int number, string title)
     {
         var spec = new PROPSPEC[3];
         var value = new PROPVARIANT[3];
@@ -320,7 +346,13 @@ internal static class WiaDirect
         spec[1].Kind = 1; spec[1].Value = (IntPtr)PROP_NAME;
         spec[2].Kind = 1; spec[2].Value = (IntPtr)PROP_TYPE;
 
-        int hr = item.ReadMultiple(3, spec, value);
+        // Свойства читаем напрямую — по той же причине, что и всё
+        // остальное: посредник .NET на этом описании спотыкается
+        var table = Marshal.ReadIntPtr(itemRaw);
+        var readMultiple = Marshal.GetDelegateForFunctionPointer<ReadMultipleCall>(
+            Marshal.ReadIntPtr(table, 3 * IntPtr.Size));
+
+        int hr = readMultiple(itemRaw, 3, spec, value);
         if (hr != 0 && hr != 1)   // 1 — часть свойств не отдана, это допустимо
         {
             Log.Add($"   № {number}: свойства не прочитать (код {hr:X8})");
@@ -407,14 +439,16 @@ internal static class WiaDirect
                 int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
                 if (hr != 0 || raw == IntPtr.Zero) continue;
 
-                // Приводим сразу к нужному описанию: через общий вид
-                // Windows подбирает его сама и ошибается
-                var mgr = (IWiaDevMgr)Marshal.GetTypedObjectForIUnknown(raw, typeof(IWiaDevMgr));
+                // Зовём напрямую: посредник .NET на описании службы
+                // спотыкается — та же причина, что и в поиске
+                var table = Marshal.ReadIntPtr(raw);
+                var getImageDlg = Marshal.GetDelegateForFunctionPointer<GetImageDlgCall>(
+                    Marshal.ReadIntPtr(table, 7 * IntPtr.Size));
+
                 var format = FORMAT_BMP;
 
                 // 1 — сканер, 0 — без лишних окон выбора
-                int step = mgr.GetImageDlg(IntPtr.Zero, 1, 0, 0, IntPtr.Zero, path, ref format);
-                Release(mgr);
+                int step = getImageDlg(raw, IntPtr.Zero, 1, 0, 0, IntPtr.Zero, path, ref format);
 
                 if (step == 0 && File.Exists(path)) return null;
 
