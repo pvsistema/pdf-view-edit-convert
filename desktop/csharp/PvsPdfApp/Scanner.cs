@@ -177,11 +177,17 @@ internal static class Scanner
         text.AppendLine("Программа: " + (Environment.Is64BitProcess ? "64" : "32") + " разряда");
         text.AppendLine();
 
-        text.AppendLine("--- Служба Windows (WIA) ---");
+        text.AppendLine("--- Служба Windows (WIA), 64 разряда ---");
         try
         {
             var wia = Sta(ListCore);
-            if (wia.Count == 0) text.AppendLine("ничего не найдено");
+            if (wia.Count == 0)
+            {
+                text.AppendLine("ничего не найдено");
+                text.AppendLine("(это НЕ поломка: 64-разрядная программа не видит");
+                text.AppendLine(" 32-разрядные драйверы службы. Их показывает");
+                text.AppendLine(" 32-разрядный помощник — смотрите его раздел ниже)");
+            }
             foreach (var d in wia) text.AppendLine("  " + d.Name + "   [" + d.Id + "]");
         }
         catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
@@ -389,12 +395,18 @@ internal static class Scanner
 
         if (silent > 0)
         {
-            text.AppendLine("ОДИН ИЗ ДРАЙВЕРОВ НЕ ОТДАЛ СВОЙ АППАРАТ");
-            text.AppendLine("  Драйверов установлено " + live.Count +
-                            ", а аппаратов получено только " + found.Count + ".");
-            text.AppendLine("  Установлены драйверы: " + string.Join(", ", live));
+            text.AppendLine("ПАПОК ДРАЙВЕРОВ БОЛЬШЕ, ЧЕМ НАЙДЕННЫХ АППАРАТОВ");
+            text.AppendLine("  Папок драйверов " + live.Count +
+                            ", аппаратов получено " + found.Count + ".");
+            text.AppendLine("  Папки: " + string.Join(", ", live));
             text.AppendLine();
-            text.AppendLine("  Причина обычно одна из двух.");
+            text.AppendLine("  Само по себе это НЕ означает поломку: у одного");
+            text.AppendLine("  аппарата бывает несколько папок, а часть аппаратов");
+            text.AppendLine("  приходит не отсюда, а от службы Windows.");
+            text.AppendLine("  Смотрите список выше — если нужный аппарат в нём есть,");
+            text.AppendLine("  всё в порядке.");
+            text.AppendLine();
+            text.AppendLine("  Если нужного аппарата в списке НЕТ, причины обычно две.");
             text.AppendLine();
             text.AppendLine("  1. Аппарат не добавлен в настройку драйвера.");
             text.AppendLine("     Драйверы сетевых МФУ (Kyocera, Ricoh, Sharp) не объявляют");
@@ -403,9 +415,8 @@ internal static class Scanner
             text.AppendLine("     сканирования, значит он добавлен и дело не в этом.");
             text.AppendLine("     Открыть настройку можно кнопкой в окне сканирования.");
             text.AppendLine();
-            text.AppendLine("  2. Драйвер старый и отвечает только по старым правилам.");
-            text.AppendLine("     Программа спрашивает и так, и так — смотрите обход выше:");
-            text.AppendLine("     там видно, на какое сочетание аппарат отозвался.");
+            text.AppendLine("  2. Аппарат выключен или отсоединён.");
+            text.AppendLine("     Проверьте питание и кабель, затем обновите список.");
             text.AppendLine();
         }
 

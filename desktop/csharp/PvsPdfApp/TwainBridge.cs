@@ -23,6 +23,10 @@ internal static class TwainBridge
         public string Name = "";
         public bool HasFeeder;
         public bool HasDuplex;
+
+        // Аппарат известен службе Windows, а не драйверу производителя.
+        // Снимать его надо иначе, поэтому признак запоминаем
+        public bool Wia;
     }
 
     // Помощники лежат рядом с программой
@@ -45,6 +49,9 @@ internal static class TwainBridge
     // Каким помощником снимать это устройство. Запоминаем при опросе:
     // аппарат отзывается только «своей» разрядности
     static readonly Dictionary<string, string> _owner = new(StringComparer.OrdinalIgnoreCase);
+
+    // Каким способом аппарат нашёлся: службой Windows или драйвером
+    static readonly Dictionary<string, bool> _viaWia = new(StringComparer.OrdinalIgnoreCase);
 
     static string HelperFor(string device)
     {
@@ -126,6 +133,7 @@ internal static class TwainBridge
                         continue;
 
                     _owner[dev.Name] = exe;
+                    _viaWia[dev.Name] = dev.Wia;
                     found.Add(dev);
                 }
             }
@@ -213,6 +221,7 @@ internal static class TwainBridge
                         Name = name,
                         HasFeeder = it.TryGetProperty("feeder", out var f) && f.GetBoolean(),
                         HasDuplex = it.TryGetProperty("duplex", out var d) && d.GetBoolean(),
+                        Wia = it.TryGetProperty("wia", out var w) && w.GetBoolean(),
                     });
                 }
             }
@@ -243,6 +252,11 @@ internal static class TwainBridge
         if (opt.Duplex) args.Add("--duplex");
         if (opt.Limit > 0) { args.Add("--limit"); args.Add(opt.Limit.ToString()); }
         if (showUi) args.Add("--ui");
+
+        // Аппарат от службы Windows снимается иначе, чем через драйвер
+        if (!string.IsNullOrEmpty(opt.DeviceName) &&
+            _viaWia.TryGetValue(opt.DeviceName, out bool byWia) && byWia)
+            args.Add("--wia");
 
         var pages = new List<string>();
         string error = "";

@@ -372,6 +372,19 @@ internal static class Twain
             report["scannersError"] = ex.Message;
         }
 
+        // Служба Windows своей разрядности. Её тоже спрашивает помощник:
+        // 64-разрядная программа не видит 32-разрядные драйверы службы,
+        // а именно такие идут у части МФУ
+        try
+        {
+            report["wiaReady"] = Wia.Ready();
+            report["wiaScanners"] = Wia.List().Select(d => d.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            report["wiaError"] = ex.Message;
+        }
+
         // Пошаговый разбор по каждому сочетанию «посредник + правила»:
         // видно, кто какие драйверы показывает и на что отзывается
         // конкретный аппарат

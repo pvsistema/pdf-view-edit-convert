@@ -75,12 +75,30 @@ internal static class Program
 
     static int DoList()
     {
-        var list = Twain.List();
-        Say(new
+        // Спрашиваем два источника: драйверы производителей (TWAIN)
+        // и службу Windows. Служба тоже показывает лишь драйверы своей
+        // разрядности, поэтому спрашивать её нужно отсюда, а не из
+        // главной программы — иначе 32-разрядные драйверы не видны
+        var items = new List<object>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
         {
-            ok = true,
-            items = list.Select(d => new { name = d.Name, feeder = d.HasFeeder, duplex = d.HasDuplex }),
-        });
+            foreach (var d in Twain.List())
+                if (seen.Add(d.Name))
+                    items.Add(new { name = d.Name, id = "", feeder = d.HasFeeder, duplex = d.HasDuplex, wia = false });
+        }
+        catch { }
+
+        try
+        {
+            foreach (var d in Wia.List())
+                if (seen.Add(d.Name))
+                    items.Add(new { name = d.Name, id = d.Id, feeder = d.HasFeeder, duplex = d.HasDuplex, wia = true });
+        }
+        catch { }
+
+        Say(new { ok = true, items });
         return 0;
     }
 
@@ -90,6 +108,7 @@ internal static class Program
 
         string dir = args[1];
         var opt = new Twain.Options();
+        bool wia = false;   // снимать через службу Windows, а не драйвер
 
         for (int i = 2; i < args.Length; i++)
         {
@@ -105,16 +124,30 @@ internal static class Program
                 case "--feeder": opt.Feeder = true; break;
                 case "--duplex": opt.Duplex = true; break;
                 case "--ui": opt.ShowUi = true; break;
+                case "--wia": wia = true; break;
             }
         }
 
         // Каждый снятый лист сообщаем сразу: основная программа
         // показывает страницы по ходу работы, а не в самом конце
-        var files = Twain.Scan(opt, dir, (index, path) =>
+        void Page(int index, string path)
         {
             Console.WriteLine(JsonSerializer.Serialize(new { page = index, path }));
             Console.Out.Flush();
-        });
+        }
+
+        // Аппарат может быть известен либо драйверу производителя,
+        // либо службе Windows. Начинаем с того, что указала программа
+        List<string> files;
+        if (wia)
+        {
+            files = Wia.Scan(opt, dir, Page);
+        }
+        else
+        {
+            try { files = Twain.Scan(opt, dir, Page); }
+            catch (Exception) when (Wia.Ready()) { files = Wia.Scan(opt, dir, Page); }
+        }
 
         // refused — настройки, которые сканер не принял. Программа
         // предупредит о них, чтобы результат не был неожиданностью
