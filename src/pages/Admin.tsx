@@ -9,6 +9,7 @@ import ReleasesPanel from "@/components/admin/ReleasesPanel";
 import BuildPanel from "@/components/admin/BuildPanel";
 import TrialPanel from "@/components/admin/TrialPanel";
 import SalesPanel from "@/components/admin/SalesPanel";
+import PasswordForm from "@/components/admin/PasswordForm";
 import {
   clearToken,
   deleteLicense,
@@ -52,6 +53,7 @@ const Admin = () => {
     "licenses" | "sales" | "trial" | "history" | "releases" | "build"
   >("licenses");
   const [histFor, setHistFor] = useState<License | null>(null);
+  const [passOpen, setPassOpen] = useState(false);
   const [machFor, setMachFor] = useState<License | null>(null);
 
   const load = useCallback(async (q = "") => {
@@ -145,6 +147,14 @@ const Admin = () => {
           >
             <Icon name="ExternalLink" size={14} />К программе
           </a>
+          <button
+            onClick={() => setPassOpen(true)}
+            title="Сменить пароль администратора"
+            className="inline-flex items-center gap-2 border border-border px-3 py-2 text-[0.78rem] transition-colors hover:border-foreground"
+          >
+            <Icon name="KeyRound" size={14} />
+            <span className="hidden sm:inline">Пароль</span>
+          </button>
           <button
             onClick={exit}
             className="inline-flex items-center gap-2 border border-foreground px-3 py-2 font-head text-[0.7rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
@@ -399,6 +409,8 @@ const Admin = () => {
           }}
         />
       )}
+
+      {passOpen && <PasswordForm onClose={() => setPassOpen(false)} />}
     </div>
   );
 };
