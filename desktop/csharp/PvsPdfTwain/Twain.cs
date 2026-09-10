@@ -223,6 +223,10 @@ internal static class Twain
     [DllImport(DSM_OLD, EntryPoint = "DSM_Entry", CharSet = CharSet.Ansi)]
     static extern ushort OldEntry(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref IntPtr data);
 
+    // Сколько драйверов не отозвалось при последнем опросе. Раньше
+    // такой драйвер обрывал перебор — теперь только считается
+    public static int Skipped;
+
     // Какой диспетчер доступен на этом компьютере. Проверяем один раз
     static bool? _useNew;
 
@@ -297,13 +301,60 @@ internal static class Twain
         {
             var found = List();
             report["scanners"] = found.Select(d => d.Name).ToList();
+            report["skipped"] = Skipped;
         }
         catch (Exception ex)
         {
             report["scannersError"] = ex.Message;
         }
 
+        // Пошаговый разбор перебора: что ответил каждый драйвер.
+        // По нему сразу видно, кто именно отказывается отвечать
+        report["walk"] = Walk();
+
         return report;
+    }
+
+    // Подробный обход драйверов: имя и код ответа на каждом шаге
+    static List<string> Walk()
+    {
+        var steps = new List<string>();
+        if (!DsmReady()) { steps.Add("диспетчер недоступен"); return steps; }
+
+        var app = MakeAppId();
+        IntPtr hwnd = Handle.Window;
+
+        if (Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_OPENDSM, ref hwnd) != TWRC_SUCCESS)
+        {
+            steps.Add("не удалось открыть диспетчер");
+            return steps;
+        }
+
+        try
+        {
+            var src = new TwIdentity();
+            ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETFIRST, ref src);
+
+            for (int i = 0; i < 64; i++)
+            {
+                if (rc == TWRC_ENDOFLIST) { steps.Add("список кончился"); break; }
+
+                if (rc == TWRC_SUCCESS)
+                    steps.Add("ответ 0 (успех): " + FromStr32(src.ProductName));
+                else
+                    steps.Add("ответ " + rc + " (отказ) — пропускаем, идём дальше");
+
+                src = new TwIdentity();
+                rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETNEXT, ref src);
+            }
+        }
+        catch (Exception ex) { steps.Add("сбой: " + ex.Message); }
+        finally
+        {
+            Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_CLOSEDSM, ref hwnd);
+        }
+
+        return steps;
     }
 
     [DllImport("kernel32.dll")] static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
@@ -403,6 +454,7 @@ internal static class Twain
     public static List<Device> List()
     {
         var found = new List<Device>();
+        Skipped = 0;
 
         // Диспетчера нужной разрядности нет — спрашивать некого
         if (!DsmReady()) return found;
@@ -418,15 +470,35 @@ internal static class Twain
             var src = new TwIdentity();
             ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETFIRST, ref src);
 
-            while (rc == TWRC_SUCCESS)
+            // Перебираем ВСЕХ, а не до первого несогласного.
+            //
+            // Раньше цикл заканчивался на любом ответе, кроме успеха, —
+            // и капризный драйвер уносил с собой все стоящие после него.
+            // Так пропадала Kyocera: её KMTWAIN идёт вторым, после Epson,
+            // и на запрос отвечает отказом, когда аппарат не отзывается.
+            //
+            // Теперь отказ пропускаем и спрашиваем следующего. Признак
+            // конца — только «список кончился» либо предохранитель по счёту
+            for (int guard = 0; guard < 64; guard++)
             {
-                string name = FromStr32(src.ProductName);
-                if (!string.IsNullOrWhiteSpace(name))
-                    found.Add(new Device { Name = name, HasFeeder = true, HasDuplex = true });
+                if (rc == TWRC_ENDOFLIST) break;
+
+                if (rc == TWRC_SUCCESS)
+                {
+                    string name = FromStr32(src.ProductName);
+                    if (!string.IsNullOrWhiteSpace(name) &&
+                        !found.Any(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)))
+                        found.Add(new Device { Name = name, HasFeeder = true, HasDuplex = true });
+                }
+                else
+                {
+                    // Драйвер занят, не загрузился или ответил ошибкой.
+                    // Это не повод терять остальные аппараты
+                    Skipped++;
+                }
 
                 src = new TwIdentity();
                 rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETNEXT, ref src);
-                if (rc == TWRC_ENDOFLIST) break;
             }
         }
         finally
@@ -460,16 +532,21 @@ internal static class Twain
             ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETFIRST, ref src);
             bool picked = false;
 
-            while (rc == TWRC_SUCCESS)
+            // Ответ-отказ пропускаем и идём дальше: иначе капризный
+            // драйвер закрывает собой все аппараты, стоящие после него
+            for (int guard = 0; guard < 64; guard++)
             {
-                if (FromStr32(src.ProductName).Equals(deviceName, StringComparison.OrdinalIgnoreCase))
+                if (rc == TWRC_ENDOFLIST) break;
+
+                if (rc == TWRC_SUCCESS &&
+                    FromStr32(src.ProductName).Equals(deviceName, StringComparison.OrdinalIgnoreCase))
                 {
                     picked = true;
                     break;
                 }
+
                 src = new TwIdentity();
                 rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETNEXT, ref src);
-                if (rc == TWRC_ENDOFLIST) break;
             }
 
             if (!picked) return list;
@@ -586,16 +663,21 @@ internal static class Twain
             ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETFIRST, ref src);
             bool picked = false;
 
-            while (rc == TWRC_SUCCESS)
+            // Как и при опросе: отказ одного драйвера не должен
+            // мешать добраться до нужного аппарата
+            for (int guard = 0; guard < 64; guard++)
             {
-                if (string.IsNullOrEmpty(opt.Device) || FromStr32(src.ProductName) == opt.Device)
+                if (rc == TWRC_ENDOFLIST) break;
+
+                if (rc == TWRC_SUCCESS &&
+                    (string.IsNullOrEmpty(opt.Device) || FromStr32(src.ProductName) == opt.Device))
                 {
                     picked = true;
                     break;
                 }
+
                 src = new TwIdentity();
                 rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_GETNEXT, ref src);
-                if (rc == TWRC_ENDOFLIST) break;
             }
 
             if (!picked)
