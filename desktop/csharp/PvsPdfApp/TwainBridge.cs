@@ -3,10 +3,15 @@ using System.Text.Json;
 
 namespace PvsPdfApp;
 
-// Связь с помощником сканирования (PVSPDF-twain.exe). Он 32-разрядный
-// и умеет работать с драйверами производителей — теми же, что использует
-// FineReader. Благодаря этому программа видит сканеры, о которых Windows
-// не знает: Kyocera и другие МФУ, где поставлен только драйвер TWAIN.
+// Связь с помощниками сканирования. Они умеют работать с драйверами
+// производителей — теми же, что использует FineReader. Благодаря этому
+// программа видит сканеры, о которых Windows не знает.
+//
+// Помощников ДВА, и это не запас: Windows держит два несвязанных списка
+// драйверов — 32-разрядные в twain_32, 64-разрядные в twain_64. Программа
+// одной разрядности видит только «свой» список. Старые аппараты (Epson,
+// Canon, HP) отзываются 32-разрядному помощнику, новые МФУ вроде Kyocera —
+// 64-разрядному. Спрашиваем обоих и складываем ответы.
 internal static class TwainBridge
 {
     // Настройки, которые сканер не принял при последней съёмке.
@@ -20,20 +25,42 @@ internal static class TwainBridge
         public bool HasDuplex;
     }
 
-    // Помощник лежит рядом с программой
-    public static string ExePath()
+    // Помощники лежат рядом с программой
+    public static string ExePath() => Path.Combine(AppContext.BaseDirectory, "PVSPDF-twain.exe");
+    public static string ExePath64() => Path.Combine(AppContext.BaseDirectory, "PVSPDF-twain64.exe");
+
+    // Хоть один помощник на месте — работать можно
+    public static bool Available() => File.Exists(ExePath()) || File.Exists(ExePath64());
+
+    // Оба помощника, какие удалось найти. Порядок важен: 64-разрядный
+    // спрашиваем первым — современные аппараты чаще отзываются ему
+    static List<string> Helpers()
     {
-        string dir = AppContext.BaseDirectory;
-        return Path.Combine(dir, "PVSPDF-twain.exe");
+        var list = new List<string>();
+        if (File.Exists(ExePath64())) list.Add(ExePath64());
+        if (File.Exists(ExePath())) list.Add(ExePath());
+        return list;
     }
 
-    public static bool Available() => File.Exists(ExePath());
+    // Каким помощником снимать это устройство. Запоминаем при опросе:
+    // аппарат отзывается только «своей» разрядности
+    static readonly Dictionary<string, string> _owner = new(StringComparer.OrdinalIgnoreCase);
 
-    static Process Start(string args)
+    static string HelperFor(string device)
+    {
+        if (!string.IsNullOrWhiteSpace(device) &&
+            _owner.TryGetValue(device, out string? exe) &&
+            File.Exists(exe)) return exe;
+
+        var all = Helpers();
+        return all.Count > 0 ? all[0] : ExePath();
+    }
+
+    static Process Start(string exe, string args)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = ExePath(),
+            FileName = exe,
             Arguments = args,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -54,7 +81,7 @@ internal static class TwainBridge
 
         try
         {
-            using var p = Start($"caps --device {Quote(device)}");
+            using var p = Start(HelperFor(device), $"caps --device {Quote(device)}");
             string output = p.StandardOutput.ReadToEnd();
             if (!p.WaitForExit(25000))
             {
@@ -80,29 +107,55 @@ internal static class TwainBridge
         return found;
     }
 
-    // Список сканеров, известных драйверам TWAIN
+    // Список сканеров, известных драйверам TWAIN. Спрашиваем обоих
+    // помощников: у 32- и 64-разрядных драйверов свои, несвязанные списки
     public static List<Device> List()
     {
         var found = new List<Device>();
-        if (!Available()) return found;
 
-        try
+        foreach (string exe in Helpers())
         {
-            using var p = Start("list");
-
-            // Опрос драйверов бывает небыстрым, но вечно ждать нельзя
-            string output = p.StandardOutput.ReadToEnd();
-            if (!p.WaitForExit(25000))
+            // Один помощник может не отозваться — это не повод терять
+            // сканеры, известные второму
+            try
             {
-                try { p.Kill(true); } catch { }
-                return found;
+                foreach (var dev in ListOne(exe))
+                {
+                    // Сетевой МФУ иногда отвечает обоим — показываем один раз
+                    if (found.Any(d => string.Equals(d.Name, dev.Name, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    _owner[dev.Name] = exe;
+                    found.Add(dev);
+                }
             }
+            catch { }
+        }
 
-            foreach (string line in output.Split('\n'))
+        return found;
+    }
+
+    static List<Device> ListOne(string exe)
+    {
+        var found = new List<Device>();
+
+        using var p = Start(exe, "list");
+
+        // Опрос драйверов бывает небыстрым, но вечно ждать нельзя
+        string output = p.StandardOutput.ReadToEnd();
+        if (!p.WaitForExit(25000))
+        {
+            try { p.Kill(true); } catch { }
+            return found;
+        }
+
+        foreach (string line in output.Split('\n'))
+        {
+            string s = line.Trim();
+            if (!s.StartsWith("{")) continue;
+
+            try
             {
-                string s = line.Trim();
-                if (!s.StartsWith("{")) continue;
-
                 using var doc = JsonDocument.Parse(s);
                 var root = doc.RootElement;
                 if (!root.TryGetProperty("items", out var items)) continue;
@@ -120,8 +173,8 @@ internal static class TwainBridge
                     });
                 }
             }
+            catch { }
         }
-        catch { }
 
         return found;
     }
@@ -151,7 +204,9 @@ internal static class TwainBridge
         var pages = new List<string>();
         string error = "";
 
-        using var p = Start(string.Join(" ", args));
+        // Снимаем тем помощником, которому этот аппарат отозвался
+        // при опросе: другой разрядности он просто не ответит
+        using var p = Start(HelperFor(opt.DeviceName), string.Join(" ", args));
 
         using (token.Register(() => { try { p.Kill(true); } catch { } }))
         {

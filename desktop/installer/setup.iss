@@ -69,9 +69,13 @@ Name: "{app}"; Permissions: users-modify
 [Files]
 Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\app_version.txt"; DestDir: "{app}"; Flags: ignoreversion
-; Помощник сканирования: через него работают сканеры, драйверы которых
-; ставит производитель. Без него видны только сканеры, известные Windows
+; Помощники сканирования: через них работают сканеры, драйверы которых
+; ставит производитель. Без них видны только сканеры, известные Windows.
+; Помощника два — Windows держит отдельные списки 32- и 64-разрядных
+; драйверов, и программа одной разрядности видит только «свой». Старые аппараты
+; отзываются первому, новые МФУ вроде Kyocera — второму
 Source: "{#SourceDir}\PVSPDF-twain.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}\PVSPDF-twain64.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}\pvspdf.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}\web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -126,8 +130,9 @@ begin
   Exec(ExpandConstant('{cmd}'), '/c net stop PVSPDFService /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{cmd}'), '/c net stop PVSPDFPrint /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM PVSPDF.exe /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  // Помощник сканирования тоже освобождаем, иначе его файл будет занят
+  // Помощников сканирования тоже освобождаем, иначе их файлы будут заняты
   Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM PVSPDF-twain.exe /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM PVSPDF-twain64.exe /T', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Sleep(800);
 end;
 

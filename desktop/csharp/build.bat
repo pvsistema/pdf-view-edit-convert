@@ -36,6 +36,7 @@ set "CS_DIR=%ROOT%\desktop\csharp"
 set "APP_DIR=%CS_DIR%\PvsPdfApp"
 set "TWAIN_DIR=%CS_DIR%\PvsPdfTwain"
 set "TWAIN_OUT=%CS_DIR%\dist-twain"
+set "TWAIN_OUT64=%CS_DIR%\dist-twain64"
 set "DIST=%CS_DIR%\dist"
 set "INSTALL_DIR=C:\PVSPDF"
 set "ICON_SRC=%ROOT%\public\app-icon.png"
@@ -241,24 +242,37 @@ if not exist "%DIST%\PVSPDF.exe" (
 if "%OBFUSCATE%"=="1" ( echo     OK ^(obfuscated^) ) else ( echo     OK ^(NOT obfuscated^) )
 echo.
 
-REM ---------- Scanner helper (32-bit, TWAIN) ----------
-REM Scanner drivers are almost always 32-bit, so the main 64-bit program
-REM cannot load them. This small helper does the talking and hands the
-REM pages over. Without it only Windows-known (WIA) scanners are visible.
-echo     Building scanner helper ^(32-bit, TWAIN^)...
+REM ---------- Scanner helpers (TWAIN, both 32- and 64-bit) ----------
+REM Windows keeps two separate TWAIN worlds that cannot see each other:
+REM   32-bit driver -> C:\Windows\twain_32   (old Epson, Canon, HP)
+REM   64-bit driver -> C:\Windows\twain_64   (Kyocera, newer MFPs)
+REM A 32-bit process sees ONLY twain_32, a 64-bit one ONLY twain_64.
+REM So we ship BOTH helpers - otherwise half of the scanners stay invisible.
+echo     Building scanner helpers ^(TWAIN 32-bit + 64-bit^)...
 taskkill /F /IM PVSPDF-twain.exe >nul 2>nul
+taskkill /F /IM PVSPDF-twain64.exe >nul 2>nul
 if exist "%TWAIN_DIR%\PvsPdfTwain.csproj" (
-    REM Build in its own folder: the helper is 32-bit and its support
-    REM files must not mix with the 64-bit program
+    REM Each helper builds in its own folder: support files of different
+    REM bitness must not mix with each other or with the main program
     cd /d "%TWAIN_DIR%"
+
     if exist "%TWAIN_OUT%" rmdir /S /Q "%TWAIN_OUT%"
-    call dotnet publish -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%APP_VERSION% -o "%TWAIN_OUT%" || goto :fail
+    call dotnet publish -c Release -r win-x86 --self-contained true -p:PlatformTarget=x86 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%APP_VERSION% -o "%TWAIN_OUT%" || goto :fail
+
+    if exist "%TWAIN_OUT64%" rmdir /S /Q "%TWAIN_OUT64%"
+    call dotnet publish -c Release -r win-x64 --self-contained true -p:PlatformTarget=x64 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%APP_VERSION% -o "%TWAIN_OUT64%" || goto :fail
+
     cd /d "%APP_DIR%"
 
     copy /Y "%TWAIN_OUT%\PVSPDF-twain.exe" "%DIST%\PVSPDF-twain.exe" >nul
+    copy /Y "%TWAIN_OUT64%\PVSPDF-twain.exe" "%DIST%\PVSPDF-twain64.exe" >nul
 
     if exist "%DIST%\PVSPDF-twain.exe" (
-        echo     OK - all scanners supported ^(Windows + manufacturer drivers^)
+        if exist "%DIST%\PVSPDF-twain64.exe" (
+            echo     OK - all scanners supported ^(Windows + 32-bit + 64-bit drivers^)
+        ) else (
+            echo     WARNING: 64-bit helper missing - Kyocera and similar MFPs stay invisible
+        )
     ) else (
         echo     WARNING: helper was not produced - only Windows scanners will be visible
     )
