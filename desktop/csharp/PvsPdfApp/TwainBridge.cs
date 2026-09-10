@@ -129,8 +129,8 @@ internal static class TwainBridge
                         st.ValueKind == JsonValueKind.Array)
                     {
                         ChooseLog.Add(Path.GetFileName(exe) + ":");
-                        foreach (var line in st.EnumerateArray())
-                            ChooseLog.Add("   " + (line.GetString() ?? ""));
+                        foreach (var step in st.EnumerateArray())
+                            ChooseLog.Add("   " + (step.GetString() ?? ""));
                     }
 
                     // Окно закрыли, ничего не выбрав — второго помощника
