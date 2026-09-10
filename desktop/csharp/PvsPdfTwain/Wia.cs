@@ -5,14 +5,13 @@ namespace PvsPdfTwain;
 // Работа со сканером через службу Windows (WIA).
 //
 // Зачем это внутри помощника, ведь служба есть и в главной программе.
-// У службы Windows та же особенность, что у драйверов TWAIN: программа
-// видит только драйверы СВОЕЙ разрядности. Главная программа
-// 64-разрядная, а немало сканеров идут с 32-разрядным драйвером службы
-// (например Kyocera TASKalfa 2020, драйвер 2014 года) — для неё их
-// попросту не существует, список приходит пустым.
+// Помощник собирается и 32-, и 64-разрядным, и спрашивает службу из
+// обоих. Часть драйверов капризничает в одной разрядности и спокойно
+// отвечает в другой, поэтому два независимых опроса надёжнее одного.
 //
-// Помощник собирается и 32-, и 64-разрядным. Спросив службу через
-// каждого, программа видит оба списка сразу.
+// Главное здесь — не молчать. Каждый шаг поиска записывается в Log:
+// сколько устройств насчитала служба, какие пропущены и почему. Раньше
+// ошибки гасились молча, и пустой список нечем было объяснить.
 internal static class Wia
 {
     // Свойства снимка в терминах службы Windows
@@ -56,24 +55,99 @@ internal static class Wia
     // Отзывается ли служба на этом компьютере
     public static bool Ready() => MakeCom("WIA.DeviceManager") != null;
 
-    // Сканеры, известные службе Windows этой разрядности
+    // Состояние службы «Загрузка изображений (WIA)». Она может быть
+    // остановлена или отключена — тогда посредник создаётся как ни в чём
+    // не бывало, а список аппаратов приходит пустым. Без этой проверки
+    // пустой список выглядел загадкой
+    public static string ServiceState()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine
+                .OpenSubKey(@"SYSTEM\CurrentControlSet\Services\stisvc");
+
+            if (key == null) return "службы stisvc нет в системе";
+
+            int start = Convert.ToInt32(key.GetValue("Start") ?? 4);
+            string mode = start switch
+            {
+                2 => "запуск автоматический",
+                3 => "запуск вручную",
+                4 => "ОТКЛЮЧЕНА",
+                _ => "режим запуска " + start,
+            };
+
+            return mode;
+        }
+        catch (Exception ex) { return "не прочитать: " + Short(ex); }
+    }
+
+    // Сканеры, зарегистрированные в реестре Windows. Независимая
+    // проверка: если аппарат здесь есть, а служба его не отдала —
+    // значит дело в самой службе, а не в отсутствии драйвера
+    public static List<string> Registered()
+    {
+        var list = new List<string>();
+
+        try
+        {
+            using var root = Microsoft.Win32.Registry.LocalMachine
+                .OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{6bdd1fc6-810f-11d0-bec7-08002be2092f}");
+
+            if (root == null) return list;
+
+            foreach (string sub in root.GetSubKeyNames())
+            {
+                // Внутри лежат и служебные разделы вроде Properties
+                if (!int.TryParse(sub, out _)) continue;
+
+                try
+                {
+                    using var item = root.OpenSubKey(sub);
+                    string? name = item?.GetValue("FriendlyName") as string
+                                ?? item?.GetValue("DriverDesc") as string;
+
+                    if (!string.IsNullOrWhiteSpace(name)) list.Add(Pretty(name!));
+                }
+                catch { }
+            }
+        }
+        catch (Exception ex) { list.Add("не прочитать реестр: " + Short(ex)); }
+
+        return list;
+    }
+
+    // Пошаговый рассказ о последнем поиске: сколько устройств насчитала
+    // служба, какие пропущены и почему. Раньше все ошибки гасились молча,
+    // и пустой список приходилось объяснять догадками
+    public static readonly List<string> Log = new();
+
+    // Сканеры, известные службе Windows
     public static List<Device> List() => Sta(ListCore);
 
     static List<Device> ListCore()
     {
         var found = new List<Device>();
         dynamic? mgr = null;
+        Log.Clear();
 
         try
         {
             mgr = MakeCom("WIA.DeviceManager");
-            if (mgr == null) return found;
+            if (mgr == null)
+            {
+                Log.Add("служба не создалась: WIA.DeviceManager недоступен");
+                return found;
+            }
 
             // Перебираем по номеру, а не единым списком: капризный
             // драйвер обрывает общий перебор целиком, и вместе с ним
             // теряются исправные сканеры, стоящие в списке дальше
-            int count = 0;
-            try { count = (int)mgr.DeviceInfos.Count; } catch { }
+            int count = -1;
+            try { count = (int)mgr.DeviceInfos.Count; }
+            catch (Exception ex) { Log.Add("не сосчитать устройства: " + Short(ex)); }
+
+            Log.Add("служба насчитала устройств: " + (count < 0 ? "не удалось" : count.ToString()));
 
             for (int i = 1; i <= count; i++)
             {
@@ -81,54 +155,84 @@ internal static class Wia
                 try
                 {
                     info = mgr.DeviceInfos[i];
-                    var dev = ReadDevice(info);
+                    var dev = ReadDevice(info, i);
                     if (dev != null) found.Add(dev);
                 }
-                catch { }
+                catch (Exception ex) { Log.Add($"   № {i}: не прочитать — " + Short(ex)); }
                 finally { Release(info); }
             }
 
             // Номера не подошли — пробуем обычным перебором.
             // Лучше неполный список, чем пустой
-            if (found.Count == 0)
+            if (found.Count == 0 && count != 0)
             {
+                Log.Add("по номерам ничего не вышло, пробуем обычным перебором");
                 try
                 {
+                    int k = 0;
                     foreach (dynamic info in mgr.DeviceInfos)
                     {
+                        k++;
                         try
                         {
-                            var dev = ReadDevice(info);
+                            var dev = ReadDevice(info, k);
                             if (dev != null) found.Add(dev);
                         }
-                        catch { }
+                        catch (Exception ex) { Log.Add($"   № {k}: не прочитать — " + Short(ex)); }
                     }
                 }
-                catch { }
+                catch (Exception ex) { Log.Add("перебор оборвался: " + Short(ex)); }
             }
+
+            Log.Add("итого сканеров: " + found.Count);
         }
-        catch { }
+        catch (Exception ex) { Log.Add("сбой поиска: " + Short(ex)); }
         finally { Release(mgr); }
 
         return found;
     }
 
+    // Короткая суть ошибки: длинные технические простыни в отчёте
+    // только мешают читать
+    static string Short(Exception ex)
+    {
+        string m = ex.Message.Trim();
+        int stop = m.IndexOf('\n');
+        if (stop > 0) m = m.Substring(0, stop).Trim();
+        if (m.Length > 160) m = m.Substring(0, 160) + "...";
+        return m.Length > 0 ? m : ex.GetType().Name;
+    }
+
     // Сведения об одном устройстве. Отсекаем только заведомо чужое:
     // камеры и видеоустройства
-    static Device? ReadDevice(dynamic info)
+    static Device? ReadDevice(dynamic info, int number)
     {
         int type = -1;
-        try { type = (int)info.Type; } catch { }
-        if (type == 2 || type == 3) return null;
+        try { type = (int)info.Type; }
+        catch (Exception ex) { Log.Add($"   № {number}: тип не сообщён — " + Short(ex)); }
+
+        if (type == 2 || type == 3)
+        {
+            Log.Add($"   № {number}: пропущен, это " + (type == 2 ? "камера" : "видеоустройство"));
+            return null;
+        }
 
         string id = "";
-        try { id = (string)info.DeviceID; } catch { }
+        try { id = (string)info.DeviceID; }
+        catch (Exception ex) { Log.Add($"   № {number}: нет кода устройства — " + Short(ex)); }
 
         string name = "";
-        try { name = Prop(info.Properties, "Name") ?? ""; } catch { }
+        try { name = Prop(info.Properties, "Name") ?? ""; }
+        catch (Exception ex) { Log.Add($"   № {number}: нет названия — " + Short(ex)); }
 
-        if (string.IsNullOrWhiteSpace(id)) return null;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            Log.Add($"   № {number}: пропущен, устройство без кода");
+            return null;
+        }
         if (string.IsNullOrWhiteSpace(name)) name = "Сканер";
+
+        Log.Add($"   № {number}: {Pretty(name)}");
 
         int caps = 0;
         try { caps = Convert.ToInt32(Prop(info.Properties, "Document Handling Capabilities") ?? "0"); }

@@ -172,7 +172,7 @@ internal static class TwainBridge
                 }
                 else
                 {
-                    text.AppendLine(output.Trim());
+                    text.AppendLine(Readable(output.Trim()));
                 }
             }
             catch (Exception ex)
@@ -185,6 +185,84 @@ internal static class TwainBridge
 
         return text.ToString();
     }
+
+    // Помощник отвечает служебной строкой. Показывать её человеку как
+    // есть нельзя: русские буквы в ней закодированы, всё в одну строку.
+    // Разбираем и раскладываем понятными строчками
+    static string Readable(string output)
+    {
+        var text = new System.Text.StringBuilder();
+
+        foreach (string line in output.Split('\n'))
+        {
+            string s = line.Trim();
+            if (!s.StartsWith("{")) { if (s.Length > 0) text.AppendLine(s); continue; }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(s);
+                var root = doc.RootElement;
+
+                if (!root.TryGetProperty("report", out var report))
+                {
+                    text.AppendLine(s);
+                    continue;
+                }
+
+                foreach (var field in report.EnumerateObject())
+                    Print(text, Title(field.Name), field.Value, "  ");
+            }
+            catch { text.AppendLine(s); }
+        }
+
+        return text.ToString().TrimEnd();
+    }
+
+    // Человеческие названия для полей отчёта
+    static string Title(string name) => name switch
+    {
+        "bits" => "разрядность",
+        "pack" => "укладка полей",
+        "dsmSearched" => "где искали посредника",
+        "dsmFound" => "посредник найден",
+        "dsmNew" => "посредник современный",
+        "dsmReady" => "посредник готов",
+        "driverFolders" => "папки драйверов",
+        "scanners" => "сканеры от драйверов",
+        "scannersError" => "ошибка опроса драйверов",
+        "skipped" => "драйверов не отозвалось",
+        "wiaReady" => "служба Windows отвечает",
+        "wiaService" => "служба «Загрузка изображений»",
+        "wiaScanners" => "сканеры от службы Windows",
+        "wiaRegistered" => "сканеры, записанные в Windows",
+        "wiaWalk" => "как искали через службу",
+        "wiaError" => "ошибка службы Windows",
+        "walk" => "обход драйверов",
+        _ => name,
+    };
+
+    static void Print(System.Text.StringBuilder text, string title, JsonElement value, string pad)
+    {
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            var items = value.EnumerateArray().ToList();
+            if (items.Count == 0) { text.AppendLine(pad + title + ": пусто"); return; }
+
+            text.AppendLine(pad + title + ":");
+            foreach (var it in items) text.AppendLine(pad + "   " + Plain(it));
+            return;
+        }
+
+        text.AppendLine(pad + title + ": " + Plain(value));
+    }
+
+    static string Plain(JsonElement v) => v.ValueKind switch
+    {
+        JsonValueKind.String => v.GetString() ?? "",
+        JsonValueKind.True => "да",
+        JsonValueKind.False => "нет",
+        _ => v.ToString(),
+    };
 
     static List<Device> ListOne(string exe)
     {

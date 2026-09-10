@@ -177,18 +177,34 @@ internal static class Scanner
         text.AppendLine("Программа: " + (Environment.Is64BitProcess ? "64" : "32") + " разряда");
         text.AppendLine();
 
-        text.AppendLine("--- Служба Windows (WIA), 64 разряда ---");
+        text.AppendLine("--- Служба Windows (WIA) ---");
+        text.AppendLine("Служба «Загрузка изображений»: " + ServiceState());
         try
         {
             var wia = Sta(ListCore);
-            if (wia.Count == 0)
-            {
-                text.AppendLine("ничего не найдено");
-                text.AppendLine("(это НЕ поломка: 64-разрядная программа не видит");
-                text.AppendLine(" 32-разрядные драйверы службы. Их показывает");
-                text.AppendLine(" 32-разрядный помощник — смотрите его раздел ниже)");
-            }
+            if (wia.Count == 0) text.AppendLine("сканеров не найдено");
             foreach (var d in wia) text.AppendLine("  " + d.Name + "   [" + d.Id + "]");
+
+            // Пошаговый разбор: сколько устройств насчитала служба и
+            // почему какие-то не попали в список. Без него пустой
+            // список приходилось объяснять догадками
+            if (Log.Count > 0)
+            {
+                text.AppendLine("  как искали:");
+                foreach (string step in Log) text.AppendLine("    " + step);
+            }
+        }
+        catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
+        text.AppendLine();
+
+        // Независимая проверка по реестру Windows. Аппарат здесь есть,
+        // а служба его не отдала — значит дело в службе, а не в драйвере
+        text.AppendLine("--- Сканеры, записанные в Windows ---");
+        try
+        {
+            var reg = Registered();
+            if (reg.Count == 0) text.AppendLine("ничего не записано");
+            foreach (string name in reg) text.AppendLine("  " + name);
         }
         catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
         text.AppendLine();
@@ -430,22 +446,35 @@ internal static class Scanner
         return text.ToString();
     }
 
+    // Пошаговый рассказ о последнем поиске через службу Windows.
+    // Раньше все ошибки гасились молча, и пустой список нечем было
+    // объяснить — оставалось гадать
+    public static readonly List<string> Log = new();
+
     static List<Device> ListCore()
     {
         var found = new List<Device>();
         dynamic? mgr = null;
+        Log.Clear();
 
         try
         {
             mgr = MakeCom("WIA.DeviceManager");
-            if (mgr == null) return found;
+            if (mgr == null)
+            {
+                Log.Add("служба не создалась: WIA.DeviceManager недоступен");
+                return found;
+            }
 
             // Устройства перебираем по номеру, а не единым списком.
             // Перебор списком обрывается целиком, стоит одному капризному
             // драйверу ответить с ошибкой, — и вместе с ним пропадали
             // исправные сканеры, которые стояли в списке дальше
-            int count = 0;
-            try { count = (int)mgr.DeviceInfos.Count; } catch { }
+            int count = -1;
+            try { count = (int)mgr.DeviceInfos.Count; }
+            catch (Exception ex) { Log.Add("не сосчитать устройства: " + Short(ex)); }
+
+            Log.Add("служба насчитала устройств: " + (count < 0 ? "не удалось" : count.ToString()));
 
             for (int i = 1; i <= count; i++)
             {
@@ -453,60 +482,149 @@ internal static class Scanner
                 try
                 {
                     info = mgr.DeviceInfos[i];
-                    var dev = ReadDevice(info);
+                    var dev = ReadDevice(info, i);
                     if (dev != null) found.Add(dev);
                 }
-                catch { }
+                catch (Exception ex) { Log.Add($"   № {i}: не прочитать — " + Short(ex)); }
                 finally { Release(info); }
             }
 
             // Номера не подошли — пробуем обычным перебором.
             // Лучше неполный список, чем пустой
-            if (found.Count == 0)
+            if (found.Count == 0 && count != 0)
             {
+                Log.Add("по номерам ничего не вышло, пробуем обычным перебором");
                 try
                 {
+                    int k = 0;
                     foreach (dynamic info in mgr.DeviceInfos)
                     {
+                        k++;
                         try
                         {
-                            var dev = ReadDevice(info);
+                            var dev = ReadDevice(info, k);
                             if (dev != null) found.Add(dev);
                         }
-                        catch { }
+                        catch (Exception ex) { Log.Add($"   № {k}: не прочитать — " + Short(ex)); }
                     }
                 }
-                catch { }
+                catch (Exception ex) { Log.Add("перебор оборвался: " + Short(ex)); }
             }
+
+            Log.Add("итого сканеров: " + found.Count);
         }
-        catch { }
+        catch (Exception ex) { Log.Add("сбой поиска: " + Short(ex)); }
         finally { Release(mgr); }
 
         return found;
     }
 
+    // Состояние службы «Загрузка изображений (WIA)». Она может быть
+    // остановлена или отключена — тогда посредник создаётся как ни в чём
+    // не бывало, а список аппаратов приходит пустым. Без этой проверки
+    // пустой список выглядел загадкой
+    public static string ServiceState()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine
+                .OpenSubKey(@"SYSTEM\CurrentControlSet\Services\stisvc");
+
+            if (key == null) return "нет в системе";
+
+            int start = Convert.ToInt32(key.GetValue("Start") ?? 4);
+            return start switch
+            {
+                2 => "запуск автоматический",
+                3 => "запуск вручную",
+                4 => "ОТКЛЮЧЕНА — включите её, иначе сканеры не видны",
+                _ => "режим запуска " + start,
+            };
+        }
+        catch (Exception ex) { return "не прочитать: " + Short(ex); }
+    }
+
+    // Сканеры, зарегистрированные в Windows. Независимая проверка:
+    // аппарат здесь есть, а служба его не отдала — значит дело в службе
+    public static List<string> Registered()
+    {
+        var list = new List<string>();
+
+        try
+        {
+            using var root = Microsoft.Win32.Registry.LocalMachine
+                .OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{6bdd1fc6-810f-11d0-bec7-08002be2092f}");
+
+            if (root == null) return list;
+
+            foreach (string sub in root.GetSubKeyNames())
+            {
+                // Внутри лежат и служебные разделы вроде Properties
+                if (!int.TryParse(sub, out _)) continue;
+
+                try
+                {
+                    using var item = root.OpenSubKey(sub);
+                    string? name = item?.GetValue("FriendlyName") as string
+                                ?? item?.GetValue("DriverDesc") as string;
+
+                    if (!string.IsNullOrWhiteSpace(name)) list.Add(Pretty(name!));
+                }
+                catch { }
+            }
+        }
+        catch (Exception ex) { list.Add("не прочитать: " + Short(ex)); }
+
+        return list;
+    }
+
+    // Короткая суть ошибки: длинные технические простыни в отчёте
+    // только мешают читать
+    static string Short(Exception ex)
+    {
+        string m = ex.Message.Trim();
+        int stop = m.IndexOf('\n');
+        if (stop > 0) m = m.Substring(0, stop).Trim();
+        if (m.Length > 160) m = m.Substring(0, 160) + "...";
+        return m.Length > 0 ? m : ex.GetType().Name;
+    }
+
     // Сведения об одном устройстве. Возвращает null только для заведомо
     // чужого — камер и видеоустройств
-    static Device? ReadDevice(dynamic info)
+    static Device? ReadDevice(dynamic info, int number)
     {
         // Тип устройства читаем мягко. Часть драйверов (в том числе
         // у сетевых МФУ) его не сообщает или отдаёт нестандартное
         // значение — раньше такой сканер молча пропадал из списка.
         // Отсекаем только заведомо чужое: камеры и видеоустройства
         int type = -1;
-        try { type = (int)info.Type; } catch { }
-        if (type == 2 || type == 3) return null;   // 2 - камера, 3 - видео
+        try { type = (int)info.Type; }
+        catch (Exception ex) { Log.Add($"   № {number}: тип не сообщён — " + Short(ex)); }
+
+        if (type == 2 || type == 3)
+        {
+            Log.Add($"   № {number}: пропущен, это " + (type == 2 ? "камера" : "видеоустройство"));
+            return null;
+        }
 
         string id = "";
-        try { id = (string)info.DeviceID; } catch { }
+        try { id = (string)info.DeviceID; }
+        catch (Exception ex) { Log.Add($"   № {number}: нет кода устройства — " + Short(ex)); }
 
         string name = "";
-        try { name = Prop(info.Properties, "Name") ?? ""; } catch { }
+        try { name = Prop(info.Properties, "Name") ?? ""; }
+        catch (Exception ex) { Log.Add($"   № {number}: нет названия — " + Short(ex)); }
 
         // Без кода устройства снимать нечего, а вот без имени — можно:
         // подставим понятную замену
-        if (string.IsNullOrWhiteSpace(id)) return null;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            Log.Add($"   № {number}: пропущен, устройство без кода");
+            return null;
+        }
         if (string.IsNullOrWhiteSpace(name)) name = "Сканер";
+
+        Log.Add($"   № {number}: {Pretty(name)}");
 
         int caps = 0;
         try { caps = Convert.ToInt32(Prop(info.Properties, "Document Handling Capabilities") ?? "0"); }
