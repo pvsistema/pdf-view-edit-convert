@@ -35,8 +35,12 @@ internal static class Twain
     const ushort MSG_GETFIRST = 0x0004;
 
     // Окно выбора сканера, нарисованное самим драйвером. Показывает
-    // аппараты, о которых драйвер молчит при обычном опросе
-    const ushort MSG_USERSELECT = 0x0009;
+    // аппараты, о которых драйвер молчит при обычном опросе.
+    //
+    // Номер из той же группы, что «открыть» (0x0401) и «закрыть»
+    // (0x0402) — я по ошибке поставил 0x0009 из совсем другой группы,
+    // и драйвер честно отвечал отказом
+    const ushort MSG_USERSELECT = 0x0403;
     const ushort MSG_GETNEXT = 0x0005;
     const ushort MSG_DISABLEDS = 0x0501;
     const ushort MSG_ENABLEDS = 0x0502;
@@ -657,7 +661,10 @@ internal static class Twain
 
                 if (rc != TWRC_SUCCESS)
                 {
-                    ChooseLog.Add(who + $": окно не открылось (ответ {rc})");
+                    // Ответ 1 у пустого драйвера означает «показывать
+                    // нечего»: аппарат в драйвер ещё не добавлен
+                    ChooseLog.Add(who + $": окно не открылось (ответ {rc})" +
+                        (rc == 1 ? " — в драйвере нет ни одного аппарата" : ""));
                     continue;
                 }
 
