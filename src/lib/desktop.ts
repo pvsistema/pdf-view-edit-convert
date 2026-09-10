@@ -230,10 +230,11 @@ const listen = <T>(kind: string, cb: (d: T) => void) => {
 export type ScanSetup = { name: string; path: string };
 
 export const onScanners = (
-  cb: (list: ScanDevice[], hint?: string, setups?: ScanSetup[]) => void,
+  cb: (list: ScanDevice[], hint?: string, setups?: ScanSetup[], known?: string[]) => void,
 ) =>
-  listen<{ items: ScanDevice[]; hint?: string; setups?: ScanSetup[] }>('scanners', (d) =>
-    cb(d.items || [], d.hint, d.setups || []),
+  listen<{ items: ScanDevice[]; hint?: string; setups?: ScanSetup[]; known?: string[] }>(
+    'scanners',
+    (d) => cb(d.items || [], d.hint, d.setups || [], d.known || []),
   );
 
 export const openScanSetup = (path: string) => send({ type: 'openScanSetup', path });

@@ -85,16 +85,21 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   // Окно добавления сканера вручную — для аппаратов, молчащих на опрос
   const [adding, setAdding] = useState(false);
 
+  // Названия аппаратов, записанных в Windows. Подсказываем их при
+  // ручном добавлении: драйверу нужно точное имя
+  const [known, setKnown] = useState<string[]>([]);
+
   const strip = useRef<HTMLDivElement>(null);
   const current = devices?.find((d) => d.id === device);
 
   useEffect(() => {
     const offReport = onScanSelfTest((text, path) => setReport({ text, path }));
 
-    const offList = onScanners((list, hint, found) => {
+    const offList = onScanners((list, hint, found, names) => {
       setDevices(list);
       setHint(hint || '');
       setSetups(found || []);
+      setKnown(names || []);
       if (list.length) {
         setDevice((cur) => {
           if (cur) return cur;
@@ -231,8 +236,8 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   // Если сканер промолчал — остаётся обычный набор
   const dpiList = useMemo(() => {
     if (!ableDpi.length) return DPI;
-    const known = new Map(DPI.map((d) => [d.v, d.t]));
-    return ableDpi.map((v) => ({ v, t: known.get(v) ?? String(v) }));
+    const titles = new Map(DPI.map((d) => [d.v, d.t]));
+    return ableDpi.map((v) => ({ v, t: titles.get(v) ?? String(v) }));
   }, [ableDpi]);
 
   // Выбранное качество аппарат может не уметь — тогда берём ближайшее
@@ -354,7 +359,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
     </div>
   );
 
-  const addBox = adding && <AddScannerBox onClose={() => setAdding(false)} />;
+  const addBox = adding && (
+    <AddScannerBox known={known} onClose={() => setAdding(false)} />
+  );
 
   // Отчёт о поиске сканеров. Показывается в двух местах — когда список
   // пуст и когда нужного аппарата в нём нет, поэтому описан один раз

@@ -2,7 +2,12 @@ import { useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { addScanner } from '@/lib/desktop';
 
-type Props = { onClose: () => void };
+type Props = {
+  // Названия аппаратов, записанных в Windows. Драйверу нужно точное
+  // имя — на память человек напишет своё, и аппарат не отзовётся
+  known?: string[];
+  onClose: () => void;
+};
 
 // Добавление сканера вручную.
 //
@@ -10,7 +15,7 @@ type Props = { onClose: () => void };
 // некоторых сетевых МФУ объявляют устройство только своей программе.
 // Такой сканер исправен и работает — его просто не видно в списке.
 // Здесь человек называет аппарат сам.
-const AddScannerBox = ({ onClose }: Props) => {
+const AddScannerBox = ({ known = [], onClose }: Props) => {
   const [name, setName] = useState('');
   const [wia, setWia] = useState(false);
   const [feeder, setFeeder] = useState(false);
@@ -50,6 +55,27 @@ const AddScannerBox = ({ onClose }: Props) => {
         autoFocus
         className="mt-3 w-full border border-border bg-background px-3 py-2.5 text-[0.9rem] outline-none focus:border-primary"
       />
+
+      {/* Windows знает эти аппараты по именам. Нажатие подставляет имя
+          целиком — так человек не ошибётся в написании */}
+      {known.length > 0 && (
+        <div className="mt-2">
+          <span className="text-[0.72rem] text-muted-foreground">
+            Windows знает такие аппараты — нажмите, чтобы подставить:
+          </span>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {known.map((k) => (
+              <button
+                key={k}
+                onClick={() => setName(k)}
+                className="border border-border px-2 py-1 text-[0.72rem] transition-colors hover:border-foreground"
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 space-y-2">
         <label className="flex cursor-pointer items-center gap-2 text-[0.82rem]">

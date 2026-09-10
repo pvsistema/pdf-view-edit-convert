@@ -689,6 +689,11 @@ public class MainForm : Form
             }),
             hint,
             setups = setups.Select(s => new { name = s.Name, path = s.Path }),
+
+            // Имена, записанные в Windows. Подсказываем их при ручном
+            // добавлении: драйверу нужно точное название, а на память
+            // человек напишет «куесера» и аппарат не отзовётся
+            known = await Task.Run(() => Scanner.Registered()),
         });
     }
 

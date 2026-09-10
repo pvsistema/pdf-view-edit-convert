@@ -704,6 +704,10 @@ internal static class Scanner
         if (deviceId.StartsWith("twain:"))
             return TwainBridge.Resolutions(deviceId.Substring(6));
 
+        // Добавленный вручную аппарат спрашиваем по имени
+        if (deviceId.StartsWith("manual:"))
+            return TwainBridge.Resolutions(deviceId.Substring(7));
+
         return new List<int>();
     }
 
@@ -718,6 +722,15 @@ internal static class Scanner
             var opt = new Options { DeviceName = deviceId.Substring(6) };
             return TwainBridge.Scan(opt, dir, true, (_, _) => { }, CancellationToken.None);
         }
+
+        if (deviceId.StartsWith("manual:"))
+        {
+            var opt = new Options { DeviceName = deviceId.Substring(7) };
+            return TwainBridge.Scan(opt, dir, true, (_, _) => { }, CancellationToken.None);
+        }
+
+        if (deviceId.StartsWith("manual-wia:"))
+            return Sta(() => ShowDriverUiCore(deviceId.Substring(11), dir));
 
         return Sta(() => ShowDriverUiCore(deviceId, dir));
     }
@@ -858,8 +871,10 @@ internal static class Scanner
         // Windows или через драйвер — как указал человек при добавлении
         if (opt.DeviceId.StartsWith("manual-wia:"))
         {
+            // Ищем по имени: системного кода у такого аппарата нет,
+            // и оставленный код помешал бы совпадению
             opt.DeviceName = opt.DeviceId.Substring(11);
-            opt.DeviceId = opt.DeviceName;
+            opt.DeviceId = "";
             return Sta(() => ScanCore(opt, dir, onPage, token));
         }
 
@@ -903,6 +918,20 @@ internal static class Scanner
                 {
                     info = d;
                     break;
+                }
+
+                // Аппарат, добавленный вручную, известен только по имени —
+                // системного кода у него нет. Сверяем название
+                if (!string.IsNullOrEmpty(opt.DeviceName))
+                {
+                    string title = "";
+                    try { title = (string)d.Properties["Name"].get_Value(); } catch { }
+
+                    if (Same(title, opt.DeviceName))
+                    {
+                        info = d;
+                        break;
+                    }
                 }
             }
 

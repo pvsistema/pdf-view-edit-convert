@@ -213,15 +213,28 @@ internal static class WiaDirect
             }
 
             // У каждого поколения службы своё описание. Берём подходящее:
-            // спросить новую службу по старому описанию нельзя
-            object mgr = Marshal.GetObjectForIUnknown(raw);
+            // спросить новую службу по старому описанию нельзя.
+            //
+            // Приводить надо СРАЗУ к нужному описанию. Через общий вид
+            // (GetObjectForIUnknown) Windows подбирает описание сама и
+            // ошибается — отсюда был сбой «Specified cast is not valid»
+            // ровно после успешного получения интерфейса
             IEnumWIA_DEV_INFO? items;
             int step0;
+            object mgr;
 
             if (interfaceId == IID_DEVMGR2)
-                step0 = ((IWiaDevMgr2)mgr).EnumDeviceInfo(0, out items);
+            {
+                var typed = (IWiaDevMgr2)Marshal.GetTypedObjectForIUnknown(raw, typeof(IWiaDevMgr2));
+                mgr = typed;
+                step0 = typed.EnumDeviceInfo(0, out items);
+            }
             else
-                step0 = ((IWiaDevMgr)mgr).EnumDeviceInfo(0, out items);
+            {
+                var typed = (IWiaDevMgr)Marshal.GetTypedObjectForIUnknown(raw, typeof(IWiaDevMgr));
+                mgr = typed;
+                step0 = typed.EnumDeviceInfo(0, out items);
+            }
 
             if (step0 != 0 || items == null)
             {
@@ -360,7 +373,9 @@ internal static class WiaDirect
                 int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
                 if (hr != 0 || raw == IntPtr.Zero) continue;
 
-                var mgr = (IWiaDevMgr)Marshal.GetObjectForIUnknown(raw);
+                // Приводим сразу к нужному описанию: через общий вид
+                // Windows подбирает его сама и ошибается
+                var mgr = (IWiaDevMgr)Marshal.GetTypedObjectForIUnknown(raw, typeof(IWiaDevMgr));
                 var format = FORMAT_BMP;
 
                 // 1 — сканер, 0 — без лишних окон выбора
