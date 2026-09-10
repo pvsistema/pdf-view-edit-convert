@@ -272,7 +272,7 @@ internal static class Scanner
     // Программа настройки драйвера. У сетевых МФУ аппарат добавляется
     // именно в ней, поэтому даём открыть её прямо из окна сканирования,
     // не заставляя искать по меню «Пуск»
-    public sealed class Setup
+    public sealed class DriverSetup
     {
         public string Name = "";   // что показать на кнопке
         public string Path = "";   // что запустить
@@ -280,9 +280,9 @@ internal static class Scanner
 
     // Ищем такие программы в папках драйверов. Файлов там много,
     // поэтому берём только те, чьё имя говорит о настройке
-    public static List<Setup> Setups()
+    public static List<DriverSetup> Setups()
     {
-        var found = new List<Setup>();
+        var found = new List<DriverSetup>();
         string[] words = { "setting", "settings", "setup", "config", "tool", "admin", "manager" };
 
         try
@@ -313,7 +313,7 @@ internal static class Scanner
                         if (!words.Any(w => low.Contains(w))) continue;
                         if (found.Any(s => string.Equals(s.Path, exe, StringComparison.OrdinalIgnoreCase))) continue;
 
-                        found.Add(new Setup { Name = folder + " — " + file, Path = exe });
+                        found.Add(new DriverSetup { Name = folder + " — " + file, Path = exe });
                     }
                 }
             }
