@@ -139,6 +139,9 @@ internal static class WiaDirect
     static readonly Guid IID_DEVMGR = new("5e38b83c-8cf1-11d1-bf92-0060081ed811");
     static readonly Guid IID_DEVMGR2 = new("79c07cf1-cbdd-41ee-8ec3-f00080cada7a");
 
+    // «Дай себя в общем виде» — с этого начинает рабочая программа
+    static readonly Guid IID_UNKNOWN = new("00000000-0000-0000-c000-000000000046");
+
     // Все сканеры, известные службе Windows
     public static List<Device> List()
     {
@@ -164,11 +167,49 @@ internal static class WiaDirect
             var id = clsid;
             var iid = interfaceId;
 
-            int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
+            // Приём, подсмотренный у рабочей программы (ABBYY ScanWia):
+            // службу берут СНАЧАЛА «в общем виде», и только потом
+            // отдельным шагом уточняют нужный интерфейс.
+            //
+            // Мы раньше требовали интерфейс сразу при создании — и если
+            // служба на этом шаге капризничала, получали отказ 80004002
+            // и уходили ни с чем. Теперь у нас две попытки вместо одной
+            var iidUnknown = IID_UNKNOWN;
+
+            int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iidUnknown, out raw);
+
             if (hr != 0 || raw == IntPtr.Zero)
             {
-                Log.Add($"{title}: служба не отозвалась (код {hr:X8})");
-                return;
+                Log.Add($"{title}: служба не создалась в общем виде (код {hr:X8})");
+
+                // Запасной путь — старый способ, сразу с интерфейсом
+                hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
+                if (hr != 0 || raw == IntPtr.Zero)
+                {
+                    Log.Add($"{title}: и напрямую не отозвалась (код {hr:X8})");
+                    return;
+                }
+
+                Log.Add($"{title}: создалась напрямую");
+            }
+            else
+            {
+                Log.Add($"{title}: служба создана, уточняем интерфейс");
+
+                // Отдельный шаг: спрашиваем нужный интерфейс у уже
+                // созданной службы
+                int ask = Marshal.QueryInterface(raw, ref iid, out IntPtr typed);
+                if (ask == 0 && typed != IntPtr.Zero)
+                {
+                    Marshal.Release(raw);
+                    raw = typed;
+                    Log.Add($"{title}: интерфейс получен");
+                }
+                else
+                {
+                    Log.Add($"{title}: интерфейс не отдан (код {ask:X8})");
+                    return;
+                }
             }
 
             // У каждого поколения службы своё описание. Берём подходящее:

@@ -301,8 +301,16 @@ internal static class Twain
     static List<bool> Dsms()
     {
         var list = new List<bool>();
-        if (Works(true)) list.Add(true);
+
+        // Классический twain_32.dll идёт ПЕРВЫМ. Так делает рабочая
+        // программа ABBYY: в её ScanTwain.exe зашит только Twain_32.dll,
+        // современного TWAINDSM.dll там нет вовсе.
+        //
+        // Раньше мы предпочитали современного — и именно он не отдавал
+        // Kyocera. В 64 разрядах классического не существует, там
+        // остаётся только современный
         if (Works(false)) list.Add(false);
+        if (Works(true)) list.Add(true);
         return list;
     }
 
