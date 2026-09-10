@@ -174,6 +174,18 @@ internal static class Scanner
         var text = new System.Text.StringBuilder();
 
         text.AppendLine("=== ОТЧЁТ О ПОИСКЕ СКАНЕРОВ ===");
+
+        // Версия в отчёте обязательна: без неё не отличить свежую
+        // сборку от старой, и правки приходится проверять на глаз
+        string version = "неизвестна";
+        try
+        {
+            version = System.Diagnostics.FileVersionInfo
+                .GetVersionInfo(Environment.ProcessPath ?? "").FileVersion ?? "неизвестна";
+        }
+        catch { }
+
+        text.AppendLine("Версия программы: " + version);
         text.AppendLine("Программа: " + (Environment.Is64BitProcess ? "64" : "32") + " разряда");
         text.AppendLine();
 

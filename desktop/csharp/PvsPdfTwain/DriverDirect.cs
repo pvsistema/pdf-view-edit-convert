@@ -64,9 +64,14 @@ internal static class DriverDirect
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 34)] public byte[] ProductName;
     }
 
-    // Точка входа драйвера — та же, что у посредника
+    // Точка входа драйвера. ВАЖНО: у драйвера и у посредника разный
+    // разговор. Посреднику вторым параметром отдают пустоту, а драйверу
+    // — описание того, КОГО спрашивают. Раньше я вызывал драйвер как
+    // посредника: лишняя пустота сдвигала остальные параметры, драйвер
+    // получал бессмыслицу и отвечал отказом. Отказывались все подряд,
+    // включая исправный Epson — это и был признак ошибки на моей стороне
     delegate ushort DsEntry(
-        ref TwIdentity origin, IntPtr zero, uint dg, ushort dat, ushort msg, ref TwIdentity data);
+        ref TwIdentity origin, ref TwIdentity dest, uint dg, ushort dat, ushort msg, ref TwIdentity data);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern IntPtr LoadLibraryEx(string file, IntPtr reserved, uint flags);
@@ -184,10 +189,14 @@ internal static class DriverDirect
             foreach (bool oldRules in new[] { false, true })
             {
                 var app = MakeAppId(oldRules);
-                var src = new TwIdentity();
+                var src = Blank();
+                var answer = Blank();
 
+                // Спрашиваем сам драйвер: «как называется твой аппарат».
+                // Второй параметр — кого спрашиваем, третий — куда
+                // положить ответ
                 ushort rc;
-                try { rc = call(ref app, IntPtr.Zero, DG_CONTROL, DAT_IDENTITY, MSG_GET, ref src); }
+                try { rc = call(ref app, ref src, DG_CONTROL, DAT_IDENTITY, MSG_GET, ref answer); }
                 catch (Exception ex)
                 {
                     Log.Add($"{title}: сбой при опросе — " + Short(ex));
@@ -200,7 +209,7 @@ internal static class DriverDirect
                     continue;
                 }
 
-                string name = FromStr32(src.ProductName);
+                string name = FromStr32(answer.ProductName);
                 if (string.IsNullOrWhiteSpace(name))
                 {
                     Log.Add($"{title}: аппарат без названия");
@@ -222,6 +231,16 @@ internal static class DriverDirect
 
         return found;
     }
+
+    // Пустое описание, но с заполненными полями: часть драйверов
+    // спотыкается о незаполненные строки
+    static TwIdentity Blank() => new()
+    {
+        Version = new TwVersion { Info = Str32("") },
+        Manufacturer = Str32(""),
+        ProductFamily = Str32(""),
+        ProductName = Str32(""),
+    };
 
     static TwIdentity MakeAppId(bool oldRules) => new()
     {
