@@ -130,11 +130,23 @@ internal static class WiaDirect
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     delegate int GetCountCall(IntPtr self, out uint count);
 
-    // Окно съёмки, нарисованное службой Windows
+    // Съёмка силами службы Windows.
+    //
+    // Набор полей важен до последнего: служба читает их по порядку,
+    // и сдвиг на одно поле означает, что код аппарата она возьмёт
+    // не оттуда. Второе поле — КОД УСТРОЙСТВА, без него служба
+    // не знает, с какого аппарата снимать
     [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
     delegate int GetImageDlgCall(
-        IntPtr self, IntPtr parent, int deviceType, int flags, int intent,
-        IntPtr rootItem, [MarshalAs(UnmanagedType.BStr)] string file, ref Guid format);
+        IntPtr self,
+        int flags,
+        [MarshalAs(UnmanagedType.BStr)] string deviceId,
+        IntPtr parent,
+        [MarshalAs(UnmanagedType.BStr)] string folder,
+        [MarshalAs(UnmanagedType.BStr)] string fileTemplate,
+        ref int count,
+        ref IntPtr paths,
+        IntPtr item);
 
     // Чтение свойств устройства, тоже напрямую
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -422,7 +434,26 @@ internal static class WiaDirect
     // Съёмка силами самой службы Windows. Нужна там, где старая
     // надстройка сканер не видит: служба открывает своё окно, снимает
     // страницу и кладёт её в файл — драйвером занимается она сама
-    public static string? ScanToFile(string path)
+    // Забрать путь первого снятого файла из ответа службы
+    static string? Taken(IntPtr paths, int count)
+    {
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr one = Marshal.ReadIntPtr(paths, i * IntPtr.Size);
+                if (one == IntPtr.Zero) continue;
+
+                string? file = Marshal.PtrToStringBSTR(one);
+                if (!string.IsNullOrWhiteSpace(file) && File.Exists(file)) return file;
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    public static string? ScanToFile(string path, string deviceId = "")
     {
         IntPtr raw = IntPtr.Zero;
         int last = 0;
@@ -446,22 +477,45 @@ internal static class WiaDirect
                 var getImageDlg = Marshal.GetDelegateForFunctionPointer<GetImageDlgCall>(
                     Marshal.ReadIntPtr(table, 7 * IntPtr.Size));
 
-                var format = FORMAT_BMP;
+                string folder = Path.GetDirectoryName(path) ?? "";
+                string name = Path.GetFileName(path);
 
-                // Пробуем без лишних окон, а если служба откажет — с
-                // окном выбора аппарата: на части компьютеров съёмка
-                // идёт только этим путём
-                foreach (var (flags, how) in new[]
+                // Служба сама подставит номер и расширение
+                string template = Path.GetFileNameWithoutExtension(path);
+
+                // Сначала — с кодом аппарата и без лишних окон. Если
+                // служба откажет, пробуем показать её собственное окно
+                // выбора: на части компьютеров съёмка идёт только так
+                foreach (var (flags, who, how) in new[]
                 {
-                    (0, "без окон"),
-                    (2, "с окном выбора"),
+                    (0x10, deviceId, "тихо, наш аппарат"),
+                    (0x00, deviceId, "с окном, наш аппарат"),
+                    (0x00, "",       "с окном, выбор человека"),
                 })
                 {
-                    // 1 — сканер
-                    int step = getImageDlg(
-                        raw, IntPtr.Zero, 1, flags, 0, IntPtr.Zero, path, ref format);
+                    int count = 0;
+                    IntPtr paths = IntPtr.Zero;
 
-                    Log.Add($"прямая съёмка ({how}): ответ {step:X8}");
+                    int step = getImageDlg(
+                        raw, flags, who, IntPtr.Zero,
+                        folder, template, ref count, ref paths, IntPtr.Zero);
+
+                    Log.Add($"прямая съёмка ({how}): ответ {step:X8}, файлов {count}");
+
+                    // Служба вернула список путей — забираем первый
+                    if (step == 0 && count > 0 && paths != IntPtr.Zero)
+                    {
+                        string? got = Taken(paths, count);
+                        if (got != null)
+                        {
+                            if (!string.Equals(got, path, StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { File.Copy(got, path, true); File.Delete(got); }
+                                catch { return null; }
+                            }
+                            return null;
+                        }
+                    }
 
                     if (step == 0 && File.Exists(path)) return null;
 

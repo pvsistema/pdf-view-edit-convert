@@ -198,9 +198,9 @@ internal static class Program
             try
             {
                 files = Wia.Scan(opt, dir, Page);
-                if (files.Count == 0) files = Direct(dir, Page);
+                if (files.Count == 0) files = Direct(dir, Page, opt.Device);
             }
-            catch (Exception) { files = Direct(dir, Page); }
+            catch (Exception) { files = Direct(dir, Page, opt.Device); }
         }
         else
         {
@@ -233,18 +233,34 @@ internal static class Program
         }
         catch { }
 
-        return Direct(dir, onPage);
+        return Direct(dir, onPage, opt.Device);
     }
 
     // Съёмка силами самой службы Windows — запасной путь для аппаратов,
     // которых не видит старая надстройка
-    static List<string> Direct(string dir, Action<int, string> onPage)
+    static List<string> Direct(string dir, Action<int, string> onPage, string device = "")
     {
         Directory.CreateDirectory(dir);
         string path = Path.Combine(dir, "scan_001.bmp");
         try { if (File.Exists(path)) File.Delete(path); } catch { }
 
-        string? error = WiaDirect.ScanToFile(path);
+        // Служба ждёт код устройства, а программа передаёт то имя,
+        // что видел человек. Находим код по названию в том же списке,
+        // откуда этот аппарат и взялся
+        string id = "";
+        if (!string.IsNullOrWhiteSpace(device))
+        {
+            try
+            {
+                foreach (var d in WiaDirect.List())
+                    if (string.Equals(d.Name, device, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(WiaDirect.Pretty(d.Name), device, StringComparison.OrdinalIgnoreCase))
+                    { id = d.Id; break; }
+            }
+            catch { }
+        }
+
+        string? error = WiaDirect.ScanToFile(path, id);
         if (error != null) throw new InvalidOperationException(error);
 
         onPage(1, path);
