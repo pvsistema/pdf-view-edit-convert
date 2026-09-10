@@ -16,6 +16,8 @@ import {
   openScanSetup,
   onScanSetupDone,
   removeScanner,
+  chooseScanner,
+  onScannerChosen,
   type ScanDevice,
   type ScanSetup,
 } from '@/lib/desktop';
@@ -85,6 +87,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   // Окно добавления сканера вручную — для аппаратов, молчащих на опрос
   const [adding, setAdding] = useState(false);
 
+  // Открыто окно выбора от драйвера — ждём, пока человек выберет
+  const [choosing, setChoosing] = useState(false);
+
   // Названия аппаратов, записанных в Windows. Подсказываем их при
   // ручном добавлении: драйверу нужно точное имя
   const [known, setKnown] = useState<string[]>([]);
@@ -135,11 +140,25 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
       );
     });
 
+    // Человек выбрал сканер в окне драйвера — он уже сохранён
+    const offChosen = onScannerChosen((ok, name) => {
+      setChoosing(false);
+      toast(
+        ok
+          ? { title: 'Сканер добавлен', description: name }
+          : {
+              title: 'Сканер не выбран',
+              description: 'Окно закрыто без выбора либо драйвер не отозвался',
+            },
+      );
+    });
+
     listScanners();
     return () => {
       offList();
       offReport();
       offSetup();
+      offChosen();
     };
   }, [batch, saved.device, saved.deviceName]);
 
@@ -344,8 +363,28 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
         </button>
       ))}
 
-      {/* Аппарат может молчать на любой опрос, оставаясь исправным.
-          Тогда человек называет его сам */}
+      {/* Главный способ: окно выбора рисует сам драйвер, и аппарат,
+          молчащий при обычном опросе, в нём обычно есть */}
+      <button
+        onClick={() => {
+          setChoosing(true);
+          chooseScanner();
+        }}
+        disabled={choosing || busy}
+        className="border border-foreground px-3 py-1.5 text-[0.74rem] transition-colors hover:bg-foreground hover:text-background disabled:opacity-40"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          {choosing ? (
+            <Icon name="LoaderCircle" size={13} className="animate-spin" />
+          ) : (
+            <Icon name="ListChecks" size={13} />
+          )}
+          {choosing ? 'Выберите в окне драйвера' : 'Выбрать сканер из драйвера'}
+        </span>
+      </button>
+
+      {/* Запасной способ, если окно драйвера пустое: название вводится
+          руками */}
       <button
         onClick={() => setAdding(true)}
         disabled={adding}
@@ -353,7 +392,7 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
       >
         <span className="inline-flex items-center gap-1.5">
           <Icon name="Plus" size={13} />
-          Добавить сканер вручную
+          Вписать название вручную
         </span>
       </button>
     </div>
@@ -657,8 +696,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
               </p>
 
               <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
-                Аппарат работает в других программах, но здесь его нет? Добавьте
-                его вручную — программа обратится к драйверу прямо по названию.
+                Аппарат работает в других программах, но здесь его нет? Нажмите
+                «Выбрать сканер из драйвера» — откроется окно самого производителя
+                со списком его аппаратов. Выбранный останется в программе.
               </p>
 
               {setupBox}

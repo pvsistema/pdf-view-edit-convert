@@ -33,6 +33,7 @@ internal static class Program
             switch (args[0].ToLowerInvariant())
             {
                 case "list": return DoList();
+                case "choose": return DoChoose();
                 case "selftest": return DoSelfTest();
                 case "caps": return DoCaps(args);
                 case "scan": return DoScan(args);
@@ -51,6 +52,28 @@ internal static class Program
         {
             Handle.Close();
         }
+    }
+
+    // Окно выбора сканера от самого драйвера. Показывает аппараты,
+    // о которых драйвер молчит при обычном опросе
+    static int DoChoose()
+    {
+        var dev = Twain.Choose();
+
+        if (dev == null)
+        {
+            Say(new { ok = true, cancelled = true });
+            return 0;
+        }
+
+        Say(new
+        {
+            ok = true,
+            name = dev.Name,
+            feeder = dev.HasFeeder,
+            duplex = dev.HasDuplex,
+        });
+        return 0;
     }
 
     // Какое качество умеет выбранный аппарат

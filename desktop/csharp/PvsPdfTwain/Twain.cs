@@ -33,6 +33,10 @@ internal static class Twain
     const ushort MSG_OPENDS = 0x0401;
     const ushort MSG_CLOSEDS = 0x0402;
     const ushort MSG_GETFIRST = 0x0004;
+
+    // Окно выбора сканера, нарисованное самим драйвером. Показывает
+    // аппараты, о которых драйвер молчит при обычном опросе
+    const ushort MSG_USERSELECT = 0x0009;
     const ushort MSG_GETNEXT = 0x0005;
     const ushort MSG_DISABLEDS = 0x0501;
     const ushort MSG_ENABLEDS = 0x0502;
@@ -600,6 +604,63 @@ internal static class Twain
     static ushort Ds(ref TwIdentity app, ref TwIdentity src, uint dg, ushort dat, ushort msg, ref IntPtr d)
         => UseNew() ? NewEntry(ref app, ref src, dg, dat, msg, ref d)
                     : OldEntry(ref app, ref src, dg, dat, msg, ref d);
+
+    // Окно выбора сканера, нарисованное самим драйвером.
+    //
+    // Зачем. Часть аппаратов не отзывается на обычный опрос: драйвер
+    // объявляет их только своей программе. Но собственное окно выбора
+    // драйвер рисует честно — там аппарат есть. Человек выбирает его
+    // мышью, а мы запоминаем название.
+    //
+    // Так делают все программы сканирования: кнопка «Выбрать источник»
+    // это ровно оно
+    public static Device? Choose()
+    {
+        // Перебираем обоих посредников: аппарат может быть известен
+        // только одному из них
+        foreach (bool useNew in Dsms())
+        {
+            Force(useNew);
+
+            var app = MakeAppId();
+            IntPtr hwnd = Handle.Window;
+
+            if (Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_OPENDSM, ref hwnd) != TWRC_SUCCESS)
+                continue;
+
+            try
+            {
+                // Окно выбора появится поверх владельца — выводим его
+                // на экран, иначе список откроется за краем и невидимо
+                Handle.Show();
+
+                var src = new TwIdentity();
+                ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_USERSELECT, ref src);
+
+                // Человек закрыл окно, ничего не выбрав
+                if (rc == TWRC_CANCEL) return null;
+                if (rc != TWRC_SUCCESS) continue;
+
+                string name = FromStr32(src.ProductName);
+                if (string.IsNullOrWhiteSpace(name)) continue;
+
+                return new Device
+                {
+                    Name = name,
+                    HasFeeder = false,
+                    HasDuplex = false,
+                };
+            }
+            catch { }
+            finally
+            {
+                Handle.Hide();
+                Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_CLOSEDSM, ref hwnd);
+            }
+        }
+
+        return null;
+    }
 
     // Список сканеров, известных драйверам TWAIN
     public static List<Device> List()

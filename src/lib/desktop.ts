@@ -193,6 +193,13 @@ export const addScanner = (o: {
 
 export const removeScanner = (name: string) => send({ type: 'removeScanner', name });
 
+// Окно выбора сканера, нарисованное самим драйвером. Аппарат, молчащий
+// при обычном опросе, в нём обычно есть — и название набирать не нужно
+export const chooseScanner = () => send({ type: 'chooseScanner' });
+
+export const onScannerChosen = (cb: (ok: boolean, name: string) => void) =>
+  listen<{ ok: boolean; name?: string }>('scannerChosen', (d) => cb(!!d.ok, d.name || ''));
+
 // Отчёт о поиске сканеров: что видит Windows, что видят помощники
 // и какие драйверы установлены. Нужен, когда аппарат не находится
 export const askScanSelfTest = () => send({ type: 'scanSelfTest' });

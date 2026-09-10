@@ -63,20 +63,80 @@ internal static class TwainBridge
         return all.Count > 0 ? all[0] : ExePath();
     }
 
-    static Process Start(string exe, string args)
+    static Process Start(string exe, string args, bool visible = false)
     {
         var psi = new ProcessStartInfo
         {
             FileName = exe,
             Arguments = args,
             UseShellExecute = false,
-            CreateNoWindow = true,
+
+            // Окно выбора сканера рисует сам драйвер — прятать помощника
+            // в этом случае нельзя, иначе человек ничего не увидит
+            CreateNoWindow = !visible,
             RedirectStandardOutput = true,
             StandardOutputEncoding = System.Text.Encoding.UTF8,
         };
 
         return Process.Start(psi) ?? throw new InvalidOperationException(
             "Не удалось запустить помощник сканирования.");
+    }
+
+    // Окно выбора сканера от самого драйвера.
+    //
+    // Зачем. Аппарат может молчать при обычном опросе, но в собственном
+    // окне драйвера он есть — человек выбирает его мышью, и нам не
+    // приходится просить набирать название вручную
+    public static Device? Choose()
+    {
+        foreach (string exe in Helpers())
+        {
+            try
+            {
+                using var p = Start(exe, "choose", visible: true);
+
+                string output = p.StandardOutput.ReadToEnd();
+
+                // Человек может задуматься над выбором — ждём долго
+                if (!p.WaitForExit(180000))
+                {
+                    try { p.Kill(true); } catch { }
+                    continue;
+                }
+
+                foreach (string line in output.Split('\n'))
+                {
+                    string s = line.Trim();
+                    if (!s.StartsWith("{")) continue;
+
+                    using var doc = JsonDocument.Parse(s);
+                    var root = doc.RootElement;
+
+                    // Окно закрыли, ничего не выбрав — второго помощника
+                    // не спрашиваем, решение уже принято
+                    if (root.TryGetProperty("cancelled", out var c) && c.GetBoolean())
+                        return null;
+
+                    if (!root.TryGetProperty("name", out var n)) continue;
+
+                    string name = n.GetString() ?? "";
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+
+                    _owner[name] = exe;
+                    _viaWia[name] = false;
+
+                    return new Device
+                    {
+                        Name = name,
+                        HasFeeder = root.TryGetProperty("feeder", out var f) && f.GetBoolean(),
+                        HasDuplex = root.TryGetProperty("duplex", out var d) && d.GetBoolean(),
+                    };
+                }
+            }
+            catch { }
+        }
+
+        return null;
     }
 
     // Какое качество поддерживает аппарат. Пустой список означает

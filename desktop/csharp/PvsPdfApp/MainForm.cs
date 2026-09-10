@@ -526,6 +526,12 @@ public class MainForm : Form
                 ManualScanners.Add(item);
                 _ = ListScannersAsync();
             }
+            else if (type == "chooseScanner")
+            {
+                // Окно выбора от самого драйвера. Выбранный аппарат
+                // сразу запоминаем — набирать название не нужно
+                _ = ChooseScannerAsync();
+            }
             else if (type == "removeScanner")
             {
                 string name = root.TryGetProperty("name", out var rn) ? (rn.GetString() ?? "") : "";
@@ -662,6 +668,30 @@ public class MainForm : Form
     {
         var dpi = await Task.Run(() => Scanner.Resolutions(deviceId));
         SendUpdate(new { type = "scanCaps", device = deviceId, dpi });
+    }
+
+    // Окно выбора сканера, нарисованное драйвером. Аппарат, молчащий
+    // при обычном опросе, в нём обычно есть
+    async Task ChooseScannerAsync()
+    {
+        var dev = await Task.Run(() => TwainBridge.Choose());
+
+        if (dev == null)
+        {
+            SendUpdate(new { type = "scannerChosen", ok = false });
+            return;
+        }
+
+        ManualScanners.Add(new ManualScanners.Item
+        {
+            Name = dev.Name,
+            Wia = false,
+            Feeder = dev.HasFeeder,
+            Duplex = dev.HasDuplex,
+        });
+
+        SendUpdate(new { type = "scannerChosen", ok = true, name = dev.Name });
+        await ListScannersAsync();
     }
 
     // Список сканеров опрашиваем в стороне от окна: у сетевых устройств
