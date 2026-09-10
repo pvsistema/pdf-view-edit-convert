@@ -389,6 +389,12 @@ internal static class Twain
             // Независимая проверка по реестру: аппарат зарегистрирован,
             // а служба его не отдала — значит дело в службе
             report["wiaRegistered"] = Wia.Registered();
+
+            // Прямой разговор со службой, минуя старую надстройку.
+            // Именно он должен находить аппараты, которые надстройка
+            // упорно не показывает
+            report["directScanners"] = WiaDirect.List().Select(d => d.Name).ToList();
+            report["directWalk"] = WiaDirect.Log;
         }
         catch (Exception ex)
         {

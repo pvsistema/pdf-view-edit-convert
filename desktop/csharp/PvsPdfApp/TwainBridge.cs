@@ -236,6 +236,8 @@ internal static class TwainBridge
         "wiaScanners" => "сканеры от службы Windows",
         "wiaRegistered" => "сканеры, записанные в Windows",
         "wiaWalk" => "как искали через службу",
+        "directScanners" => "сканеры от службы напрямую",
+        "directWalk" => "как искали напрямую",
         "wiaError" => "ошибка службы Windows",
         "walk" => "обход драйверов",
         _ => name,

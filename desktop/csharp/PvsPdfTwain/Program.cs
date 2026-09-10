@@ -98,6 +98,17 @@ internal static class Program
         }
         catch { }
 
+        // Третий источник — прямой разговор со службой Windows, минуя
+        // старую надстройку. Она на части компьютеров отвечает
+        // «устройств ноль» даже при исправном сканере
+        try
+        {
+            foreach (var d in WiaDirect.List())
+                if (seen.Add(d.Name))
+                    items.Add(new { name = d.Name, id = d.Id, feeder = false, duplex = false, wia = true });
+        }
+        catch { }
+
         Say(new { ok = true, items });
         return 0;
     }
@@ -141,18 +152,40 @@ internal static class Program
         List<string> files;
         if (wia)
         {
-            files = Wia.Scan(opt, dir, Page);
+            // Сначала обычным путём. Если надстройка этот сканер не
+            // видит — просим снять саму службу Windows
+            try { files = Wia.Scan(opt, dir, Page); }
+            catch (Exception) { files = Direct(dir, Page); }
         }
         else
         {
             try { files = Twain.Scan(opt, dir, Page); }
-            catch (Exception) when (Wia.Ready()) { files = Wia.Scan(opt, dir, Page); }
+            catch (Exception) when (Wia.Ready())
+            {
+                try { files = Wia.Scan(opt, dir, Page); }
+                catch (Exception) { files = Direct(dir, Page); }
+            }
         }
 
         // refused — настройки, которые сканер не принял. Программа
         // предупредит о них, чтобы результат не был неожиданностью
         Say(new { ok = true, pages = files, refused = Twain.Refused() });
         return 0;
+    }
+
+    // Съёмка силами самой службы Windows — запасной путь для аппаратов,
+    // которых не видит старая надстройка
+    static List<string> Direct(string dir, Action<int, string> onPage)
+    {
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "scan_001.bmp");
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
+
+        string? error = WiaDirect.ScanToFile(path);
+        if (error != null) throw new InvalidOperationException(error);
+
+        onPage(1, path);
+        return new List<string> { path };
     }
 
     static void Say(object data) => Console.WriteLine(JsonSerializer.Serialize(data));
