@@ -64,6 +64,24 @@ internal static class WiaDirect
         [PreserveSig] int AddDeviceDlg();
     }
 
+    // Новое поколение службы. Порядок методов у него ДРУГОЙ, поэтому
+    // и описание нужно своё: в прошлый раз я объявил новый знак, но
+    // оставил старое описание — отсюда и был «сбой преобразования»
+    [ComImport]
+    [Guid("79c07cf1-cbdd-41ee-8ec3-f00080cada7a")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IWiaDevMgr2
+    {
+        [PreserveSig] int EnumDeviceInfo(int flags, out IEnumWIA_DEV_INFO items);
+        [PreserveSig] int CreateDevice();
+        [PreserveSig] int SelectDeviceDlg();
+        [PreserveSig] int SelectDeviceDlgID();
+        [PreserveSig] int RegisterEventCallbackProgram();
+        [PreserveSig] int RegisterEventCallbackInterface();
+        [PreserveSig] int RegisterEventCallbackCLSID();
+        [PreserveSig] int GetImageDlg();
+    }
+
     [ComImport]
     [Guid("5e8383fc-3391-11d2-9a33-00c04fa36145")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -153,9 +171,17 @@ internal static class WiaDirect
                 return;
             }
 
-            var mgr = (IWiaDevMgr)Marshal.GetObjectForIUnknown(raw);
+            // У каждого поколения службы своё описание. Берём подходящее:
+            // спросить новую службу по старому описанию нельзя
+            object mgr = Marshal.GetObjectForIUnknown(raw);
+            IEnumWIA_DEV_INFO? items;
+            int step0;
 
-            int step0 = mgr.EnumDeviceInfo(0, out IEnumWIA_DEV_INFO items);
+            if (interfaceId == IID_DEVMGR2)
+                step0 = ((IWiaDevMgr2)mgr).EnumDeviceInfo(0, out items);
+            else
+                step0 = ((IWiaDevMgr)mgr).EnumDeviceInfo(0, out items);
+
             if (step0 != 0 || items == null)
             {
                 Log.Add($"{title}: список устройств не получен (код {step0:X8})");
