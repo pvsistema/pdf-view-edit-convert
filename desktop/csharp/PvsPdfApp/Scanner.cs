@@ -336,6 +336,10 @@ internal static class Scanner
         // Утилита добавления аппарата в драйвер. Для сетевых МФУ это
         // главная кнопка: без неё аппарат не появится нигде
         public bool Main;
+
+        // Утилита именно для СЕТЕВОГО аппарата. Kyocera по сети
+        // заводится только ею
+        public bool Network;
     }
 
     // Ищем такие программы в папках драйверов. Файлов там много,
@@ -387,11 +391,23 @@ internal static class Scanner
                                     || low.Contains("addscanner")
                                     || low.Contains("adddevice");
 
+                        // У Kyocera две утилиты: CreateSource для аппарата
+                        // по кабелю и CreateSourceN для сетевого («N» —
+                        // network). Названия почти одинаковые, поэтому
+                        // подписываем их по-человечески
+                        bool net = main && low.EndsWith("n");
+
+                        string title = main
+                            ? (net ? folder + " — сетевой аппарат"
+                                   : folder + " — по кабелю USB")
+                            : folder + " — " + file;
+
                         found.Add(new DriverSetup
                         {
-                            Name = folder + " — " + file,
+                            Name = title,
                             Path = exe,
                             Main = main,
+                            Network = net,
                         });
                     }
                 }
@@ -399,8 +415,11 @@ internal static class Scanner
         }
         catch { }
 
-        // Утилиты добавления аппарата — вперёд: с них надо начинать
-        return found.OrderByDescending(x => x.Main).ToList();
+        // Вперёд — сетевые: большинство молчащих МФУ подключены по сети
+        return found
+            .OrderByDescending(x => x.Network)
+            .ThenByDescending(x => x.Main)
+            .ToList();
     }
 
     // Главное в отчёте: разбор простым языком, без чтения таблиц выше.

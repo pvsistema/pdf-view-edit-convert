@@ -723,7 +723,13 @@ public class MainForm : Form
                 manual = d.Manual,
             }),
             hint,
-            setups = setups.Select(s => new { name = s.Name, path = s.Path, main = s.Main }),
+            setups = setups.Select(s => new
+            {
+                name = s.Name,
+                path = s.Path,
+                main = s.Main,
+                network = s.Network,
+            }),
 
             // Имена, записанные в Windows. Подсказываем их при ручном
             // добавлении: драйверу нужно точное название, а на память

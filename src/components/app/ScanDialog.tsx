@@ -149,6 +149,17 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
         return;
       }
 
+      // Окно открылось, но человек ничего не выбрал. Частая причина —
+      // нужного аппарата в списке просто нет: он не заведён в драйвер
+      if (steps.includes('окно закрыто без выбора')) {
+        toast({
+          title: 'Аппарат не выбран',
+          description:
+            'Если нужного аппарата в списке не было — заведите его кнопкой «Добавить аппарат»',
+        });
+        return;
+      }
+
       // Показываем, на каком шаге всё оборвалось: без этого «не
       // выбран» ничего не объясняет
       toast({
@@ -360,7 +371,7 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           onClick={() => openScanSetup(s.path)}
           title={
             s.main
-              ? 'Добавить аппарат в драйвер — с этого нужно начинать'
+              ? `Завести аппарат в драйвере — ${s.path}`
               : s.path
           }
           className={
@@ -370,8 +381,11 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           }
         >
           <span className="inline-flex items-center gap-1.5">
-            <Icon name={s.main ? 'CirclePlus' : 'Settings'} size={13} />
-            {s.main ? 'Добавить аппарат в драйвер' : s.name}
+            <Icon
+              name={s.network ? 'Network' : s.main ? 'Usb' : 'Settings'}
+              size={13}
+            />
+            {s.main ? `Завести аппарат: ${s.name.split(' — ')[1]}` : s.name}
           </span>
         </button>
       ))}
@@ -709,9 +723,10 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
               </p>
 
               <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
-                Если окно выбора пустое — аппарат ещё не добавлен в сам драйвер.
-                Нажмите «Добавить аппарат в драйвер», укажите IP-адрес аппарата
-                и вернитесь сюда. Пока этот шаг не сделан, сетевой МФУ не увидит
+                Нужного аппарата нет в окне выбора? Значит он ещё не заведён
+                в самом драйвере. Нажмите «Завести аппарат: сетевой аппарат»
+                и укажите IP-адрес — он есть на странице состояния, которую МФУ
+                печатает сам. Пока этот шаг не сделан, сетевой МФУ не увидит
                 ни одна программа сканирования.
               </p>
 
