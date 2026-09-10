@@ -206,7 +206,44 @@ internal static class Scanner
                 bool dsm = File.Exists(Path.Combine(dir, "TWAINDSM.dll"));
                 text.AppendLine(name + ": драйверов " + subs.Count +
                                 ", TWAINDSM.dll " + (dsm ? "есть" : "НЕТ"));
-                foreach (string sub in subs) text.AppendLine("    " + sub);
+                // Показываем СОДЕРЖИМОЕ каждой папки. Посредник ищет
+                // драйверы не по папкам, а по файлам .ds внутри них:
+                // папка без .ds — это след удалённого или недоустановленного
+                // драйвера, и такой аппарат не увидит ни одна программа
+                foreach (string sub in subs)
+                {
+                    string subDir = Path.Combine(dir, sub);
+                    string mark;
+                    try
+                    {
+                        var ds = Directory.GetFiles(subDir, "*.ds", SearchOption.AllDirectories);
+                        int files = Directory.GetFiles(subDir, "*", SearchOption.AllDirectories).Length;
+
+                        mark = ds.Length > 0
+                            ? "файл драйвера есть: " + string.Join(", ",
+                                  ds.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)))
+                            : (files == 0
+                                ? "ПАПКА ПУСТАЯ — драйвер не установлен"
+                                : "файла драйвера (.ds) НЕТ, прочих файлов " + files);
+                    }
+                    catch (Exception ex) { mark = "не прочитать: " + ex.Message; }
+
+                    text.AppendLine("    " + sub + " — " + mark);
+
+                    // Драйверы сетевых МФУ (Kyocera и подобные) не объявляют
+                    // аппарат сами: они показывают только те, что вручную
+                    // добавлены в их настройке. Подскажем, где её открыть
+                    try
+                    {
+                        var setup = Directory.GetFiles(subDir, "*.exe", SearchOption.AllDirectories)
+                            .Select(Path.GetFileName)
+                            .Where(n => !string.IsNullOrEmpty(n))
+                            .ToList();
+                        if (setup.Count > 0)
+                            text.AppendLine("        настройка драйвера: " + string.Join(", ", setup));
+                    }
+                    catch { }
+                }
             }
         }
         catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
