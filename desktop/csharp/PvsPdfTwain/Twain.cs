@@ -70,7 +70,20 @@ internal static class Twain
     const ushort TWSX_NATIVE = 0;
     const ushort TWUN_INCHES = 0;
 
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    // Как плотно укладываются поля структур при обмене с драйвером.
+    // Стандарт TWAIN требует разного в разных разрядностях (twain.h):
+    //   32 разряда -> pack 2
+    //   64 разряда -> pack 8
+    // Значение выбирается при сборке: помощник собирается дважды.
+    // С неверным значением драйвер и помощник читают одни и те же
+    // данные по-разному — имя сканера приходит мусором, список пуст
+#if TWAIN64
+    const int PACK = 8;
+#else
+    const int PACK = 2;
+#endif
+
+    [StructLayout(LayoutKind.Sequential, Pack = PACK)]
     struct TwVersion
     {
         public ushort MajorNum;
@@ -80,7 +93,7 @@ internal static class Twain
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 34)] public byte[] Info;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = PACK)]
     struct TwIdentity
     {
         public uint Id;
@@ -93,7 +106,7 @@ internal static class Twain
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 34)] public byte[] ProductName;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = PACK)]
     struct TwUserInterface
     {
         public ushort ShowUI;
@@ -101,7 +114,7 @@ internal static class Twain
         public IntPtr hParent;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = PACK)]
     struct TwCapability
     {
         public ushort Cap;
@@ -109,14 +122,14 @@ internal static class Twain
         public IntPtr hContainer;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = PACK)]
     struct TwEvent
     {
         public IntPtr pEvent;
         public ushort TWMessage;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = PACK)]
     struct TwPendingXfers
     {
         public ushort Count;
@@ -139,6 +152,46 @@ internal static class Twain
     // Диспетчер TWAIN. Ищем сначала современный, затем классический
     const string DSM_NEW = "TWAINDSM.dll";
     const string DSM_OLD = "twain_32.dll";
+
+    // Windows не поставляет современный диспетчер (TWAINDSM.dll) и не ищет
+    // его сама: в системных папках его нет. Кладут его драйверы —
+    // в C:\Windows\twain_64 у 64-разрядных, в twain_32 у 32-разрядных.
+    //
+    // Без этой подсказки 64-разрядный помощник не находил диспетчер вовсе
+    // и возвращал пустой список: классический twain_32.dll ему не подходит
+    // по разрядности. Из-за этого пропадали Kyocera и другие современные МФУ
+    static Twain()
+    {
+        NativeLibrary.SetDllImportResolver(typeof(Twain).Assembly, (name, asm, path) =>
+        {
+            if (!name.Equals(DSM_NEW, StringComparison.OrdinalIgnoreCase))
+                return IntPtr.Zero;
+
+            foreach (string candidate in DsmPaths())
+            {
+                if (!File.Exists(candidate)) continue;
+                if (NativeLibrary.TryLoad(candidate, out IntPtr lib)) return lib;
+            }
+
+            return IntPtr.Zero;
+        });
+    }
+
+    // Где искать современный диспетчер. Порядок важен: сначала папка своей
+    // разрядности, затем рядом с программой, и только потом общесистемные
+    static IEnumerable<string> DsmPaths()
+    {
+        string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        string mine = Environment.Is64BitProcess ? "twain_64" : "twain_32";
+
+        yield return Path.Combine(win, mine, DSM_NEW);
+        yield return Path.Combine(AppContext.BaseDirectory, DSM_NEW);
+
+        // Некоторые драйверы кладут диспетчер в системную папку.
+        // Для 32-разрядного помощника на 64-разрядной Windows это SysWOW64
+        yield return Path.Combine(win,
+            Environment.Is64BitProcess ? "System32" : "SysWOW64", DSM_NEW);
+    }
 
     [DllImport(DSM_NEW, EntryPoint = "DSM_Entry", CharSet = CharSet.Ansi)]
     static extern ushort NewEntry(ref TwIdentity o, IntPtr d, uint dg, ushort dat, ushort msg, ref TwIdentity data);
@@ -184,10 +237,20 @@ internal static class Twain
             NewEntry(ref probe, IntPtr.Zero, DG_CONTROL, DAT_PARENT, MSG_CLOSEDSM, ref h);
             _useNew = true;
         }
-        catch { _useNew = false; }
+        catch
+        {
+            // Классический диспетчер (twain_32.dll) существует только
+            // в 32 разрядах. В 64-разрядном помощнике откатываться некуда:
+            // честно признаём, что работать не с чем
+            _useNew = false;
+        }
 
         return _useNew.Value;
     }
+
+    // Есть ли на компьютере диспетчер, пригодный для этой разрядности.
+    // 64 разряда обслуживает только современный TWAINDSM.dll
+    public static bool DsmReady() => UseNew() || !Environment.Is64BitProcess;
 
     [DllImport("kernel32.dll")] static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
     [DllImport("kernel32.dll")] static extern IntPtr GlobalLock(IntPtr h);
@@ -286,6 +349,10 @@ internal static class Twain
     public static List<Device> List()
     {
         var found = new List<Device>();
+
+        // Диспетчера нужной разрядности нет — спрашивать некого
+        if (!DsmReady()) return found;
+
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;
 
@@ -323,6 +390,8 @@ internal static class Twain
     public static List<int> Resolutions(string deviceName)
     {
         var list = new List<int>();
+        if (!DsmReady()) return list;
+
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;
 
@@ -380,28 +449,37 @@ internal static class Twain
 
         try
         {
+            // После поля типа (2 байта) идёт выравнивание: в 32 разрядах
+            // следующее поле начинается сразу, в 64 — с отступом.
+            // Раньше смещения были записаны числами для 32 разрядов,
+            // и 64-разрядный помощник читал качество не с того места
+            int head = PACK >= 4 ? 4 : 2;
+
             // Список значений: тип, сколько их, текущее, по умолчанию, дальше сами значения
             if (c.ConType == TWON_ENUMERATION)
             {
                 ushort type = (ushort)Marshal.ReadInt16(p, 0);
-                int count = Marshal.ReadInt32(p, 2);
+                int count = Marshal.ReadInt32(p, head);
+                int first = head + 12;
                 for (int i = 0; i < count && i < 64; i++)
-                    into.Add(ReadItem(p, 14 + i * ItemSize(type), type));
+                    into.Add(ReadItem(p, first + i * ItemSize(type), type));
             }
             // Диапазон: от, до, с шагом
             else if (c.ConType == TWON_RANGE)
             {
                 ushort type = (ushort)Marshal.ReadInt16(p, 0);
                 int size = ItemSize(type);
-                int min = ReadItem(p, 2, type);
-                int max = ReadItem(p, 2 + size, type);
-                int step = Math.Max(1, ReadItem(p, 2 + size * 2, type));
+                int min = ReadItem(p, head, type);
+                int max = ReadItem(p, head + size, type);
+                int step = Math.Max(1, ReadItem(p, head + size * 2, type));
 
                 for (int v = min; v <= max && into.Count < 64; v += step)
                     into.Add(v);
             }
             else if (c.ConType == TWON_ONEVALUE)
             {
+                // Здесь отступ одинаков в обеих разрядностях: так это
+                // поле читалось и раньше, и с ним сканеры отвечают верно
                 ushort type = (ushort)Marshal.ReadInt16(p, 0);
                 into.Add(ReadItem(p, 4, type));
             }
@@ -432,6 +510,10 @@ internal static class Twain
     {
         Directory.CreateDirectory(dir);
         var files = new List<string>();
+
+        if (!DsmReady())
+            throw new InvalidOperationException(
+                "На этом компьютере нет 64-разрядной службы TWAIN. Обычно её ставит драйвер сканера — переустановите драйвер производителя.");
 
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;

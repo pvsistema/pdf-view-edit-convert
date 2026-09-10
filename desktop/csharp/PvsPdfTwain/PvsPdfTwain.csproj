@@ -40,4 +40,10 @@
     <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
   </PropertyGroup>
 
+  <!-- В 64 разрядах стандарт TWAIN укладывает поля структур иначе.
+       Признак включается сам, по разрядности сборки -->
+  <PropertyGroup Condition="'$(PlatformTarget)' == 'x64' Or '$(RuntimeIdentifier)' == 'win-x64'">
+    <DefineConstants>$(DefineConstants);TWAIN64</DefineConstants>
+  </PropertyGroup>
+
 </Project>
