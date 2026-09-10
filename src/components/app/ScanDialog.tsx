@@ -358,12 +358,20 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
         <button
           key={s.path}
           onClick={() => openScanSetup(s.path)}
-          title={s.path}
-          className="border border-border px-3 py-1.5 text-[0.74rem] transition-colors hover:border-foreground"
+          title={
+            s.main
+              ? 'Добавить аппарат в драйвер — с этого нужно начинать'
+              : s.path
+          }
+          className={
+            s.main
+              ? 'border border-primary bg-primary/5 px-3 py-1.5 text-[0.74rem] text-primary transition-colors hover:bg-primary/10'
+              : 'border border-border px-3 py-1.5 text-[0.74rem] transition-colors hover:border-foreground'
+          }
         >
           <span className="inline-flex items-center gap-1.5">
-            <Icon name="Settings" size={13} />
-            {s.name}
+            <Icon name={s.main ? 'CirclePlus' : 'Settings'} size={13} />
+            {s.main ? 'Добавить аппарат в драйвер' : s.name}
           </span>
         </button>
       ))}
@@ -701,9 +709,10 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
               </p>
 
               <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
-                Аппарат работает в других программах, но здесь его нет? Нажмите
-                «Выбрать сканер из драйвера» — откроется окно самого производителя
-                со списком его аппаратов. Выбранный останется в программе.
+                Если окно выбора пустое — аппарат ещё не добавлен в сам драйвер.
+                Нажмите «Добавить аппарат в драйвер», укажите IP-адрес аппарата
+                и вернитесь сюда. Пока этот шаг не сделан, сетевой МФУ не увидит
+                ни одна программа сканирования.
               </p>
 
               {setupBox}

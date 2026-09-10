@@ -236,7 +236,13 @@ const listen = <T>(kind: string, cb: (d: T) => void) => {
 
 // Программа настройки драйвера: у сетевых МФУ аппарат добавляется
 // именно в ней, поэтому её можно открыть прямо из окна сканирования
-export type ScanSetup = { name: string; path: string };
+export type ScanSetup = {
+  name: string;
+  path: string;
+  // Утилита добавления аппарата в драйвер. Для сетевых МФУ это
+  // главный шаг: без неё аппарат не появится ни в одной программе
+  main?: boolean;
+};
 
 export const onScanners = (
   cb: (list: ScanDevice[], hint?: string, setups?: ScanSetup[], known?: string[]) => void,

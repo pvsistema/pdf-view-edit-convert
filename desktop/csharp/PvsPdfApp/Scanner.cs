@@ -332,6 +332,10 @@ internal static class Scanner
     {
         public string Name = "";   // что показать на кнопке
         public string Path = "";   // что запустить
+
+        // Утилита добавления аппарата в драйвер. Для сетевых МФУ это
+        // главная кнопка: без неё аппарат не появится нигде
+        public bool Main;
     }
 
     // Ищем такие программы в папках драйверов. Файлов там много,
@@ -339,7 +343,15 @@ internal static class Scanner
     public static List<DriverSetup> Setups()
     {
         var found = new List<DriverSetup>();
-        string[] words = { "setting", "settings", "setup", "config", "tool", "admin", "manager" };
+        // «createsource» — главное слово для сетевых МФУ Kyocera: именно
+        // эта утилита добавляет аппарат в драйвер, и без неё драйвер
+        // отвечает «не открывается». Раньше кнопки для неё не было,
+        // хотя сама утилита лежала в папке рядом
+        string[] words =
+        {
+            "setting", "settings", "setup", "config", "tool", "admin", "manager",
+            "createsource", "addscanner", "adddevice", "install", "inst",
+        };
 
         try
         {
@@ -369,14 +381,26 @@ internal static class Scanner
                         if (!words.Any(w => low.Contains(w))) continue;
                         if (found.Any(s => string.Equals(s.Path, exe, StringComparison.OrdinalIgnoreCase))) continue;
 
-                        found.Add(new DriverSetup { Name = folder + " — " + file, Path = exe });
+                        // Утилита добавления аппарата важнее прочих:
+                        // без неё сетевой МФУ вообще не появится в списке
+                        bool main = low.Contains("createsource")
+                                    || low.Contains("addscanner")
+                                    || low.Contains("adddevice");
+
+                        found.Add(new DriverSetup
+                        {
+                            Name = folder + " — " + file,
+                            Path = exe,
+                            Main = main,
+                        });
                     }
                 }
             }
         }
         catch { }
 
-        return found;
+        // Утилиты добавления аппарата — вперёд: с них надо начинать
+        return found.OrderByDescending(x => x.Main).ToList();
     }
 
     // Главное в отчёте: разбор простым языком, без чтения таблиц выше.
@@ -464,6 +488,13 @@ internal static class Scanner
             text.AppendLine("     Проверить просто: если аппарат виден в другой программе");
             text.AppendLine("     сканирования, значит он добавлен и дело не в этом.");
             text.AppendLine("     Открыть настройку можно кнопкой в окне сканирования.");
+            text.AppendLine();
+
+            // Точный путь для Kyocera: у неё аппарат добавляется
+            // отдельной утилитой, и без неё драйвер отвечает
+            // «не открывается» — ровно то, что видно в отчёте выше
+            foreach (var setup in Setups().Where(x => x.Main))
+                text.AppendLine("     Нужная утилита: " + setup.Path);
             text.AppendLine();
             text.AppendLine("  2. Аппарат выключен или отсоединён.");
             text.AppendLine("     Проверьте питание и кабель, затем обновите список.");
