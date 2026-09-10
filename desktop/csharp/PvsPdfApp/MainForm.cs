@@ -511,6 +511,27 @@ public class MainForm : Form
             {
                 _ = ListScannersAsync();
             }
+            else if (type == "addScanner")
+            {
+                // Аппарат, который не отзывается на общий опрос,
+                // человек называет сам
+                var item = new ManualScanners.Item
+                {
+                    Name = root.TryGetProperty("name", out var mn) ? (mn.GetString() ?? "").Trim() : "",
+                    Wia = root.TryGetProperty("wia", out var mw) && mw.GetBoolean(),
+                    Feeder = root.TryGetProperty("feeder", out var mf) && mf.GetBoolean(),
+                    Duplex = root.TryGetProperty("duplex", out var md) && md.GetBoolean(),
+                };
+
+                ManualScanners.Add(item);
+                _ = ListScannersAsync();
+            }
+            else if (type == "removeScanner")
+            {
+                string name = root.TryGetProperty("name", out var rn) ? (rn.GetString() ?? "") : "";
+                ManualScanners.Remove(name);
+                _ = ListScannersAsync();
+            }
             else if (type == "scanSelfTest")
             {
                 _ = ScanSelfTestAsync();
@@ -664,6 +685,7 @@ public class MainForm : Form
                 feeder = d.HasFeeder,
                 duplex = d.HasDuplex,
                 twain = d.Twain,
+                manual = d.Manual,
             }),
             hint,
             setups = setups.Select(s => new { name = s.Name, path = s.Path }),

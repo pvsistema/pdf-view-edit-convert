@@ -59,6 +59,7 @@ internal static class Scanner
         public bool HasFeeder;
         public bool HasDuplex;
         public bool Twain;               // найден через драйвер производителя
+        public bool Manual;              // добавлен человеком вручную
     }
 
     // Все сканеры компьютера: и те, что видит Windows, и те, что доступны
@@ -84,6 +85,27 @@ internal static class Scanner
                     HasFeeder = t.HasFeeder,
                     HasDuplex = t.HasDuplex,
                     Twain = true,
+                });
+            }
+        }
+        catch { }
+
+        // Добавленные человеком вручную. Нужны для аппаратов, которые
+        // молчат на любой опрос: драйвер знает их только по имени
+        try
+        {
+            foreach (var m in ManualScanners.All())
+            {
+                if (found.Any(d => Same(d.Name, m.Name))) continue;
+
+                found.Add(new Device
+                {
+                    Id = (m.Wia ? "manual-wia:" : "manual:") + m.Name,
+                    Name = m.Name,
+                    HasFeeder = m.Feeder,
+                    HasDuplex = m.Duplex,
+                    Twain = !m.Wia,
+                    Manual = true,
                 });
             }
         }
@@ -832,6 +854,22 @@ internal static class Scanner
     // сколько уже отсканировано, не дожидаясь всей пачки
     public static List<string> Scan(Options opt, string dir, Action<int, string> onPage, CancellationToken token)
     {
+        // Добавленный вручную аппарат снимаем по имени. Через службу
+        // Windows или через драйвер — как указал человек при добавлении
+        if (opt.DeviceId.StartsWith("manual-wia:"))
+        {
+            opt.DeviceName = opt.DeviceId.Substring(11);
+            opt.DeviceId = opt.DeviceName;
+            return Sta(() => ScanCore(opt, dir, onPage, token));
+        }
+
+        if (opt.DeviceId.StartsWith("manual:"))
+        {
+            opt.Twain = true;
+            opt.DeviceName = opt.DeviceId.Substring(7);
+            return TwainBridge.Scan(opt, dir, false, onPage, token);
+        }
+
         // Устройство от производителя снимаем через помощника:
         // Windows о таком сканере не знает и помочь не может
         if (opt.Twain || opt.DeviceId.StartsWith("twain:"))

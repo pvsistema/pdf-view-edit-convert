@@ -167,6 +167,8 @@ export type ScanDevice = {
   duplex: boolean;
   // Устройство найдено через драйвер производителя, а не через Windows
   twain?: boolean;
+  // Аппарат добавлен человеком вручную
+  manual?: boolean;
 };
 
 export type ScanOptions = {
@@ -179,6 +181,17 @@ export type ScanOptions = {
 };
 
 export const listScanners = () => send({ type: 'listScanners' });
+
+// Сканер, добавленный вручную. Нужен для аппаратов, которые молчат
+// на любой опрос: драйвер знает их только по имени
+export const addScanner = (o: {
+  name: string;
+  wia: boolean;
+  feeder: boolean;
+  duplex: boolean;
+}) => send({ type: 'addScanner', ...o });
+
+export const removeScanner = (name: string) => send({ type: 'removeScanner', name });
 
 // Отчёт о поиске сканеров: что видит Windows, что видят помощники
 // и какие драйверы установлены. Нужен, когда аппарат не находится

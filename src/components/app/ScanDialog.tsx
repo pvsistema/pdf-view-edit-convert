@@ -15,9 +15,11 @@ import {
   onScanSelfTest,
   openScanSetup,
   onScanSetupDone,
+  removeScanner,
   type ScanDevice,
   type ScanSetup,
 } from '@/lib/desktop';
+import AddScannerBox from '@/components/app/AddScannerBox';
 import { scansToPdf, scanFileName } from '@/lib/scanToPdf';
 import { loadScanPrefs, saveScanPrefs } from '@/lib/scanPrefs';
 
@@ -79,6 +81,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   const [report, setReport] = useState<{ text: string; path: string } | null>(null);
   // Программы настройки драйверов: у сетевых МФУ аппарат добавляется в них
   const [setups, setSetups] = useState<ScanSetup[]>([]);
+
+  // Окно добавления сканера вручную — для аппаратов, молчащих на опрос
+  const [adding, setAdding] = useState(false);
 
   const strip = useRef<HTMLDivElement>(null);
   const current = devices?.find((d) => d.id === device);
@@ -318,7 +323,7 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
   // Кнопки настройки драйвера. Нужны там же, где и отчёт: когда список
   // пуст и когда нужного аппарата в нём нет
-  const setupBox = setups.length > 0 && (
+  const setupBox = (
     <div className="mt-3 flex flex-wrap gap-2">
       {setups.map((s) => (
         <button
@@ -333,8 +338,23 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           </span>
         </button>
       ))}
+
+      {/* Аппарат может молчать на любой опрос, оставаясь исправным.
+          Тогда человек называет его сам */}
+      <button
+        onClick={() => setAdding(true)}
+        disabled={adding}
+        className="border border-border px-3 py-1.5 text-[0.74rem] transition-colors hover:border-foreground disabled:opacity-40"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Icon name="Plus" size={13} />
+          Добавить сканер вручную
+        </span>
+      </button>
     </div>
   );
+
+  const addBox = adding && <AddScannerBox onClose={() => setAdding(false)} />;
 
   // Отчёт о поиске сканеров. Показывается в двух местах — когда список
   // пуст и когда нужного аппарата в нём нет, поэтому описан один раз
@@ -440,6 +460,8 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
               {setupBox}
 
+              {addBox}
+
               {reportBox}
               <p className="mt-3 text-[0.78rem] leading-relaxed text-muted-foreground">
                 Некоторые сетевые и многофункциональные устройства не отвечают на общий
@@ -487,7 +509,30 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                 ))}
               </select>
 
-              {current?.twain && (
+              {/* Аппарат добавлен вручную — его же можно и убрать */}
+              {current?.manual && (
+                <div className="mt-2 flex items-start gap-2 border border-border bg-card px-3 py-2.5">
+                  <Icon name="UserPen" size={15} className="mt-0.5 shrink-0 text-primary" />
+                  <p className="flex-1 text-[0.76rem] leading-relaxed text-muted-foreground">
+                    Этот сканер добавлен вручную. Программа обращается к нему по
+                    названию — если съёмка не пойдёт, проверьте, что название
+                    написано так же, как в программе производителя.
+                  </p>
+                  <button
+                    onClick={() => {
+                      removeScanner(current.name);
+                      setDevice('');
+                      setDevices(null);
+                    }}
+                    disabled={busy}
+                    className="shrink-0 text-[0.74rem] text-muted-foreground hover:text-destructive disabled:opacity-40"
+                  >
+                    Убрать
+                  </button>
+                </div>
+              )}
+
+              {current?.twain && !current?.manual && (
                 <div className="mt-2 flex gap-2 border border-border bg-card px-3 py-2.5">
                   <Icon
                     name="TriangleAlert"
@@ -604,7 +649,14 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                   : ' Откройте «Пуск → папка производителя → настройка сканера», нажмите «Добавить» и укажите IP-адрес аппарата — он есть на странице состояния, которую МФУ печатает сам.'}
               </p>
 
+              <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
+                Аппарат работает в других программах, но здесь его нет? Добавьте
+                его вручную — программа обратится к драйверу прямо по названию.
+              </p>
+
               {setupBox}
+
+              {addBox}
 
               <button
                 onClick={() => {
