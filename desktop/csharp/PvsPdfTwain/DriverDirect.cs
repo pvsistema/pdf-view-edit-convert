@@ -190,33 +190,48 @@ internal static class DriverDirect
             {
                 var app = MakeAppId(oldRules);
                 var src = Blank();
-                var answer = Blank();
+                string rules = oldRules ? "правила старые" : "правила новые";
 
-                // Спрашиваем сам драйвер: «как называется твой аппарат».
-                // Второй параметр — кого спрашиваем, третий — куда
-                // положить ответ
+                // Имя аппарата спрашивать бесполезно: неоткрытый драйвер
+                // отвечает общим отказом (так и было — «ответ 1» у всех
+                // трёх файлов, включая исправный Epson).
+                //
+                // Драйвер называет себя САМ, когда его открывают. Поэтому
+                // просто открываем и читаем, как он представился
+                // Одну и ту же запись нельзя передавать в оба параметра
+                // сразу: драйвер пишет ответ поверх вопроса. Держим
+                // отдельные
+                var self = Blank();
+
                 ushort rc;
-                try { rc = call(ref app, ref src, DG_CONTROL, DAT_IDENTITY, MSG_GET, ref answer); }
+                try { rc = call(ref app, ref src, DG_CONTROL, DAT_IDENTITY, MSG_OPENDS, ref self); }
                 catch (Exception ex)
                 {
-                    Log.Add($"{title}: сбой при опросе — " + Short(ex));
+                    Log.Add($"{title}: сбой при открытии — " + Short(ex));
                     break;
                 }
 
                 if (rc != TWRC_SUCCESS)
                 {
-                    Log.Add($"{title}: {(oldRules ? "правила старые" : "правила новые")} — ответ {rc}");
+                    Log.Add($"{title}: {rules} — не открывается (ответ {rc})");
                     continue;
                 }
 
-                string name = FromStr32(answer.ProductName);
+                string name = FromStr32(self.ProductName);
+
+                // Драйвер открыт — закрываем сразу, чтобы не держать
+                // аппарат занятым: иначе его не увидят другие программы
+                var closing = self;
+                try { call(ref app, ref src, DG_CONTROL, DAT_IDENTITY, MSG_CLOSEDS, ref closing); }
+                catch { }
+
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    Log.Add($"{title}: аппарат без названия");
+                    Log.Add($"{title}: {rules} — открылся, но себя не назвал");
                     continue;
                 }
 
-                Log.Add($"{title}: {name}");
+                Log.Add($"{title}: {name}  [{rules}]");
                 if (!found.Any(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)))
                     found.Add(new Device { Name = name, File = file });
 

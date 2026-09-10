@@ -256,6 +256,12 @@ if exist "%TWAIN_DIR%\PvsPdfTwain.csproj" (
     REM bitness must not mix with each other or with the main program
     cd /d "%TWAIN_DIR%"
 
+    REM Wipe intermediate build folders too. Without this dotnet may
+    REM reuse stale objects and quietly ship helpers built from OLD
+    REM sources - the report then shows fixed bugs as still present.
+    if exist "%TWAIN_DIR%\obj" rmdir /S /Q "%TWAIN_DIR%\obj"
+    if exist "%TWAIN_DIR%\bin" rmdir /S /Q "%TWAIN_DIR%\bin"
+
     if exist "%TWAIN_OUT%" rmdir /S /Q "%TWAIN_OUT%"
     call dotnet publish -c Release -r win-x86 --self-contained true -p:PlatformTarget=x86 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%APP_VERSION% -o "%TWAIN_OUT%" || goto :fail
 

@@ -221,6 +221,7 @@ internal static class TwainBridge
     // Человеческие названия для полей отчёта
     static string Title(string name) => name switch
     {
+        "version" => "версия помощника",
         "bits" => "разрядность",
         "pack" => "укладка полей",
         "dsmSearched" => "где искали посредника",

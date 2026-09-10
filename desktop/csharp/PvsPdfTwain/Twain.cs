@@ -315,8 +315,20 @@ internal static class Twain
     // обрывается цепочка — без догадок и переустановок вслепую
     public static Dictionary<string, object> SelfTest()
     {
+        // Версия помощника обязательна в отчёте: главная программа и
+        // помощники — разные файлы, и обновиться может только часть.
+        // Без этой строки старый помощник не отличить от нового
+        string version = "неизвестна";
+        try
+        {
+            version = System.Diagnostics.FileVersionInfo
+                .GetVersionInfo(Environment.ProcessPath ?? "").FileVersion ?? "неизвестна";
+        }
+        catch { }
+
         var report = new Dictionary<string, object>
         {
+            ["version"] = version,
             ["bits"] = Environment.Is64BitProcess ? 64 : 32,
             ["pack"] = PACK,
         };
