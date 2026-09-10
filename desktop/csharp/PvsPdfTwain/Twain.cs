@@ -5,6 +5,13 @@ namespace PvsPdfTwain;
 // Общение со сканером по стандарту TWAIN — тому самому, которым
 // пользуются программы производителей и FineReader. Драйвер такого
 // сканера видит все устройства, даже те, о которых Windows не знает.
+// Нужного аппарата нет у этого посредника. Отдельный вид ошибки нужен,
+// чтобы отличить «спроси другого» от настоящей поломки сканера
+internal sealed class DeviceNotFoundException : Exception
+{
+    public DeviceNotFoundException(string message) : base(message) { }
+}
+
 internal static class Twain
 {
     // ---- группы, разделы и команды стандарта ----
@@ -230,8 +237,16 @@ internal static class Twain
     // Какой диспетчер доступен на этом компьютере. Проверяем один раз
     static bool? _useNew;
 
+    // Каким посредником пользуемся прямо сейчас. Пусто — выбрать самим
+    static bool? _force;
+
+    // На время работы переключаемся на нужного посредника
+    static void Force(bool useNew) => _force = useNew;
+    static void Unforce() => _force = null;
+
     static bool UseNew()
     {
+        if (_force.HasValue) return _force.Value;
         if (_useNew.HasValue) return _useNew.Value;
 
         var probe = MakeAppId();
@@ -250,6 +265,45 @@ internal static class Twain
         }
 
         return _useNew.Value;
+    }
+
+    // Проверка, отзывается ли посредник этого вида. Проверяем самим
+    // открытием: библиотека может быть на месте, но не работать
+    static bool Works(bool useNew)
+    {
+        // Классический посредник существует только в 32 разрядах
+        if (!useNew && Environment.Is64BitProcess) return false;
+
+        Force(useNew);
+        try
+        {
+            var probe = MakeAppId();
+            IntPtr hwnd = Handle.Window;
+
+            if (NewOrOld(ref probe, DG_CONTROL, DAT_PARENT, MSG_OPENDSM, ref hwnd) != TWRC_SUCCESS)
+                return false;
+
+            NewOrOld(ref probe, DG_CONTROL, DAT_PARENT, MSG_CLOSEDSM, ref hwnd);
+            return true;
+        }
+        catch { return false; }
+        finally { Unforce(); }
+    }
+
+    static ushort NewOrOld(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref IntPtr data)
+        => UseNew() ? NewEntry(ref app, IntPtr.Zero, dg, dat, msg, ref data)
+                    : OldEntry(ref app, IntPtr.Zero, dg, dat, msg, ref data);
+
+    // Каких посредников есть смысл спрашивать. Спрашиваем ОБОИХ:
+    // современный (TWAINDSM.dll) перечисляет не все драйверы — старые
+    // вроде Kyocera KMTWAIN он молча пропускает, а классический
+    // twain_32.dll их показывает. По одному посреднику аппарат терялся
+    static List<bool> Dsms()
+    {
+        var list = new List<bool>();
+        if (Works(true)) list.Add(true);
+        if (Works(false)) list.Add(false);
+        return list;
     }
 
     // Есть ли на компьютере диспетчер, пригодный для этой разрядности.
@@ -300,7 +354,10 @@ internal static class Twain
         try
         {
             var found = List();
-            report["scanners"] = found.Select(d => d.Name).ToList();
+            report["scanners"] = found
+                .Select(d => d.Name + (_via.TryGetValue(d.Name, out bool v)
+                    ? (v ? "  [современный]" : "  [классический]") : ""))
+                .ToList();
             report["skipped"] = Skipped;
         }
         catch (Exception ex)
@@ -308,9 +365,23 @@ internal static class Twain
             report["scannersError"] = ex.Message;
         }
 
-        // Пошаговый разбор перебора: что ответил каждый драйвер.
-        // По нему сразу видно, кто именно отказывается отвечать
-        report["walk"] = Walk();
+        // Пошаговый разбор по КАЖДОМУ посреднику отдельно: видно,
+        // кто какие драйверы показывает и где теряется аппарат
+        var walk = new List<string>();
+        foreach (bool useNew in new[] { true, false })
+        {
+            string title = useNew ? "современный (TWAINDSM.dll)" : "классический (twain_32.dll)";
+
+            if (!Works(useNew)) { walk.Add(title + ": не отзывается"); continue; }
+
+            walk.Add(title + ":");
+            Force(useNew);
+            try { foreach (string step in Walk()) walk.Add("   " + step); }
+            catch (Exception ex) { walk.Add("   сбой: " + ex.Message); }
+            finally { Unforce(); }
+        }
+
+        report["walk"] = walk;
 
         return report;
     }
@@ -319,7 +390,6 @@ internal static class Twain
     static List<string> Walk()
     {
         var steps = new List<string>();
-        if (!DsmReady()) { steps.Add("диспетчер недоступен"); return steps; }
 
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;
@@ -456,9 +526,36 @@ internal static class Twain
         var found = new List<Device>();
         Skipped = 0;
 
-        // Диспетчера нужной разрядности нет — спрашивать некого
-        if (!DsmReady()) return found;
+        // Спрашиваем обоих посредников и складываем ответы: каждый
+        // показывает свой набор драйверов, и вместе они дают полный список
+        foreach (bool useNew in Dsms())
+        {
+            Force(useNew);
+            try
+            {
+                foreach (var dev in ListVia())
+                {
+                    if (found.Any(d => string.Equals(d.Name, dev.Name, StringComparison.OrdinalIgnoreCase)))
+                        continue;
 
+                    _via[dev.Name] = useNew;
+                    found.Add(dev);
+                }
+            }
+            catch { }
+            finally { Unforce(); }
+        }
+
+        return found;
+    }
+
+    // Через какого посредника нашёлся аппарат. Снимать его нужно
+    // тем же: другой посредник о нём может не знать
+    static readonly Dictionary<string, bool> _via = new(StringComparer.OrdinalIgnoreCase);
+
+    static List<Device> ListVia()
+    {
+        var found = new List<Device>();
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;
 
@@ -515,9 +612,48 @@ internal static class Twain
     // обычный набор значений, ничего не запрещая
     public static List<int> Resolutions(string deviceName)
     {
-        var list = new List<int>();
-        if (!DsmReady()) return list;
+        if (!DsmReady()) return new List<int>();
 
+        // Помощник запускается заново на каждую команду, поэтому кто
+        // показал аппарат — уже неизвестно. Пробуем обоих посредников
+        foreach (bool useNew in Order(deviceName))
+        {
+            Force(useNew);
+            try
+            {
+                var list = ResolutionsVia(deviceName);
+                if (list.Count > 0) return list;
+            }
+            catch { }
+            finally { Unforce(); }
+        }
+
+        return new List<int>();
+    }
+
+    // В каком порядке пробовать посредников для этого аппарата.
+    // Если знаем, кто его показывал, — начинаем с него
+    static List<bool> Order(string deviceName)
+    {
+        var all = Dsms();
+        if (!string.IsNullOrWhiteSpace(deviceName) &&
+            _via.TryGetValue(deviceName, out bool known) && all.Contains(known))
+        {
+            all.Remove(known);
+            all.Insert(0, known);
+        }
+        return all;
+    }
+
+    // Через кого спрашивать этот аппарат. Не знаем — берём того,
+    // что выбран по умолчанию
+    static bool ViaFor(string deviceName)
+        => !string.IsNullOrWhiteSpace(deviceName) && _via.TryGetValue(deviceName, out bool v)
+            ? v : UseNew();
+
+    static List<int> ResolutionsVia(string deviceName)
+    {
+        var list = new List<int>();
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;
 
@@ -639,12 +775,29 @@ internal static class Twain
     // Съёмка страниц. Возвращает пути к сохранённым картинкам
     public static List<string> Scan(Options opt, string dir, Action<int, string>? onPage = null)
     {
-        Directory.CreateDirectory(dir);
-        var files = new List<string>();
-
         if (!DsmReady())
             throw new InvalidOperationException(
                 "На этом компьютере нет 64-разрядной службы TWAIN. Обычно её ставит драйвер сканера — переустановите драйвер производителя.");
+
+        // Аппарат может быть виден только одному из посредников.
+        // Пробуем по очереди: «сканер не найден» — повод спросить
+        // второго, а любая другая беда касается уже самого аппарата
+        var tried = Order(opt.Device);
+        for (int i = 0; i < tried.Count; i++)
+        {
+            Force(tried[i]);
+            try { return ScanVia(opt, dir, onPage); }
+            catch (DeviceNotFoundException) when (i < tried.Count - 1) { }
+            finally { Unforce(); }
+        }
+
+        throw new InvalidOperationException("Сканер не найден среди устройств TWAIN.");
+    }
+
+    static List<string> ScanVia(Options opt, string dir, Action<int, string>? onPage)
+    {
+        Directory.CreateDirectory(dir);
+        var files = new List<string>();
 
         var app = MakeAppId();
         IntPtr hwnd = Handle.Window;
@@ -681,7 +834,7 @@ internal static class Twain
             }
 
             if (!picked)
-                throw new InvalidOperationException("Сканер не найден среди устройств TWAIN.");
+                throw new DeviceNotFoundException("Сканер не найден среди устройств TWAIN.");
 
             if (Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_OPENDS, ref src) != TWRC_SUCCESS)
                 throw new InvalidOperationException(
