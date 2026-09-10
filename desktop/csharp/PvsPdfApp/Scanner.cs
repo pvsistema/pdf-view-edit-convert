@@ -269,6 +269,60 @@ internal static class Scanner
         return text.ToString();
     }
 
+    // Программа настройки драйвера. У сетевых МФУ аппарат добавляется
+    // именно в ней, поэтому даём открыть её прямо из окна сканирования,
+    // не заставляя искать по меню «Пуск»
+    public sealed class Setup
+    {
+        public string Name = "";   // что показать на кнопке
+        public string Path = "";   // что запустить
+    }
+
+    // Ищем такие программы в папках драйверов. Файлов там много,
+    // поэтому берём только те, чьё имя говорит о настройке
+    public static List<Setup> Setups()
+    {
+        var found = new List<Setup>();
+        string[] words = { "setting", "settings", "setup", "config", "tool", "admin", "manager" };
+
+        try
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            foreach (string name in new[] { "twain_32", "twain_64" })
+            {
+                string dir = Path.Combine(win, name);
+                if (!Directory.Exists(dir)) continue;
+
+                foreach (string subDir in Directory.GetDirectories(dir))
+                {
+                    string? folder = Path.GetFileName(subDir);
+                    if (string.IsNullOrEmpty(folder)) continue;
+
+                    string[] exes;
+                    try { exes = Directory.GetFiles(subDir, "*.exe", SearchOption.AllDirectories); }
+                    catch { continue; }
+
+                    foreach (string exe in exes)
+                    {
+                        string file = Path.GetFileNameWithoutExtension(exe) ?? "";
+                        string low = file.ToLowerInvariant();
+
+                        // Отсеиваем удаление: запустить его по ошибке —
+                        // худшее, что может случиться с драйвером
+                        if (low.Contains("uninst") || low.Contains("remove")) continue;
+                        if (!words.Any(w => low.Contains(w))) continue;
+                        if (found.Any(s => string.Equals(s.Path, exe, StringComparison.OrdinalIgnoreCase))) continue;
+
+                        found.Add(new Setup { Name = folder + " — " + file, Path = exe });
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return found;
+    }
+
     // Главное в отчёте: разбор простым языком, без чтения таблиц выше.
     // Сопоставляем установленные драйверы с найденными аппаратами —
     // драйвер без единого аппарата означает, что он есть, но пуст

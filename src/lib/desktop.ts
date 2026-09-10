@@ -212,8 +212,22 @@ const listen = <T>(kind: string, cb: (d: T) => void) => {
   };
 };
 
-export const onScanners = (cb: (list: ScanDevice[], hint?: string) => void) =>
-  listen<{ items: ScanDevice[]; hint?: string }>('scanners', (d) => cb(d.items || [], d.hint));
+// Программа настройки драйвера: у сетевых МФУ аппарат добавляется
+// именно в ней, поэтому её можно открыть прямо из окна сканирования
+export type ScanSetup = { name: string; path: string };
+
+export const onScanners = (
+  cb: (list: ScanDevice[], hint?: string, setups?: ScanSetup[]) => void,
+) =>
+  listen<{ items: ScanDevice[]; hint?: string; setups?: ScanSetup[] }>('scanners', (d) =>
+    cb(d.items || [], d.hint, d.setups || []),
+  );
+
+export const openScanSetup = (path: string) => send({ type: 'openScanSetup', path });
+
+// Ответ на попытку открыть настройку драйвера
+export const onScanSetupDone = (cb: (ok: boolean, error: string) => void) =>
+  listen<{ ok: boolean; error?: string }>('scanSetupDone', (d) => cb(!!d.ok, d.error || ''));
 
 // Готовый отчёт о поиске сканеров и путь к сохранённому файлу
 export const onScanSelfTest = (cb: (report: string, path: string) => void) =>

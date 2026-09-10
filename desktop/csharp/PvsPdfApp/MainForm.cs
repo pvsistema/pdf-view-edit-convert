@@ -515,6 +515,11 @@ public class MainForm : Form
             {
                 _ = ScanSelfTestAsync();
             }
+            else if (type == "openScanSetup")
+            {
+                string exe = root.TryGetProperty("path", out var sp) ? (sp.GetString() ?? "") : "";
+                OpenScanSetup(exe);
+            }
             else if (type == "scanCaps")
             {
                 string dev = root.TryGetProperty("device", out var sd) ? (sd.GetString() ?? "") : "";
@@ -645,6 +650,10 @@ public class MainForm : Form
         var list = await Task.Run(() => Scanner.List());
         string hint = list.Count > 0 ? "" : await Task.Run(() => Scanner.Diagnose());
 
+        // Программы настройки драйверов: у сетевых МФУ аппарат
+        // добавляется в них, поэтому даём открыть их одной кнопкой
+        var setups = await Task.Run(() => Scanner.Setups());
+
         SendUpdate(new
         {
             type = "scanners",
@@ -657,6 +666,7 @@ public class MainForm : Form
                 twain = d.Twain,
             }),
             hint,
+            setups = setups.Select(s => new { name = s.Name, path = s.Path }),
         });
     }
 
@@ -795,6 +805,48 @@ public class MainForm : Form
             }));
         }
         catch { }
+    }
+
+    // Открываем настройку драйвера сканера. Запускаем только то, что
+    // сами нашли в папках драйверов: путь, пришедший из окна, сверяем
+    // со своим списком, иначе запускать чужое нельзя
+    void OpenScanSetup(string exe)
+    {
+        try
+        {
+            var known = Scanner.Setups();
+            var pick = known.FirstOrDefault(s =>
+                string.Equals(s.Path, exe, StringComparison.OrdinalIgnoreCase));
+
+            if (pick == null)
+            {
+                SendUpdate(new
+                {
+                    type = "scanSetupDone",
+                    ok = false,
+                    error = "Настройка драйвера не найдена. Откройте её через меню «Пуск».",
+                });
+                return;
+            }
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = pick.Path,
+                WorkingDirectory = Path.GetDirectoryName(pick.Path) ?? "",
+                UseShellExecute = true,
+            });
+
+            SendUpdate(new { type = "scanSetupDone", ok = true, error = "" });
+        }
+        catch (Exception ex)
+        {
+            SendUpdate(new
+            {
+                type = "scanSetupDone",
+                ok = false,
+                error = "Не удалось открыть настройку драйвера: " + ex.Message,
+            });
+        }
     }
 
     // Настройки принтера: открываем окно свойств драйвера Windows

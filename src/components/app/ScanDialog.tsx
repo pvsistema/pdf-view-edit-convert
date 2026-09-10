@@ -13,7 +13,10 @@ import {
   askScanCaps,
   askScanSelfTest,
   onScanSelfTest,
+  openScanSetup,
+  onScanSetupDone,
   type ScanDevice,
+  type ScanSetup,
 } from '@/lib/desktop';
 import { scansToPdf, scanFileName } from '@/lib/scanToPdf';
 import { loadScanPrefs, saveScanPrefs } from '@/lib/scanPrefs';
@@ -74,6 +77,8 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   const [error, setError] = useState('');
   const [hint, setHint] = useState('');
   const [report, setReport] = useState<{ text: string; path: string } | null>(null);
+  // Программы настройки драйверов: у сетевых МФУ аппарат добавляется в них
+  const [setups, setSetups] = useState<ScanSetup[]>([]);
 
   const strip = useRef<HTMLDivElement>(null);
   const current = devices?.find((d) => d.id === device);
@@ -81,9 +86,10 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   useEffect(() => {
     const offReport = onScanSelfTest((text, path) => setReport({ text, path }));
 
-    const offList = onScanners((list, hint) => {
+    const offList = onScanners((list, hint, found) => {
       setDevices(list);
       setHint(hint || '');
+      setSetups(found || []);
       if (list.length) {
         setDevice((cur) => {
           if (cur) return cur;
@@ -107,10 +113,23 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
         if (!saved.device && !saved.deviceName) setFeeder(list[0].feeder && batch);
       }
     });
+    // Настройка драйвера открыта — сразу говорим, что делать дальше
+    const offSetup = onScanSetupDone((ok, err) => {
+      toast(
+        ok
+          ? {
+              title: 'Настройка драйвера открыта',
+              description: 'Добавьте аппарат и вернитесь сюда — нажмите «Искать снова»',
+            }
+          : { title: 'Не удалось открыть', description: err },
+      );
+    });
+
     listScanners();
     return () => {
       offList();
       offReport();
+      offSetup();
     };
   }, [batch, saved.device, saved.deviceName]);
 
@@ -297,6 +316,26 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
   const none = devices !== null && devices.length === 0;
 
+  // Кнопки настройки драйвера. Нужны там же, где и отчёт: когда список
+  // пуст и когда нужного аппарата в нём нет
+  const setupBox = setups.length > 0 && (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {setups.map((s) => (
+        <button
+          key={s.path}
+          onClick={() => openScanSetup(s.path)}
+          title={s.path}
+          className="border border-border px-3 py-1.5 text-[0.74rem] transition-colors hover:border-foreground"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <Icon name="Settings" size={13} />
+            {s.name}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+
   // Отчёт о поиске сканеров. Показывается в двух местах — когда список
   // пуст и когда нужного аппарата в нём нет, поэтому описан один раз
   const reportBox = report && (
@@ -398,6 +437,8 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                   Отчёт о поиске
                 </button>
               </div>
+
+              {setupBox}
 
               {reportBox}
               <p className="mt-3 text-[0.78rem] leading-relaxed text-muted-foreground">
@@ -557,10 +598,13 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                   в него не добавлен, и тогда его не видит ни одна программа */}
               <p className="mt-4 text-[0.76rem] leading-relaxed text-muted-foreground">
                 Нет нужного сканера? У сетевых МФУ (Kyocera, Ricoh, Sharp) драйвер показывает
-                только те аппараты, которые заранее добавлены в его собственной настройке. Откройте
-                «Пуск → папка производителя → настройка сканера», нажмите «Добавить» и укажите
-                IP-адрес аппарата — он есть на странице состояния, которую МФУ печатает сам.
+                только те аппараты, которые заранее добавлены в его собственной настройке.
+                {setups.length > 0
+                  ? ' Откройте её кнопкой ниже, нажмите «Добавить» и укажите IP-адрес аппарата — он есть на странице состояния, которую МФУ печатает сам.'
+                  : ' Откройте «Пуск → папка производителя → настройка сканера», нажмите «Добавить» и укажите IP-адрес аппарата — он есть на странице состояния, которую МФУ печатает сам.'}
               </p>
+
+              {setupBox}
 
               <button
                 onClick={() => {
