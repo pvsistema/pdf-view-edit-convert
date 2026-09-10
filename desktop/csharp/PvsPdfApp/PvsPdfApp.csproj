@@ -13,8 +13,9 @@
     <Product>ПВ-Система PDF</Product>
     <Company>ПВ-Система</Company>
     <AssemblyTitle>ПВ-Система PDF</AssemblyTitle>
-    <FileVersion>1.0.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <!-- Версию задаёт сборка из файла desktop\APP_VERSION.
+         Жёсткие значения здесь перебивали её, и в свойствах
+         файла всегда стояло 1.0.0 -->
     <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
 
