@@ -356,7 +356,24 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
           {devices !== null && devices.length > 0 && (
             <>
-              <label className="label-caps">Устройство</label>
+              <div className="flex items-center justify-between gap-3">
+                <label className="label-caps">Устройство</label>
+                {/* Аппарат включили или подсоединили уже после открытия окна —
+                    список можно перечитать, не закрывая его */}
+                <button
+                  onClick={() => {
+                    setDevice('');
+                    setDevices(null);
+                    listScanners();
+                  }}
+                  disabled={busy || building}
+                  title="Перечитать список сканеров"
+                  className="flex items-center gap-1.5 text-[0.74rem] text-primary hover:underline disabled:opacity-40"
+                >
+                  <Icon name="RefreshCw" size={12} />
+                  Обновить список
+                </button>
+              </div>
               <select
                 value={device}
                 disabled={busy}

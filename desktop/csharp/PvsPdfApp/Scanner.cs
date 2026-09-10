@@ -92,6 +92,19 @@ internal static class Scanner
         return found;
     }
 
+    // Убираем из названия служебные слова драйвера: человеку нужен
+    // «Kyocera TASKalfa 2020», а не «Kyocera TASKalfa 2020 WIA Driver»
+    static string Pretty(string name)
+    {
+        string s = name.Trim();
+        foreach (string tail in new[] { " WIA Driver", " WIA-Driver", " WIA driver", " TWAIN Driver" })
+        {
+            if (s.EndsWith(tail, StringComparison.OrdinalIgnoreCase))
+                s = s.Substring(0, s.Length - tail.Length).Trim();
+        }
+        return s.Length > 0 ? s : name;
+    }
+
     // Названия у одного устройства слегка расходятся: «Kyocera ECOSYS
     // M2040dn» и «Kyocera ECOSYS M2040dn WIA». Сравниваем по сути
     static bool Same(string a, string b)
@@ -150,32 +163,41 @@ internal static class Scanner
             mgr = MakeCom("WIA.DeviceManager");
             if (mgr == null) return found;
 
-            foreach (dynamic info in mgr.DeviceInfos)
+            // Устройства перебираем по номеру, а не единым списком.
+            // Перебор списком обрывается целиком, стоит одному капризному
+            // драйверу ответить с ошибкой, — и вместе с ним пропадали
+            // исправные сканеры, которые стояли в списке дальше
+            int count = 0;
+            try { count = (int)mgr.DeviceInfos.Count; } catch { }
+
+            for (int i = 1; i <= count; i++)
+            {
+                dynamic? info = null;
+                try
+                {
+                    info = mgr.DeviceInfos[i];
+                    var dev = ReadDevice(info);
+                    if (dev != null) found.Add(dev);
+                }
+                catch { }
+                finally { Release(info); }
+            }
+
+            // Номера не подошли — пробуем обычным перебором.
+            // Лучше неполный список, чем пустой
+            if (found.Count == 0)
             {
                 try
                 {
-                    // Тип устройства читаем мягко. Часть драйверов (в том числе
-                    // у сетевых МФУ) его не сообщает или отдаёт нестандартное
-                    // значение — раньше такой сканер молча пропадал из списка.
-                    // Отсекаем только заведомо чужое: камеры и видеоустройства
-                    int type = -1;
-                    try { type = (int)info.Type; } catch { }
-                    if (type == 2 || type == 3) continue;   // 2 - камера, 3 - видео
-
-                    string id = info.DeviceID;
-                    string name = Prop(info.Properties, "Name") ?? "Сканер";
-
-                    int caps = 0;
-                    try { caps = Convert.ToInt32(Prop(info.Properties, "Document Handling Capabilities") ?? "0"); }
-                    catch { }
-
-                    found.Add(new Device
+                    foreach (dynamic info in mgr.DeviceInfos)
                     {
-                        Id = id,
-                        Name = name,
-                        HasFeeder = (caps & FEEDER) != 0,
-                        HasDuplex = (caps & DUPLEX) != 0,
-                    });
+                        try
+                        {
+                            var dev = ReadDevice(info);
+                            if (dev != null) found.Add(dev);
+                        }
+                        catch { }
+                    }
                 }
                 catch { }
             }
@@ -184,6 +206,42 @@ internal static class Scanner
         finally { Release(mgr); }
 
         return found;
+    }
+
+    // Сведения об одном устройстве. Возвращает null только для заведомо
+    // чужого — камер и видеоустройств
+    static Device? ReadDevice(dynamic info)
+    {
+        // Тип устройства читаем мягко. Часть драйверов (в том числе
+        // у сетевых МФУ) его не сообщает или отдаёт нестандартное
+        // значение — раньше такой сканер молча пропадал из списка.
+        // Отсекаем только заведомо чужое: камеры и видеоустройства
+        int type = -1;
+        try { type = (int)info.Type; } catch { }
+        if (type == 2 || type == 3) return null;   // 2 - камера, 3 - видео
+
+        string id = "";
+        try { id = (string)info.DeviceID; } catch { }
+
+        string name = "";
+        try { name = Prop(info.Properties, "Name") ?? ""; } catch { }
+
+        // Без кода устройства снимать нечего, а вот без имени — можно:
+        // подставим понятную замену
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        if (string.IsNullOrWhiteSpace(name)) name = "Сканер";
+
+        int caps = 0;
+        try { caps = Convert.ToInt32(Prop(info.Properties, "Document Handling Capabilities") ?? "0"); }
+        catch { }
+
+        return new Device
+        {
+            Id = id,
+            Name = Pretty(name),
+            HasFeeder = (caps & FEEDER) != 0,
+            HasDuplex = (caps & DUPLEX) != 0,
+        };
     }
 
     // Служба сканирования работает только в однопоточном режиме COM (STA).
