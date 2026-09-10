@@ -261,7 +261,20 @@ internal static class Program
         }
 
         string? error = WiaDirect.ScanToFile(path, id);
-        if (error != null) throw new InvalidOperationException(error);
+
+        // К сообщению прикладываем ход съёмки: без него не понять,
+        // на каком шаге всё встало
+        if (error != null)
+        {
+            var tail = WiaDirect.Log
+                .Where(x => x.StartsWith("прямая съёмка"))
+                .ToList();
+
+            if (tail.Count > 0)
+                error += "\n\nЧто происходило:\n" + string.Join("\n", tail);
+
+            throw new InvalidOperationException(error);
+        }
 
         onPage(1, path);
         return new List<string> { path };

@@ -469,7 +469,15 @@ internal static class WiaDirect
                 var iid = pair.Item2;
 
                 int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
-                if (hr != 0 || raw == IntPtr.Zero) continue;
+
+                if (hr != 0 || raw == IntPtr.Zero)
+                {
+                    Log.Add($"прямая съёмка: служба не создана (код {hr:X8})");
+                    last = hr;
+                    continue;
+                }
+
+                Log.Add($"прямая съёмка: аппарат «{deviceId}»");
 
                 // Зовём напрямую: посредник .NET на описании службы
                 // спотыкается — та же причина, что и в поиске
@@ -483,14 +491,15 @@ internal static class WiaDirect
                 // Служба сама подставит номер и расширение
                 string template = Path.GetFileNameWithoutExtension(path);
 
-                // Сначала — с кодом аппарата и без лишних окон. Если
-                // служба откажет, пробуем показать её собственное окно
-                // выбора: на части компьютеров съёмка идёт только так
+                // Признаки: 0x02 — один снимок, 0x04 — общее окно
+                // Windows вместо окна производителя. Тихого режима
+                // у этой команды нет, она всегда рисует окно
                 foreach (var (flags, who, how) in new[]
                 {
-                    (0x10, deviceId, "тихо, наш аппарат"),
-                    (0x00, deviceId, "с окном, наш аппарат"),
-                    (0x00, "",       "с окном, выбор человека"),
+                    (0x02 | 0x04, deviceId, "общее окно, наш аппарат"),
+                    (0x02,        deviceId, "окно драйвера, наш аппарат"),
+                    (0x02 | 0x04, "",       "общее окно, выбор человека"),
+                    (0x00,        deviceId, "как решит служба"),
                 })
                 {
                     int count = 0;
