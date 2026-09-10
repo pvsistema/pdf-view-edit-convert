@@ -401,6 +401,17 @@ internal static class Twain
             report["wiaError"] = ex.Message;
         }
 
+        // Прямой опрос файлов драйверов, минуя посредника
+        try
+        {
+            report["dsScanners"] = DriverDirect.List().Select(d => d.Name).ToList();
+            report["dsWalk"] = DriverDirect.Log;
+        }
+        catch (Exception ex)
+        {
+            report["dsError"] = ex.Message;
+        }
+
         // Пошаговый разбор по каждому сочетанию «посредник + правила»:
         // видно, кто какие драйверы показывает и на что отзывается
         // конкретный аппарат

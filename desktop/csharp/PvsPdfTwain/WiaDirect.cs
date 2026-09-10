@@ -114,7 +114,12 @@ internal static class WiaDirect
     // понимают все драйверы, новое — только свежие
     static readonly Guid CLSID_OLD = new("a1f4e726-8cf1-11d1-bf92-0060081ed811");
     static readonly Guid CLSID_NEW = new("b6c292bc-7c88-41ee-8b54-8ec92617e599");
+
+    // У каждого поколения службы СВОЙ опознавательный знак. Спросишь
+    // у нового старый — получишь отказ 80004002 «нет такого
+    // интерфейса». Именно на этом прошлая попытка и споткнулась
     static readonly Guid IID_DEVMGR = new("5e38b83c-8cf1-11d1-bf92-0060081ed811");
+    static readonly Guid IID_DEVMGR2 = new("79c07cf1-cbdd-41ee-8ec3-f00080cada7a");
 
     // Все сканеры, известные службе Windows
     public static List<Device> List()
@@ -125,21 +130,21 @@ internal static class WiaDirect
         // Порядок важен: сначала старое поколение — его понимают
         // и старые драйверы, и новые. Новое спрашиваем следом,
         // на случай аппарата, который отзывается только ему
-        Ask(CLSID_OLD, "правила старые", found);
-        Ask(CLSID_NEW, "правила новые", found);
+        Ask(CLSID_OLD, IID_DEVMGR, "правила старые", found);
+        Ask(CLSID_NEW, IID_DEVMGR2, "правила новые", found);
 
         Log.Add("итого сканеров: " + found.Count);
         return found;
     }
 
-    static void Ask(Guid clsid, string title, List<Device> found)
+    static void Ask(Guid clsid, Guid interfaceId, string title, List<Device> found)
     {
         IntPtr raw = IntPtr.Zero;
 
         try
         {
             var id = clsid;
-            var iid = IID_DEVMGR;
+            var iid = interfaceId;
 
             int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
             if (hr != 0 || raw == IntPtr.Zero)
@@ -275,13 +280,15 @@ internal static class WiaDirect
     {
         IntPtr raw = IntPtr.Zero;
 
-        // Спрашиваем оба поколения службы: аппарат отзовётся своему
-        foreach (Guid clsid in new[] { CLSID_OLD, CLSID_NEW })
+        // Только старое поколение. У нового окно съёмки объявлено
+        // в другом порядке, и вызов по чужой таблице обрушил бы
+        // программу — а список устройств мы и так спрашиваем у обоих
+        foreach (var pair in new[] { (CLSID_OLD, IID_DEVMGR) })
         {
             try
             {
-                var id = clsid;
-                var iid = IID_DEVMGR;
+                var id = pair.Item1;
+                var iid = pair.Item2;
 
                 int hr = CoCreateInstance(ref id, IntPtr.Zero, INPROC_SERVER | LOCAL_SERVER, ref iid, out raw);
                 if (hr != 0 || raw == IntPtr.Zero) continue;

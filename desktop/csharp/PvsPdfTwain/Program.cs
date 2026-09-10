@@ -109,6 +109,17 @@ internal static class Program
         }
         catch { }
 
+        // Четвёртый — сами файлы драйверов, минуя посредника. Он на
+        // части компьютеров до драйвера не доходит и молча его
+        // пропускает, хотя файлы на месте и аппарат исправен
+        try
+        {
+            foreach (var d in DriverDirect.List())
+                if (seen.Add(d.Name))
+                    items.Add(new { name = d.Name, id = "", feeder = true, duplex = true, wia = false });
+        }
+        catch { }
+
         Say(new { ok = true, items });
         return 0;
     }
