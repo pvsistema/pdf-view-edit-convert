@@ -189,17 +189,31 @@ internal static class Program
         if (wia)
         {
             // Сначала обычным путём. Если надстройка этот сканер не
-            // видит — просим снять саму службу Windows
-            try { files = Wia.Scan(opt, dir, Page); }
+            // видит — просим снять саму службу Windows.
+            //
+            // Пустой ответ БЕЗ ошибки — тоже неудача: надстройка на
+            // этом компьютере не находит аппарат и молча отдаёт ноль
+            // страниц. Раньше мы принимали это за успех и запасной
+            // путь не пробовали
+            try
+            {
+                files = Wia.Scan(opt, dir, Page);
+                if (files.Count == 0) files = Direct(dir, Page);
+            }
             catch (Exception) { files = Direct(dir, Page); }
         }
         else
         {
-            try { files = Twain.Scan(opt, dir, Page); }
+            try
+            {
+                files = Twain.Scan(opt, dir, Page);
+
+                // Драйвер отозвался, но листов не дал — пробуем службу
+                if (files.Count == 0 && Wia.Ready()) files = ViaWia(opt, dir, Page);
+            }
             catch (Exception) when (Wia.Ready())
             {
-                try { files = Wia.Scan(opt, dir, Page); }
-                catch (Exception) { files = Direct(dir, Page); }
+                files = ViaWia(opt, dir, Page);
             }
         }
 
@@ -207,6 +221,19 @@ internal static class Program
         // предупредит о них, чтобы результат не был неожиданностью
         Say(new { ok = true, pages = files, refused = Twain.Refused() });
         return 0;
+    }
+
+    // Служба Windows: сначала через надстройку, затем напрямую
+    static List<string> ViaWia(Twain.Options opt, string dir, Action<int, string> onPage)
+    {
+        try
+        {
+            var files = Wia.Scan(opt, dir, onPage);
+            if (files.Count > 0) return files;
+        }
+        catch { }
+
+        return Direct(dir, onPage);
     }
 
     // Съёмка силами самой службы Windows — запасной путь для аппаратов,

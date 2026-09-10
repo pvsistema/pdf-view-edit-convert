@@ -425,6 +425,7 @@ internal static class WiaDirect
     public static string? ScanToFile(string path)
     {
         IntPtr raw = IntPtr.Zero;
+        int last = 0;
 
         // Только старое поколение. У нового окно съёмки объявлено
         // в другом порядке, и вызов по чужой таблице обрушил бы
@@ -447,13 +448,28 @@ internal static class WiaDirect
 
                 var format = FORMAT_BMP;
 
-                // 1 — сканер, 0 — без лишних окон выбора
-                int step = getImageDlg(raw, IntPtr.Zero, 1, 0, 0, IntPtr.Zero, path, ref format);
+                // Пробуем без лишних окон, а если служба откажет — с
+                // окном выбора аппарата: на части компьютеров съёмка
+                // идёт только этим путём
+                foreach (var (flags, how) in new[]
+                {
+                    (0, "без окон"),
+                    (2, "с окном выбора"),
+                })
+                {
+                    // 1 — сканер
+                    int step = getImageDlg(
+                        raw, IntPtr.Zero, 1, flags, 0, IntPtr.Zero, path, ref format);
 
-                if (step == 0 && File.Exists(path)) return null;
+                    Log.Add($"прямая съёмка ({how}): ответ {step:X8}");
 
-                // 1 — человек закрыл окно, ничего не сняв
-                if (step == 1) return "Съёмка отменена.";
+                    if (step == 0 && File.Exists(path)) return null;
+
+                    // 1 — человек закрыл окно, ничего не сняв
+                    if (step == 1) return "Съёмка отменена.";
+
+                    last = step;
+                }
             }
             catch (Exception ex) { Log.Add("прямая съёмка: " + Short(ex)); }
             finally
@@ -462,7 +478,11 @@ internal static class WiaDirect
             }
         }
 
-        return "Служба Windows не смогла получить снимок.";
+        // Код ошибки пригодится: по нему видно, отказала служба
+        // или аппарат просто молчит
+        return last == 0
+            ? "Служба Windows не смогла получить снимок."
+            : $"Служба Windows не смогла получить снимок (код {last:X8}).";
     }
 
     static Guid FORMAT_BMP = new("b96b3cab-0728-11d3-9d7b-0000f81ef32e");

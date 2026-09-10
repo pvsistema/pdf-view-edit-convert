@@ -84,7 +84,12 @@ internal static class Scanner
                     Name = t.Name,
                     HasFeeder = t.HasFeeder,
                     HasDuplex = t.HasDuplex,
-                    Twain = true,
+
+                    // Помощник ищет двумя путями: драйвером производителя
+                    // и службой Windows. Раньше всё помечалось «из
+                    // драйвера» — и человек видел пугающее «может быть
+                    // недоступен» у аппарата, найденного службой
+                    Twain = !t.Wia,
                 });
             }
         }
