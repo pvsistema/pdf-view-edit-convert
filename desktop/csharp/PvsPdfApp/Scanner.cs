@@ -389,27 +389,23 @@ internal static class Scanner
 
         if (silent > 0)
         {
-            text.AppendLine("ДРАЙВЕР ЕСТЬ, НО АППАРАТ В НЕГО НЕ ДОБАВЛЕН");
+            text.AppendLine("ОДИН ИЗ ДРАЙВЕРОВ НЕ ОТДАЛ СВОЙ АППАРАТ");
             text.AppendLine("  Драйверов установлено " + live.Count +
                             ", а аппаратов получено только " + found.Count + ".");
-            text.AppendLine("  Значит драйвер работает, но на запрос отвечает,");
-            text.AppendLine("  что аппаратов у него нет.");
             text.AppendLine("  Установлены драйверы: " + string.Join(", ", live));
             text.AppendLine();
-            text.AppendLine("  Так устроены драйверы сетевых МФУ (Kyocera, Ricoh, Sharp):");
-            text.AppendLine("  в отличие от обычных сканеров они не объявляют аппарат сами,");
-            text.AppendLine("  а показывают только те, что заранее добавлены вручную.");
-            text.AppendLine("  Пока не добавлен ни один, аппарат не увидит НИ ОДНА программа.");
+            text.AppendLine("  Причина обычно одна из двух.");
             text.AppendLine();
-            text.AppendLine("  Что делать (один раз):");
-            text.AppendLine("   1. Пуск -> папка производителя -> настройка сканера");
-            text.AppendLine("      (у Kyocera она называется TWAIN Driver Setting)");
-            text.AppendLine("   2. Нажать «Добавить» / «Add»");
-            text.AppendLine("   3. Указать любое имя, выбрать свою модель");
-            text.AppendLine("      и вписать IP-адрес аппарата");
+            text.AppendLine("  1. Аппарат не добавлен в настройку драйвера.");
+            text.AppendLine("     Драйверы сетевых МФУ (Kyocera, Ricoh, Sharp) не объявляют");
+            text.AppendLine("     аппарат сами — показывают только добавленные вручную.");
+            text.AppendLine("     Проверить просто: если аппарат виден в другой программе");
+            text.AppendLine("     сканирования, значит он добавлен и дело не в этом.");
+            text.AppendLine("     Открыть настройку можно кнопкой в окне сканирования.");
             text.AppendLine();
-            text.AppendLine("  IP-адрес аппарат печатает сам:");
-            text.AppendLine("  Меню -> Отчёт -> Печать отчёта -> Страница состояния");
+            text.AppendLine("  2. Драйвер старый и отвечает только по старым правилам.");
+            text.AppendLine("     Программа спрашивает и так, и так — смотрите обход выше:");
+            text.AppendLine("     там видно, на какое сочетание аппарат отозвался.");
             text.AppendLine();
         }
 

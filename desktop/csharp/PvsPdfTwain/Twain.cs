@@ -359,8 +359,11 @@ internal static class Twain
         {
             var found = List();
             report["scanners"] = found
-                .Select(d => d.Name + (_via.TryGetValue(d.Name, out bool v)
-                    ? (v ? "  [современный]" : "  [классический]") : ""))
+                .Select(d => d.Name
+                    + (_via.TryGetValue(d.Name, out bool v)
+                        ? (v ? "  [современный" : "  [классический") : "  [")
+                    + (_rules.TryGetValue(d.Name, out bool r)
+                        ? (r ? ", правила старые]" : ", правила новые]") : "]"))
                 .ToList();
             report["skipped"] = Skipped;
         }
@@ -369,8 +372,9 @@ internal static class Twain
             report["scannersError"] = ex.Message;
         }
 
-        // Пошаговый разбор по КАЖДОМУ посреднику отдельно: видно,
-        // кто какие драйверы показывает и где теряется аппарат
+        // Пошаговый разбор по каждому сочетанию «посредник + правила»:
+        // видно, кто какие драйверы показывает и на что отзывается
+        // конкретный аппарат
         var walk = new List<string>();
         foreach (bool useNew in new[] { true, false })
         {
@@ -378,11 +382,15 @@ internal static class Twain
 
             if (!Works(useNew)) { walk.Add(title + ": не отзывается"); continue; }
 
-            walk.Add(title + ":");
-            Force(useNew);
-            try { foreach (string step in Walk()) walk.Add("   " + step); }
-            catch (Exception ex) { walk.Add("   сбой: " + ex.Message); }
-            finally { Unforce(); }
+            foreach (bool oldRules in new[] { false, true })
+            {
+                walk.Add(title + ", правила " + (oldRules ? "старые 1.9" : "новые 2.1") + ":");
+                Force(useNew);
+                Rules(oldRules);
+                try { foreach (string step in Walk()) walk.Add("   " + step); }
+                catch (Exception ex) { walk.Add("   сбой: " + ex.Message); }
+                finally { Unforce(); Rules(false); }
+            }
         }
 
         report["walk"] = walk;
@@ -458,6 +466,15 @@ internal static class Twain
     }
 
     // Кто мы такие в терминах стандарта — сканер видит это имя
+    // По каким правилам представляемся драйверу. Старые драйверы
+    // современные правила не поддерживают и программам, которые их
+    // просят, себя НЕ показывают — просто молчат. Так терялась Kyocera:
+    // ABBYY FineReader 12 просит старые правила и видит её прекрасно.
+    // Поэтому спрашиваем дважды — и по новым, и по старым
+    static bool _oldRules;
+
+    static void Rules(bool old) => _oldRules = old;
+
     static TwIdentity MakeAppId() => new()
     {
         Id = 0,
@@ -469,8 +486,8 @@ internal static class Twain
             Country = 7,         // Россия
             Info = Str32("1.0"),
         },
-        ProtocolMajor = 2,
-        ProtocolMinor = 1,
+        ProtocolMajor = _oldRules ? (ushort)1 : (ushort)2,
+        ProtocolMinor = _oldRules ? (ushort)9 : (ushort)1,
         SupportedGroups = DG_CONTROL | DG_IMAGE,
         Manufacturer = Str32("PV-Sistema"),
         ProductFamily = Str32("PV-Sistema PDF"),
@@ -530,28 +547,36 @@ internal static class Twain
         var found = new List<Device>();
         Skipped = 0;
 
-        // Спрашиваем обоих посредников и складываем ответы: каждый
-        // показывает свой набор драйверов, и вместе они дают полный список
+        // Спрашиваем каждого посредника ДВАЖДЫ — по современным правилам
+        // и по старым. Старые драйверы (Kyocera) современные правила не
+        // понимают и на такой запрос себя не показывают, поэтому одного
+        // прохода не хватало. Ответы складываем
         foreach (bool useNew in Dsms())
-        {
-            Force(useNew);
-            try
+            foreach (bool oldRules in new[] { false, true })
             {
-                foreach (var dev in ListVia())
+                Force(useNew);
+                Rules(oldRules);
+                try
                 {
-                    if (found.Any(d => string.Equals(d.Name, dev.Name, StringComparison.OrdinalIgnoreCase)))
-                        continue;
+                    foreach (var dev in ListVia())
+                    {
+                        if (found.Any(d => string.Equals(d.Name, dev.Name, StringComparison.OrdinalIgnoreCase)))
+                            continue;
 
-                    _via[dev.Name] = useNew;
-                    found.Add(dev);
+                        _via[dev.Name] = useNew;
+                        _rules[dev.Name] = oldRules;
+                        found.Add(dev);
+                    }
                 }
+                catch { }
+                finally { Unforce(); Rules(false); }
             }
-            catch { }
-            finally { Unforce(); }
-        }
 
         return found;
     }
+
+    // По каким правилам отозвался аппарат. Снимать его нужно так же
+    static readonly Dictionary<string, bool> _rules = new(StringComparer.OrdinalIgnoreCase);
 
     // Через какого посредника нашёлся аппарат. Снимать его нужно
     // тем же: другой посредник о нём может не знать
@@ -618,42 +643,57 @@ internal static class Twain
     {
         if (!DsmReady()) return new List<int>();
 
-        // Помощник запускается заново на каждую команду, поэтому кто
-        // показал аппарат — уже неизвестно. Пробуем обоих посредников
-        foreach (bool useNew in Order(deviceName))
+        // Помощник запускается заново на каждую команду, поэтому как
+        // аппарат отозвался — уже неизвестно. Перебираем все сочетания
+        foreach (var way in Order(deviceName))
         {
-            Force(useNew);
+            Force(way.UseNew);
+            Rules(way.OldRules);
             try
             {
                 var list = ResolutionsVia(deviceName);
                 if (list.Count > 0) return list;
             }
             catch { }
-            finally { Unforce(); }
+            finally { Unforce(); Rules(false); }
         }
 
         return new List<int>();
     }
 
-    // В каком порядке пробовать посредников для этого аппарата.
-    // Если знаем, кто его показывал, — начинаем с него
-    static List<bool> Order(string deviceName)
+    // Сочетание «посредник + правила»: аппарат отзывается только на
+    // своё, поэтому перебираем все четыре пары
+    public readonly struct Way
     {
-        var all = Dsms();
-        if (!string.IsNullOrWhiteSpace(deviceName) &&
-            _via.TryGetValue(deviceName, out bool known) && all.Contains(known))
-        {
-            all.Remove(known);
-            all.Insert(0, known);
-        }
-        return all;
+        public readonly bool UseNew;
+        public readonly bool OldRules;
+        public Way(bool useNew, bool oldRules) { UseNew = useNew; OldRules = oldRules; }
     }
 
-    // Через кого спрашивать этот аппарат. Не знаем — берём того,
-    // что выбран по умолчанию
-    static bool ViaFor(string deviceName)
-        => !string.IsNullOrWhiteSpace(deviceName) && _via.TryGetValue(deviceName, out bool v)
-            ? v : UseNew();
+    // В каком порядке пробовать. Если помним, как аппарат отозвался
+    // при опросе, — начинаем с этого сочетания
+    static List<Way> Order(string deviceName)
+    {
+        var all = new List<Way>();
+        foreach (bool useNew in Dsms())
+            foreach (bool oldRules in new[] { false, true })
+                all.Add(new Way(useNew, oldRules));
+
+        if (!string.IsNullOrWhiteSpace(deviceName) &&
+            _via.TryGetValue(deviceName, out bool v) &&
+            _rules.TryGetValue(deviceName, out bool r))
+        {
+            int i = all.FindIndex(w => w.UseNew == v && w.OldRules == r);
+            if (i > 0)
+            {
+                var best = all[i];
+                all.RemoveAt(i);
+                all.Insert(0, best);
+            }
+        }
+
+        return all;
+    }
 
     static List<int> ResolutionsVia(string deviceName)
     {
@@ -783,16 +823,17 @@ internal static class Twain
             throw new InvalidOperationException(
                 "На этом компьютере нет 64-разрядной службы TWAIN. Обычно её ставит драйвер сканера — переустановите драйвер производителя.");
 
-        // Аппарат может быть виден только одному из посредников.
-        // Пробуем по очереди: «сканер не найден» — повод спросить
-        // второго, а любая другая беда касается уже самого аппарата
+        // Аппарат отзывается только на своё сочетание посредника и
+        // правил. Пробуем по очереди: «сканер не найден» — повод
+        // попробовать следующее, а другая беда касается уже аппарата
         var tried = Order(opt.Device);
         for (int i = 0; i < tried.Count; i++)
         {
-            Force(tried[i]);
+            Force(tried[i].UseNew);
+            Rules(tried[i].OldRules);
             try { return ScanVia(opt, dir, onPage); }
             catch (DeviceNotFoundException) when (i < tried.Count - 1) { }
-            finally { Unforce(); }
+            finally { Unforce(); Rules(false); }
         }
 
         throw new InvalidOperationException("Сканер не найден среди устройств TWAIN.");
