@@ -252,6 +252,60 @@ internal static class Twain
     // 64 разряда обслуживает только современный TWAINDSM.dll
     public static bool DsmReady() => UseNew() || !Environment.Is64BitProcess;
 
+    // Отчёт о самопроверке: что помощник видит на этом компьютере.
+    // Нужен, когда сканер не находится и надо понять, на каком шаге
+    // обрывается цепочка — без догадок и переустановок вслепую
+    public static Dictionary<string, object> SelfTest()
+    {
+        var report = new Dictionary<string, object>
+        {
+            ["bits"] = Environment.Is64BitProcess ? 64 : 32,
+            ["pack"] = PACK,
+        };
+
+        // Где искали современный диспетчер и что нашли
+        var looked = new List<string>();
+        string dsmFound = "";
+        foreach (string candidate in DsmPaths())
+        {
+            bool exists = File.Exists(candidate);
+            looked.Add((exists ? "есть: " : "нет:  ") + candidate);
+            if (exists && dsmFound.Length == 0) dsmFound = candidate;
+        }
+
+        report["dsmSearched"] = looked;
+        report["dsmFound"] = dsmFound;
+        report["dsmNew"] = UseNew();
+        report["dsmReady"] = DsmReady();
+
+        // Какие драйверы вообще лежат в папке своей разрядности
+        var drivers = new List<string>();
+        try
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string dir = Path.Combine(win, Environment.Is64BitProcess ? "twain_64" : "twain_32");
+            if (Directory.Exists(dir))
+                foreach (string sub in Directory.GetDirectories(dir))
+                    drivers.Add(Path.GetFileName(sub));
+        }
+        catch (Exception ex) { drivers.Add("не прочитать: " + ex.Message); }
+
+        report["driverFolders"] = drivers;
+
+        // И что отвечает сам опрос
+        try
+        {
+            var found = List();
+            report["scanners"] = found.Select(d => d.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            report["scannersError"] = ex.Message;
+        }
+
+        return report;
+    }
+
     [DllImport("kernel32.dll")] static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
     [DllImport("kernel32.dll")] static extern IntPtr GlobalLock(IntPtr h);
     [DllImport("kernel32.dll")] static extern bool GlobalUnlock(IntPtr h);

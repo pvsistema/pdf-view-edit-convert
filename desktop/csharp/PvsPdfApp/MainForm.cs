@@ -511,6 +511,10 @@ public class MainForm : Form
             {
                 _ = ListScannersAsync();
             }
+            else if (type == "scanSelfTest")
+            {
+                _ = ScanSelfTestAsync();
+            }
             else if (type == "scanCaps")
             {
                 string dev = root.TryGetProperty("device", out var sd) ? (sd.GetString() ?? "") : "";
@@ -654,6 +658,27 @@ public class MainForm : Form
             }),
             hint,
         });
+    }
+
+    // Отчёт о поиске сканеров. Нужен, когда аппарат не находится:
+    // показывает, что видит Windows, что видят помощники и какие
+    // драйверы установлены — причина видна сразу, без догадок
+    async Task ScanSelfTestAsync()
+    {
+        string report;
+        try { report = await Task.Run(() => Scanner.SelfTest()); }
+        catch (Exception ex) { report = "Не удалось собрать отчёт: " + ex.Message; }
+
+        // Кладём рядом с программой: файл удобно переслать
+        string path = "";
+        try
+        {
+            path = Path.Combine(Program.InstallDir, "scanners-report.txt");
+            File.WriteAllText(path, report);
+        }
+        catch { path = ""; }
+
+        SendUpdate(new { type = "scanSelfTest", report, path });
     }
 
     // Сканирование пачки. Каждый снятый лист сразу уходит в интерфейс,

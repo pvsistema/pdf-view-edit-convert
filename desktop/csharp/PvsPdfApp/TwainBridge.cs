@@ -135,6 +135,49 @@ internal static class TwainBridge
         return found;
     }
 
+    // Отчёт о самопроверке обоих помощников. Нужен, когда сканер
+    // не находится: показывает, на каком шаге обрывается цепочка
+    public static string SelfTest()
+    {
+        var text = new System.Text.StringBuilder();
+
+        foreach (string exe in new[] { ExePath64(), ExePath() })
+        {
+            string title = exe == ExePath64() ? "64-разрядный помощник" : "32-разрядный помощник";
+            text.AppendLine("--- " + title + " ---");
+
+            if (!File.Exists(exe))
+            {
+                text.AppendLine("НЕ УСТАНОВЛЕН: " + exe);
+                text.AppendLine();
+                continue;
+            }
+
+            try
+            {
+                using var p = Start(exe, "selftest");
+                string output = p.StandardOutput.ReadToEnd();
+                if (!p.WaitForExit(25000))
+                {
+                    try { p.Kill(true); } catch { }
+                    text.AppendLine("не ответил за 25 секунд");
+                }
+                else
+                {
+                    text.AppendLine(output.Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                text.AppendLine("не запустился: " + ex.Message);
+            }
+
+            text.AppendLine();
+        }
+
+        return text.ToString();
+    }
+
     static List<Device> ListOne(string exe)
     {
         var found = new List<Device>();

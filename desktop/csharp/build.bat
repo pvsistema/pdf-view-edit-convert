@@ -370,7 +370,8 @@ echo ============================================================
 echo   Build finished successfully.
 echo   Output folder: %DIST%
 echo     PVSPDF.exe        (version %APP_VERSION%)
-echo     PVSPDF-twain.exe  (scanner helper, 32-bit)
+echo     PVSPDF-twain.exe    (scanner helper, 32-bit drivers)
+echo     PVSPDF-twain64.exe  (scanner helper, 64-bit drivers)
 echo     web\              (interface files)
 echo     app_version.txt
 echo   Run: PVSPDF.exe

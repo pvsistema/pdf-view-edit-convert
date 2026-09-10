@@ -180,6 +180,10 @@ export type ScanOptions = {
 
 export const listScanners = () => send({ type: 'listScanners' });
 
+// Отчёт о поиске сканеров: что видит Windows, что видят помощники
+// и какие драйверы установлены. Нужен, когда аппарат не находится
+export const askScanSelfTest = () => send({ type: 'scanSelfTest' });
+
 // Спрашиваем у выбранного сканера, какое качество он умеет
 export const askScanCaps = (device: string) => send({ type: 'scanCaps', device });
 
@@ -210,6 +214,12 @@ const listen = <T>(kind: string, cb: (d: T) => void) => {
 
 export const onScanners = (cb: (list: ScanDevice[], hint?: string) => void) =>
   listen<{ items: ScanDevice[]; hint?: string }>('scanners', (d) => cb(d.items || [], d.hint));
+
+// Готовый отчёт о поиске сканеров и путь к сохранённому файлу
+export const onScanSelfTest = (cb: (report: string, path: string) => void) =>
+  listen<{ report: string; path: string }>('scanSelfTest', (d) =>
+    cb(d.report || '', d.path || ''),
+  );
 
 // Ответ сканера о поддерживаемом качестве. Пустой список означает,
 // что выяснить не удалось — тогда показываем обычный набор значений

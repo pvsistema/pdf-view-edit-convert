@@ -11,6 +11,8 @@ import {
   onScanDone,
   onScanCaps,
   askScanCaps,
+  askScanSelfTest,
+  onScanSelfTest,
   type ScanDevice,
 } from '@/lib/desktop';
 import { scansToPdf, scanFileName } from '@/lib/scanToPdf';
@@ -71,11 +73,14 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   const [shots, setShots] = useState<Shot[]>([]);
   const [error, setError] = useState('');
   const [hint, setHint] = useState('');
+  const [report, setReport] = useState<{ text: string; path: string } | null>(null);
 
   const strip = useRef<HTMLDivElement>(null);
   const current = devices?.find((d) => d.id === device);
 
   useEffect(() => {
+    const offReport = onScanSelfTest((text, path) => setReport({ text, path }));
+
     const offList = onScanners((list, hint) => {
       setDevices(list);
       setHint(hint || '');
@@ -103,7 +108,10 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
       }
     });
     listScanners();
-    return offList;
+    return () => {
+      offList();
+      offReport();
+    };
   }, [batch, saved.device, saved.deviceName]);
 
   // Узнаём у выбранного сканера, какое качество он поддерживает
@@ -289,6 +297,39 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
   const none = devices !== null && devices.length === 0;
 
+  // Отчёт о поиске сканеров. Показывается в двух местах — когда список
+  // пуст и когда нужного аппарата в нём нет, поэтому описан один раз
+  const reportBox = report && (
+    <div className="mt-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="label-caps">Отчёт о поиске</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(report.text);
+              toast({ title: 'Отчёт скопирован' });
+            }}
+            className="text-[0.74rem] text-primary hover:underline"
+          >
+            Скопировать
+          </button>
+          <button
+            onClick={() => setReport(null)}
+            className="text-[0.74rem] text-muted-foreground hover:underline"
+          >
+            Скрыть
+          </button>
+        </div>
+      </div>
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-3 text-[0.72rem] leading-relaxed">
+        {report.text}
+      </pre>
+      {report.path && (
+        <p className="mt-2 text-[0.74rem] text-muted-foreground">Файл отчёта: {report.path}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">
       <div className="flex max-h-full w-full max-w-[720px] flex-col border border-foreground bg-background">
@@ -346,7 +387,19 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                 >
                   Выбрать через Windows
                 </button>
+                <button
+                  onClick={() => {
+                    setReport({ text: 'Собираем отчёт...', path: '' });
+                    askScanSelfTest();
+                  }}
+                  title="Показать, что именно нашла программа"
+                  className="border border-border px-4 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:border-foreground"
+                >
+                  Отчёт о поиске
+                </button>
               </div>
+
+              {reportBox}
               <p className="mt-3 text-[0.78rem] leading-relaxed text-muted-foreground">
                 Некоторые сетевые и многофункциональные устройства не отвечают на общий
                 опрос. Окно Windows находит их напрямую — попробуйте этот способ.
@@ -498,6 +551,19 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                 Если сканер не слушается этих настроек, нажмите «Окно драйвера» — откроются
                 настройки производителя устройства, а снимок вернётся сюда.
               </p>
+
+              {/* Нужного аппарата нет в списке — отчёт покажет, где он теряется */}
+              <button
+                onClick={() => {
+                  setReport({ text: 'Собираем отчёт...', path: '' });
+                  askScanSelfTest();
+                }}
+                className="mt-2 text-[0.76rem] text-primary hover:underline"
+              >
+                Нужного сканера нет в списке — показать отчёт о поиске
+              </button>
+
+              {reportBox}
             </>
           )}
 

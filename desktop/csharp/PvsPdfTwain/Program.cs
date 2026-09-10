@@ -9,6 +9,9 @@ namespace PvsPdfTwain;
 //   PVSPDF-twain.exe list
 //       перечислить сканеры
 //
+//   PVSPDF-twain.exe selftest
+//       отчёт о самопроверке: где искали диспетчер, что нашли
+//
 //   PVSPDF-twain.exe scan <папка> [--device "имя"] [--dpi 300]
 //                    [--color color|gray|bw] [--feeder] [--duplex]
 //                    [--limit N] [--ui]
@@ -30,6 +33,7 @@ internal static class Program
             switch (args[0].ToLowerInvariant())
             {
                 case "list": return DoList();
+                case "selftest": return DoSelfTest();
                 case "caps": return DoCaps(args);
                 case "scan": return DoScan(args);
                 default: return Fail("Неизвестная команда.");
@@ -58,6 +62,14 @@ internal static class Program
 
         if (device.Length == 0) return Fail("Не указан сканер.");
         Say(new { ok = true, dpi = Twain.Resolutions(device) });
+        return 0;
+    }
+
+    // Самопроверка: что помощник видит на этом компьютере.
+    // По ней сразу понятно, на каком шаге теряется сканер
+    static int DoSelfTest()
+    {
+        Say(new { ok = true, report = Twain.SelfTest() });
         return 0;
     }
 

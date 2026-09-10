@@ -166,6 +166,61 @@ internal static class Scanner
         return "Ни одного сканера не найдено. Проверьте питание и кабель, установите драйвер производителя, а сетевое устройство добавьте в разделе «Принтеры и сканеры».";
     }
 
+    // Полный отчёт о поиске сканеров: что видит Windows, что видят
+    // помощники и какие драйверы установлены. Показывается в окне
+    // сканирования, чтобы причину было видно, а не приходилось гадать
+    public static string SelfTest()
+    {
+        var text = new System.Text.StringBuilder();
+
+        text.AppendLine("=== ОТЧЁТ О ПОИСКЕ СКАНЕРОВ ===");
+        text.AppendLine("Программа: " + (Environment.Is64BitProcess ? "64" : "32") + " разряда");
+        text.AppendLine();
+
+        text.AppendLine("--- Служба Windows (WIA) ---");
+        try
+        {
+            var wia = Sta(ListCore);
+            if (wia.Count == 0) text.AppendLine("ничего не найдено");
+            foreach (var d in wia) text.AppendLine("  " + d.Name + "   [" + d.Id + "]");
+        }
+        catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
+        text.AppendLine();
+
+        text.AppendLine("--- Папки драйверов Windows ---");
+        try
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            foreach (string name in new[] { "twain_32", "twain_64" })
+            {
+                string dir = Path.Combine(win, name);
+                if (!Directory.Exists(dir)) { text.AppendLine(name + ": папки нет"); continue; }
+
+                var subs = Directory.GetDirectories(dir).Select(Path.GetFileName).ToList();
+                bool dsm = File.Exists(Path.Combine(dir, "TWAINDSM.dll"));
+                text.AppendLine(name + ": драйверов " + subs.Count +
+                                ", TWAINDSM.dll " + (dsm ? "есть" : "НЕТ"));
+                foreach (string sub in subs) text.AppendLine("    " + sub);
+            }
+        }
+        catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
+        text.AppendLine();
+
+        text.Append(TwainBridge.SelfTest());
+
+        text.AppendLine("--- Итоговый список программы ---");
+        try
+        {
+            var all = List();
+            if (all.Count == 0) text.AppendLine("пусто");
+            foreach (var d in all)
+                text.AppendLine("  " + d.Name + (d.Twain ? "   (из драйвера)" : "   (Windows)"));
+        }
+        catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
+
+        return text.ToString();
+    }
+
     static List<Device> ListCore()
     {
         var found = new List<Device>();
