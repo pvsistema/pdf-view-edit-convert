@@ -252,14 +252,119 @@ internal static class Scanner
         text.Append(TwainBridge.SelfTest());
 
         text.AppendLine("--- Итоговый список программы ---");
+        var final = new List<Device>();
         try
         {
-            var all = List();
-            if (all.Count == 0) text.AppendLine("пусто");
-            foreach (var d in all)
+            final = List();
+            if (final.Count == 0) text.AppendLine("пусто");
+            foreach (var d in final)
                 text.AppendLine("  " + d.Name + (d.Twain ? "   (из драйвера)" : "   (Windows)"));
         }
         catch (Exception ex) { text.AppendLine("ошибка: " + ex.Message); }
+
+        text.AppendLine();
+        text.AppendLine("--- ВЫВОД ---");
+        text.Append(Verdict(final));
+
+        return text.ToString();
+    }
+
+    // Главное в отчёте: разбор простым языком, без чтения таблиц выше.
+    // Сопоставляем установленные драйверы с найденными аппаратами —
+    // драйвер без единого аппарата означает, что он есть, но пуст
+    static string Verdict(List<Device> found)
+    {
+        var text = new System.Text.StringBuilder();
+
+        // Какие драйверы установлены и рабочие ли они
+        var live = new List<string>();   // папка с файлом драйвера
+        var dead = new List<string>();   // папка есть, файла драйвера нет
+
+        try
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            foreach (string name in new[] { "twain_32", "twain_64" })
+            {
+                string dir = Path.Combine(win, name);
+                if (!Directory.Exists(dir)) continue;
+
+                foreach (string subDir in Directory.GetDirectories(dir))
+                {
+                    string? sub = Path.GetFileName(subDir);
+                    if (string.IsNullOrEmpty(sub)) continue;
+                    if (live.Contains(sub) || dead.Contains(sub)) continue;
+
+                    try
+                    {
+                        bool ok = Directory.GetFiles(subDir, "*.ds", SearchOption.AllDirectories).Length > 0;
+                        (ok ? live : dead).Add(sub);
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch (Exception ex) { return "не удалось разобраться: " + ex.Message + Environment.NewLine; }
+
+        if (live.Count == 0 && dead.Count == 0)
+        {
+            text.AppendLine("Драйверов сканирования на компьютере нет.");
+            text.AppendLine("Установите драйвер производителя для вашего аппарата.");
+            return text.ToString();
+        }
+
+        // Сравниваем ЧИСЛАМИ, а не по названиям: папки драйверов
+        // называются кодами вроде escndv или KMTWAIN, и надёжно
+        // связать такой код с названием аппарата нельзя.
+        // А вот счёт говорит сам за себя: рабочих драйверов больше,
+        // чем найденных аппаратов, — значит кто-то из них промолчал
+        int silent = live.Count - found.Count;
+
+        text.AppendLine("Найдено аппаратов: " + found.Count);
+        text.AppendLine("Рабочих драйверов: " + live.Count +
+                        (dead.Count > 0 ? ", недоустановленных: " + dead.Count : ""));
+        text.AppendLine();
+
+        if (dead.Count > 0)
+        {
+            text.AppendLine("НЕДОУСТАНОВЛЕН: " + string.Join(", ", dead));
+            text.AppendLine("  Папка драйвера есть, а самого драйвера в ней нет.");
+            text.AppendLine("  Обычно так остаётся после удаления или прерванной установки.");
+            text.AppendLine("  Что делать: установить драйвер производителя заново.");
+            text.AppendLine();
+        }
+
+        if (silent > 0)
+        {
+            text.AppendLine("ДРАЙВЕР ЕСТЬ, НО АППАРАТ В НЕГО НЕ ДОБАВЛЕН");
+            text.AppendLine("  Драйверов установлено " + live.Count +
+                            ", а аппаратов получено только " + found.Count + ".");
+            text.AppendLine("  Значит драйвер работает, но на запрос отвечает,");
+            text.AppendLine("  что аппаратов у него нет.");
+            text.AppendLine("  Установлены драйверы: " + string.Join(", ", live));
+            text.AppendLine();
+            text.AppendLine("  Так устроены драйверы сетевых МФУ (Kyocera, Ricoh, Sharp):");
+            text.AppendLine("  в отличие от обычных сканеров они не объявляют аппарат сами,");
+            text.AppendLine("  а показывают только те, что заранее добавлены вручную.");
+            text.AppendLine("  Пока не добавлен ни один, аппарат не увидит НИ ОДНА программа.");
+            text.AppendLine();
+            text.AppendLine("  Что делать (один раз):");
+            text.AppendLine("   1. Пуск -> папка производителя -> настройка сканера");
+            text.AppendLine("      (у Kyocera она называется TWAIN Driver Setting)");
+            text.AppendLine("   2. Нажать «Добавить» / «Add»");
+            text.AppendLine("   3. Указать любое имя, выбрать свою модель");
+            text.AppendLine("      и вписать IP-адрес аппарата");
+            text.AppendLine();
+            text.AppendLine("  IP-адрес аппарат печатает сам:");
+            text.AppendLine("  Меню -> Отчёт -> Печать отчёта -> Страница состояния");
+            text.AppendLine();
+        }
+
+        if (dead.Count == 0 && silent <= 0)
+        {
+            text.AppendLine(found.Count > 0
+                ? "Всё в порядке: аппаратов найдено не меньше, чем установлено драйверов."
+                : "Драйверы на месте, но аппаратов не отдали. Проверьте питание и кабель.");
+        }
 
         return text.ToString();
     }
