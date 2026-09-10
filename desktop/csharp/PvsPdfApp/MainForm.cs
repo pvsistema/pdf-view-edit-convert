@@ -678,7 +678,12 @@ public class MainForm : Form
 
         if (dev == null)
         {
-            SendUpdate(new { type = "scannerChosen", ok = false });
+            SendUpdate(new
+            {
+                type = "scannerChosen",
+                ok = false,
+                steps = string.Join("\n", TwainBridge.ChooseLog),
+            });
             return;
         }
 

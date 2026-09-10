@@ -62,7 +62,7 @@ internal static class Program
 
         if (dev == null)
         {
-            Say(new { ok = true, cancelled = true });
+            Say(new { ok = true, cancelled = true, steps = Twain.ChooseLog });
             return 0;
         }
 
@@ -72,6 +72,7 @@ internal static class Program
             name = dev.Name,
             feeder = dev.HasFeeder,
             duplex = dev.HasDuplex,
+            steps = Twain.ChooseLog,
         });
         return 0;
     }

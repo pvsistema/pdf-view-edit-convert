@@ -197,8 +197,10 @@ export const removeScanner = (name: string) => send({ type: 'removeScanner', nam
 // при обычном опросе, в нём обычно есть — и название набирать не нужно
 export const chooseScanner = () => send({ type: 'chooseScanner' });
 
-export const onScannerChosen = (cb: (ok: boolean, name: string) => void) =>
-  listen<{ ok: boolean; name?: string }>('scannerChosen', (d) => cb(!!d.ok, d.name || ''));
+export const onScannerChosen = (cb: (ok: boolean, name: string, steps: string) => void) =>
+  listen<{ ok: boolean; name?: string; steps?: string }>('scannerChosen', (d) =>
+    cb(!!d.ok, d.name || '', d.steps || ''),
+  );
 
 // Отчёт о поиске сканеров: что видит Windows, что видят помощники
 // и какие драйверы установлены. Нужен, когда аппарат не находится

@@ -118,6 +118,11 @@ internal static class WiaDirect
         public IntPtr Value2;
     }
 
+    // Действие службы «дай список устройств», вызываемое напрямую
+    // по её собственной таблице
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int EnumDeviceInfoCall(IntPtr self, int flags, out IntPtr items);
+
     [DllImport("ole32.dll")]
     static extern int CoCreateInstance(
         ref Guid clsid, IntPtr outer, uint context, ref Guid iid, out IntPtr result);
@@ -212,36 +217,35 @@ internal static class WiaDirect
                 }
             }
 
-            // У каждого поколения службы своё описание. Берём подходящее:
-            // спросить новую службу по старому описанию нельзя.
+            // Зовём службу НАПРЯМУЮ, минуя посредника .NET.
             //
-            // Приводить надо СРАЗУ к нужному описанию. Через общий вид
-            // (GetObjectForIUnknown) Windows подбирает описание сама и
-            // ошибается — отсюда был сбой «Specified cast is not valid»
-            // ровно после успешного получения интерфейса
-            IEnumWIA_DEV_INFO? items;
-            int step0;
-            object mgr;
+            // Два раза подряд мы спотыкались здесь об «Specified cast is
+            // not valid»: посредник пытается сам разобрать описание
+            // службы и ошибается. Обойти его можно — у службы есть
+            // таблица её собственных действий, и нужное действие берётся
+            // из неё по номеру. Так работают программы на C++,
+            // и осечки тут уже нет.
+            //
+            // Список устройств — первое действие после трёх служебных,
+            // одинаковых у любой службы Windows
+            IntPtr table = Marshal.ReadIntPtr(raw);
+            IntPtr slot = Marshal.ReadIntPtr(table, 3 * IntPtr.Size);
 
-            if (interfaceId == IID_DEVMGR2)
-            {
-                var typed = (IWiaDevMgr2)Marshal.GetTypedObjectForIUnknown(raw, typeof(IWiaDevMgr2));
-                mgr = typed;
-                step0 = typed.EnumDeviceInfo(0, out items);
-            }
-            else
-            {
-                var typed = (IWiaDevMgr)Marshal.GetTypedObjectForIUnknown(raw, typeof(IWiaDevMgr));
-                mgr = typed;
-                step0 = typed.EnumDeviceInfo(0, out items);
-            }
+            var enumDevices = Marshal.GetDelegateForFunctionPointer<EnumDeviceInfoCall>(slot);
 
-            if (step0 != 0 || items == null)
+            int step0 = enumDevices(raw, 0, out IntPtr itemsRaw);
+
+            if (step0 != 0 || itemsRaw == IntPtr.Zero)
             {
                 Log.Add($"{title}: список устройств не получен (код {step0:X8})");
-                Release(mgr);
+                Marshal.Release(raw);
+                raw = IntPtr.Zero;
                 return;
             }
+
+            var items = (IEnumWIA_DEV_INFO)Marshal.GetTypedObjectForIUnknown(
+                itemsRaw, typeof(IEnumWIA_DEV_INFO));
+            Marshal.Release(itemsRaw);
 
             uint total = 0;
             try { items.GetCount(out total); } catch { }
@@ -270,7 +274,6 @@ internal static class WiaDirect
             }
 
             Release(items);
-            Release(mgr);
         }
         catch (Exception ex) { Log.Add($"{title}: сбой — " + Short(ex)); }
         finally { if (raw != IntPtr.Zero) Marshal.Release(raw); }

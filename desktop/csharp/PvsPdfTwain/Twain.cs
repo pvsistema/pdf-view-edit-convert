@@ -614,19 +614,30 @@ internal static class Twain
     //
     // Так делают все программы сканирования: кнопка «Выбрать источник»
     // это ровно оно
+    // Пошаговый рассказ о выборе — уходит в отчёт, если что-то пошло не так
+    public static readonly List<string> ChooseLog = new();
+
     public static Device? Choose()
     {
+        ChooseLog.Clear();
         // Перебираем обоих посредников: аппарат может быть известен
         // только одному из них
-        foreach (bool useNew in Dsms())
+        var list = Dsms();
+        ChooseLog.Add("посредников доступно: " + list.Count);
+
+        foreach (bool useNew in list)
         {
             Force(useNew);
+            string who = useNew ? "современный" : "классический";
 
             var app = MakeAppId();
             IntPtr hwnd = Handle.Window;
 
             if (Dsm(ref app, DG_CONTROL, DAT_PARENT, MSG_OPENDSM, ref hwnd) != TWRC_SUCCESS)
+            {
+                ChooseLog.Add(who + ": диспетчер не открылся");
                 continue;
+            }
 
             try
             {
@@ -638,11 +649,26 @@ internal static class Twain
                 ushort rc = Dsm(ref app, DG_CONTROL, DAT_IDENTITY, MSG_USERSELECT, ref src);
 
                 // Человек закрыл окно, ничего не выбрав
-                if (rc == TWRC_CANCEL) return null;
-                if (rc != TWRC_SUCCESS) continue;
+                if (rc == TWRC_CANCEL)
+                {
+                    ChooseLog.Add(who + ": окно закрыто без выбора");
+                    return null;
+                }
+
+                if (rc != TWRC_SUCCESS)
+                {
+                    ChooseLog.Add(who + $": окно не открылось (ответ {rc})");
+                    continue;
+                }
 
                 string name = FromStr32(src.ProductName);
-                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    ChooseLog.Add(who + ": выбран аппарат без названия");
+                    continue;
+                }
+
+                ChooseLog.Add(who + ": выбран — " + name);
 
                 return new Device
                 {
@@ -651,7 +677,7 @@ internal static class Twain
                     HasDuplex = false,
                 };
             }
-            catch { }
+            catch (Exception ex) { ChooseLog.Add(who + ": сбой — " + ex.Message); }
             finally
             {
                 Handle.Hide();

@@ -141,16 +141,21 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
     });
 
     // Человек выбрал сканер в окне драйвера — он уже сохранён
-    const offChosen = onScannerChosen((ok, name) => {
+    const offChosen = onScannerChosen((ok, name, steps) => {
       setChoosing(false);
-      toast(
-        ok
-          ? { title: 'Сканер добавлен', description: name }
-          : {
-              title: 'Сканер не выбран',
-              description: 'Окно закрыто без выбора либо драйвер не отозвался',
-            },
-      );
+
+      if (ok) {
+        toast({ title: 'Сканер добавлен', description: name });
+        return;
+      }
+
+      // Показываем, на каком шаге всё оборвалось: без этого «не
+      // выбран» ничего не объясняет
+      toast({
+        title: 'Сканер не выбран',
+        description: 'Окно закрыто без выбора либо драйвер не отозвался',
+      });
+      if (steps) setReport({ text: 'ПОЧЕМУ НЕ ВЫШЛО ВЫБРАТЬ\n\n' + steps, path: '' });
     });
 
     listScanners();

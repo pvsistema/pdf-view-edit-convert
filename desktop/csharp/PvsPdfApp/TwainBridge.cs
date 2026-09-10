@@ -87,9 +87,20 @@ internal static class TwainBridge
     // Зачем. Аппарат может молчать при обычном опросе, но в собственном
     // окне драйвера он есть — человек выбирает его мышью, и нам не
     // приходится просить набирать название вручную
+    // Рассказ о последнем выборе — показываем человеку, если аппарат
+    // выбрать не удалось
+    public static readonly List<string> ChooseLog = new();
+
     public static Device? Choose()
     {
-        foreach (string exe in Helpers())
+        ChooseLog.Clear();
+        // 32-разрядный помощник идёт ПЕРВЫМ: драйверы сканеров живут
+        // в папке twain_32, а у 64-разрядного их нет вовсе — он открыл
+        // бы пустое окно, человек закрыл бы его, и на этом всё
+        var order = Helpers();
+        order.Reverse();
+
+        foreach (string exe in order)
         {
             try
             {
@@ -111,6 +122,16 @@ internal static class TwainBridge
 
                     using var doc = JsonDocument.Parse(s);
                     var root = doc.RootElement;
+
+                    // Рассказ помощника о шагах — пригодится, если
+                    // окно так и не показалось
+                    if (root.TryGetProperty("steps", out var st) &&
+                        st.ValueKind == JsonValueKind.Array)
+                    {
+                        ChooseLog.Add(Path.GetFileName(exe) + ":");
+                        foreach (var line in st.EnumerateArray())
+                            ChooseLog.Add("   " + (line.GetString() ?? ""));
+                    }
 
                     // Окно закрыли, ничего не выбрав — второго помощника
                     // не спрашиваем, решение уже принято
