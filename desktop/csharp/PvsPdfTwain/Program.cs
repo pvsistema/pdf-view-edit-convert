@@ -202,31 +202,44 @@ internal static class Program
             {
                 files = Wia.Scan(opt, dir, Page);
                 if (files.Count == 0) files = Direct(dir, Page, opt.Device);
+                if (files.Count == 0) files = Straight(opt, dir, Page);
             }
             catch (Exception first)
             {
                 try { files = Direct(dir, Page, opt.Device); }
-                catch (Exception second)
-                {
-                    return Fail(second.Message + "\n\nПервая попытка: " + first.Message);
-                }
+                catch { files = new List<string>(); }
+
+                if (files.Count == 0) files = Straight(opt, dir, Page);
+                if (files.Count == 0) return Fail(first.Message);
             }
         }
         else
         {
+            // Порядок важен. Посредник TWAIN перечисляет не все
+            // драйверы: Kyocera он пропускает, поэтому аппарат у него
+            // «не найден». Такой сканер виден только при прямом опросе
+            // файлов драйвера — значит и снимать его надо напрямую,
+            // как это делает FineReader
             try
             {
                 files = Twain.Scan(opt, dir, Page);
 
-                // Драйвер отозвался, но листов не дал — пробуем службу
+                if (files.Count == 0) files = Straight(opt, dir, Page);
                 if (files.Count == 0 && Wia.Ready()) files = ViaWia(opt, dir, Page);
             }
-            catch (Exception first) when (Wia.Ready())
+            catch (Exception first)
             {
-                try { files = ViaWia(opt, dir, Page); }
-                catch (Exception second)
+                files = Straight(opt, dir, Page);
+
+                if (files.Count == 0)
                 {
-                    return Fail(second.Message + "\n\nПервая попытка: " + first.Message);
+                    if (!Wia.Ready()) return Fail(first.Message);
+
+                    try { files = ViaWia(opt, dir, Page); }
+                    catch (Exception second)
+                    {
+                        return Fail(second.Message + "\n\nПервая попытка: " + first.Message);
+                    }
                 }
             }
         }
@@ -236,9 +249,8 @@ internal static class Program
         // ни одной страницы» без единой подсказки почему
         if (files.Count == 0)
         {
-            var how = WiaDirect.Log
-                .Where(x => x.StartsWith("прямая съёмка") || x.StartsWith("правила"))
-                .ToList();
+            var how = new List<string>(DirectScan.Log);
+            how.AddRange(WiaDirect.Log.Where(x => x.StartsWith("прямая съёмка") || x.StartsWith("правила")));
 
             string why = "Сканер не передал ни одной страницы.";
             if (how.Count > 0) why += "\n\nЧто происходило:\n" + string.Join("\n", how);
@@ -253,6 +265,19 @@ internal static class Program
     }
 
     // Служба Windows: сначала через надстройку, затем напрямую
+    // Съёмка напрямую файлом драйвера, минуя посредника. Для аппаратов
+    // вроде Kyocera это единственный рабочий путь: посредник их не
+    // перечисляет, и обычная съёмка до них не доходит
+    static List<string> Straight(Twain.Options opt, string dir, Action<int, string> onPage)
+    {
+        try { return DirectScan.Scan(opt, dir, onPage); }
+        catch (Exception ex)
+        {
+            DirectScan.Log.Add("прямая съёмка: сорвалась — " + ex.Message);
+            return new List<string>();
+        }
+    }
+
     static List<string> ViaWia(Twain.Options opt, string dir, Action<int, string> onPage)
     {
         try
