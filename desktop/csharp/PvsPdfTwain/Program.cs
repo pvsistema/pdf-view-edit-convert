@@ -237,28 +237,19 @@ internal static class Program
             // «не найден». Такой сканер виден только при прямом опросе
             // файлов драйвера — значит и снимать его надо напрямую,
             // как это делает FineReader
-            try
-            {
-                files = Twain.Scan(opt, dir, Page);
+            // Каждый способ под своей защитой — как и во второй ветке.
+            // Раньше здесь неудача первого способа уводила в общий
+            // разбор, и остальные пути толком не пробовались
+            files = Try(() => Twain.Scan(opt, dir, Page), "драйвер производителя");
 
-                if (files.Count == 0) files = Straight(opt, dir, Page);
-                if (files.Count == 0 && Wia.Ready()) files = ViaWia(opt, dir, Page);
-            }
-            catch (Exception first)
-            {
-                files = Straight(opt, dir, Page);
+            if (files.Count == 0)
+                files = Try(() => Straight(opt, dir, Page), "прямая съёмка");
 
-                if (files.Count == 0)
-                {
-                    if (!Wia.Ready()) return Fail(first.Message);
+            if (files.Count == 0)
+                files = Try(() => Direct(dir, Page, opt.Device), "окно службы");
 
-                    try { files = ViaWia(opt, dir, Page); }
-                    catch (Exception second)
-                    {
-                        return Fail(second.Message + "\n\nПервая попытка: " + first.Message);
-                    }
-                }
-            }
+            if (files.Count == 0 && Wia.Ready())
+                files = Try(() => Wia.Scan(opt, dir, Page), "служба Windows");
         }
 
         // Ноль страниц — это НЕ успех. Раньше такой ответ уходил

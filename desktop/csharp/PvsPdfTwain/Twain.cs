@@ -589,6 +589,10 @@ internal static class Twain
 
     static string FromStr32(byte[] b)
     {
+        // Драйвер может не заполнить имя вовсе. Пустое поле тут
+        // роняло весь помощник — и причина терялась целиком
+        if (b == null || b.Length == 0) return "";
+
         int n = Array.IndexOf(b, (byte)0);
         return System.Text.Encoding.Default.GetString(b, 0, n < 0 ? b.Length : n).Trim();
     }
