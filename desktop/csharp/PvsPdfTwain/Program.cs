@@ -368,8 +368,36 @@ internal static class Program
             throw new InvalidOperationException(error);
         }
 
+        // Убеждаемся, что снимок ВООБЩЕ есть и он не пустышка.
+        //
+        // Раньше мы докладывали об успехе, ни разу не взглянув на файл.
+        // Из-за этого в документ падали пустые листы, хотя аппарат
+        // физически не снимал: служба отвечала «готово», а файла либо
+        // не было, либо в нём лежал чистый бланк в пару сотен байт
+        if (!File.Exists(path))
+            throw new InvalidOperationException(
+                "Служба Windows доложила об успехе, но снимка нет." +
+                Trace());
+
+        var size = new FileInfo(path).Length;
+        if (size < 4096)
+            throw new InvalidOperationException(
+                "Сканер вернул пустой лист — снимок не сделан." + Trace());
+
         onPage(1, path);
         return new List<string> { path };
+    }
+
+    // Ход съёмки для сообщения об ошибке
+    static string Trace()
+    {
+        var tail = WiaDirect.Log
+            .Where(x => x.StartsWith("прямая съёмка"))
+            .ToList();
+
+        return tail.Count > 0
+            ? "\n\nЧто происходило:\n" + string.Join("\n", tail)
+            : "";
     }
 
     static void Say(object data) => Console.WriteLine(JsonSerializer.Serialize(data));

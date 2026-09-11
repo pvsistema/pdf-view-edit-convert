@@ -616,9 +616,18 @@ internal static class WiaDirect
                         ? Taken(paths, count)
                         : null;
 
+                    // Ищем снимок в папке, только если служба сказала
+                    // «готово». И берём не любой новый файл, а картинку
+                    // весом хотя бы в несколько килобайт: служба кладёт
+                    // рядом служебную мелочь, а пустой бланк весит
+                    // считаные сотни байт. Раньше сходил любой файл —
+                    // отсюда и пустые листы в документе
                     if (got == null && step == 0)
                         got = Directory.GetFiles(folder)
-                            .FirstOrDefault(f => !before.Contains(f));
+                            .Where(f => !before.Contains(f))
+                            .Where(f => Picture(f) && new FileInfo(f).Length >= 4096)
+                            .OrderByDescending(f => new FileInfo(f).Length)
+                            .FirstOrDefault();
 
                     if (got != null)
                     {
@@ -656,6 +665,13 @@ internal static class WiaDirect
         return last == 0
             ? "Служба Windows не смогла получить снимок."
             : $"Служба Windows не смогла получить снимок (код {last:X8}).";
+    }
+
+    // Похоже ли это на снимок страницы
+    static bool Picture(string file)
+    {
+        string ext = Path.GetExtension(file).ToLowerInvariant();
+        return ext is ".bmp" or ".jpg" or ".jpeg" or ".png" or ".tif" or ".tiff";
     }
 
     static Guid FORMAT_BMP = new("b96b3cab-0728-11d3-9d7b-0000f81ef32e");
