@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -195,12 +196,21 @@ internal static class Program
             // этом компьютере не находит аппарат и молча отдаёт ноль
             // страниц. Раньше мы принимали это за успех и запасной
             // путь не пробовали
+            // Ошибку запасного пути НЕ глушим: раньше она пропадала,
+            // и на экран приходило пустое «страниц ноль» без причины
             try
             {
                 files = Wia.Scan(opt, dir, Page);
                 if (files.Count == 0) files = Direct(dir, Page, opt.Device);
             }
-            catch (Exception) { files = Direct(dir, Page, opt.Device); }
+            catch (Exception first)
+            {
+                try { files = Direct(dir, Page, opt.Device); }
+                catch (Exception second)
+                {
+                    return Fail(second.Message + "\n\nПервая попытка: " + first.Message);
+                }
+            }
         }
         else
         {
@@ -211,10 +221,29 @@ internal static class Program
                 // Драйвер отозвался, но листов не дал — пробуем службу
                 if (files.Count == 0 && Wia.Ready()) files = ViaWia(opt, dir, Page);
             }
-            catch (Exception) when (Wia.Ready())
+            catch (Exception first) when (Wia.Ready())
             {
-                files = ViaWia(opt, dir, Page);
+                try { files = ViaWia(opt, dir, Page); }
+                catch (Exception second)
+                {
+                    return Fail(second.Message + "\n\nПервая попытка: " + first.Message);
+                }
             }
+        }
+
+        // Ноль страниц — это НЕ успех. Раньше такой ответ уходил
+        // с пометкой «ok», и окно показывало голое «сканер не передал
+        // ни одной страницы» без единой подсказки почему
+        if (files.Count == 0)
+        {
+            var how = WiaDirect.Log
+                .Where(x => x.StartsWith("прямая съёмка") || x.StartsWith("правила"))
+                .ToList();
+
+            string why = "Сканер не передал ни одной страницы.";
+            if (how.Count > 0) why += "\n\nЧто происходило:\n" + string.Join("\n", how);
+
+            return Fail(why);
         }
 
         // refused — настройки, которые сканер не принял. Программа
@@ -233,6 +262,7 @@ internal static class Program
         }
         catch { }
 
+        // Здесь ошибку пропускаем наверх — её поймает вызывающий
         return Direct(dir, onPage, opt.Device);
     }
 
