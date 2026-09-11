@@ -137,13 +137,6 @@ internal static class TwainBridge
         return false;
     }
 
-    // Показывает ли служба Windows хоть один сканер прямо сейчас
-    static bool WiaAlive()
-    {
-        try { return Scanner.WiaCount() > 0; }
-        catch { return false; }
-    }
-
     static Process Start(string exe, string args, bool visible = false)
     {
         var psi = new ProcessStartInfo
@@ -507,11 +500,12 @@ internal static class TwainBridge
 
         // Аппарат от службы Windows снимается иначе, чем через драйвер.
         //
-        // Но если служба сейчас не показывает НИ ОДНОГО сканера, идти
-        // к ней бессмысленно: там аппарата уже нет, а помощник тратит
-        // на это заход и возвращает «не найден». В таком случае сразу
-        // работаем драйвером производителя — как FineReader
-        if (!string.IsNullOrEmpty(opt.DeviceName) && ByWia(opt.DeviceName) && WiaAlive())
+        // Проверку «жива ли служба» я отсюда убрал: она спрашивала
+        // старым способом, который на этом компьютере мёртв, всегда
+        // получала ноль — и отправляла WIA-сканер к драйверу, которого
+        // у него нет. Помощник умеет спросить службу по-новому сам,
+        // и решать за него не нужно
+        if (!string.IsNullOrEmpty(opt.DeviceName) && ByWia(opt.DeviceName))
             args.Add("--wia");
 
         // Пробуем помощников по очереди: аппарат отзывается только
