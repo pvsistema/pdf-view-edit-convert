@@ -137,6 +137,13 @@ internal static class TwainBridge
         return false;
     }
 
+    // Показывает ли служба Windows хоть один сканер прямо сейчас
+    static bool WiaAlive()
+    {
+        try { return Scanner.WiaCount() > 0; }
+        catch { return false; }
+    }
+
     static Process Start(string exe, string args, bool visible = false)
     {
         var psi = new ProcessStartInfo
@@ -498,8 +505,13 @@ internal static class TwainBridge
         if (opt.Limit > 0) { args.Add("--limit"); args.Add(opt.Limit.ToString()); }
         if (showUi) args.Add("--ui");
 
-        // Аппарат от службы Windows снимается иначе, чем через драйвер
-        if (!string.IsNullOrEmpty(opt.DeviceName) && ByWia(opt.DeviceName))
+        // Аппарат от службы Windows снимается иначе, чем через драйвер.
+        //
+        // Но если служба сейчас не показывает НИ ОДНОГО сканера, идти
+        // к ней бессмысленно: там аппарата уже нет, а помощник тратит
+        // на это заход и возвращает «не найден». В таком случае сразу
+        // работаем драйвером производителя — как FineReader
+        if (!string.IsNullOrEmpty(opt.DeviceName) && ByWia(opt.DeviceName) && WiaAlive())
             args.Add("--wia");
 
         // Пробуем помощников по очереди: аппарат отзывается только

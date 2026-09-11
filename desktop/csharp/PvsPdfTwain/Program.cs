@@ -27,6 +27,20 @@ internal static class Program
         // не сработать, поэтому пробуем осторожно
         try { Console.OutputEncoding = Encoding.UTF8; } catch { }
 
+        // Поток ошибок тоже в UTF-8: иначе русский текст доходит до
+        // основной программы «кракозябрами», и причину не прочесть
+        try { Console.InputEncoding = Encoding.UTF8; } catch { }
+
+        try
+        {
+            var err = new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false))
+            {
+                AutoFlush = true,
+            };
+            Console.SetError(err);
+        }
+        catch { }
+
         try
         {
             if (args.Length == 0) return Fail("Не указано, что делать.");
@@ -198,26 +212,23 @@ internal static class Program
             // путь не пробовали
             // Ошибку запасного пути НЕ глушим: раньше она пропадала,
             // и на экран приходило пустое «страниц ноль» без причины
-            try
-            {
-                files = Wia.Scan(opt, dir, Page);
-                if (files.Count == 0) files = Direct(dir, Page, opt.Device);
-                if (files.Count == 0) files = Straight(opt, dir, Page);
+            // Каждый способ — в своей ловушке. Раньше ошибка первого
+            // уводила в общий разбор, и остальные пути толком не
+            // пробовались: аппарат «не найден службой Windows» ронял
+            // весь заход, хотя драйвер производителя его прекрасно знает
+            files = Try(() => Wia.Scan(opt, dir, Page), "служба Windows");
 
-                // Служба Windows молчит — идём к драйверу производителя.
-                // Раньше этот путь для «windows-аппарата» не пробовался
-                // вовсе, хотя именно им снимает FineReader
-                if (files.Count == 0) files = ViaTwain(opt, dir, Page);
-            }
-            catch (Exception first)
-            {
-                try { files = Direct(dir, Page, opt.Device); }
-                catch { files = new List<string>(); }
+            if (files.Count == 0)
+                files = Try(() => Direct(dir, Page, opt.Device), "окно службы");
 
-                if (files.Count == 0) files = Straight(opt, dir, Page);
-                if (files.Count == 0) files = ViaTwain(opt, dir, Page);
-                if (files.Count == 0) return Fail(first.Message);
-            }
+            if (files.Count == 0)
+                files = Try(() => Straight(opt, dir, Page), "прямая съёмка");
+
+            // Драйвер производителя — тот самый путь, которым снимает
+            // FineReader. Для аппарата от службы Windows он раньше
+            // не пробовался вовсе
+            if (files.Count == 0)
+                files = Try(() => Twain.Scan(opt, dir, Page), "драйвер производителя");
         }
         else
         {
@@ -280,6 +291,23 @@ internal static class Program
         catch (Exception ex)
         {
             DirectScan.Log.Add("прямая съёмка: сорвалась — " + ex.Message);
+            return new List<string>();
+        }
+    }
+
+    // Один способ съёмки под защитой. Что бы он ни выкинул, остальные
+    // способы должны получить свой шанс, а причина — попасть в отчёт
+    static List<string> Try(Func<List<string>> work, string title)
+    {
+        try
+        {
+            var got = work();
+            if (got.Count == 0) DirectScan.Log.Add(title + ": страниц нет");
+            return got;
+        }
+        catch (Exception ex)
+        {
+            DirectScan.Log.Add(title + ": " + ex.Message.Replace("\n", " ").Trim());
             return new List<string>();
         }
     }

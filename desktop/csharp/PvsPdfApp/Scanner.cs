@@ -542,6 +542,14 @@ internal static class Scanner
     // объяснить — оставалось гадать
     public static readonly List<string> Log = new();
 
+    // Сколько сканеров служба Windows показывает прямо сейчас.
+    // Ноль означает, что идти к ней за снимком бесполезно
+    public static int WiaCount()
+    {
+        try { return Sta(ListCore).Count; }
+        catch { return 0; }
+    }
+
     static List<Device> ListCore()
     {
         var found = new List<Device>();
