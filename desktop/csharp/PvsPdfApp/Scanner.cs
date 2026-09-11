@@ -947,7 +947,81 @@ internal static class Scanner
         if (opt.Twain || opt.DeviceId.StartsWith("twain:"))
             return TwainBridge.Scan(opt, dir, false, onPage, token);
 
-        return Sta(() => ScanCore(opt, dir, onPage, token));
+        // Обычный путь — служба Windows.
+        //
+        // ГЛАВНОЕ. Раньше на этом всё и заканчивалось. Если аппарат
+        // попал в список от службы Windows, но снимать ею отказывается
+        // (ровно случай Kyocera: в списке WIA он есть, а изображение
+        // не отдаёт), человек получал «не передал ни одной страницы»
+        // — и ни одна из наших доработок драйвера даже не запускалась.
+        //
+        // Теперь при неудаче пробуем второй путь: тот самый драйвер
+        // производителя, которым снимает FineReader. Название аппарата
+        // у нас есть, помощник найдёт его по сути имени
+        List<string> files;
+
+        try
+        {
+            files = Sta(() => ScanCore(opt, dir, onPage, token));
+            if (files.Count > 0) return files;
+
+            LastWhy = "Служба Windows не отдала ни одной страницы.";
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            LastWhy = "Служба Windows: " + ex.Message;
+            files = new List<string>();
+        }
+
+        token.ThrowIfCancellationRequested();
+
+        // Второй заход — драйвером производителя
+        try
+        {
+            var viaDriver = new Options
+            {
+                DeviceId = "",
+                DeviceName = string.IsNullOrWhiteSpace(opt.DeviceName) ? DeviceTitle(opt.DeviceId) : opt.DeviceName,
+                Dpi = opt.Dpi,
+                Color = opt.Color,
+                Feeder = opt.Feeder,
+                Duplex = opt.Duplex,
+                Limit = opt.Limit,
+                Twain = true,
+            };
+
+            var got = TwainBridge.Scan(viaDriver, dir, false, onPage, token);
+            if (got.Count > 0) return got;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            LastWhy += "\nДрайвер производителя: " + ex.Message;
+        }
+
+        throw new InvalidOperationException(
+            "Сканер не передал ни одной страницы.\n\nЧто происходило:\n" + LastWhy);
+    }
+
+    // Почему не вышло — показываем человеку целиком, а не одной строкой
+    public static string LastWhy = "";
+
+    // Название аппарата по его системному коду. Спрашиваем только
+    // службу Windows — полный опрос здесь был бы лишней задержкой
+    static string DeviceTitle(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return "";
+
+        try
+        {
+            foreach (var d in Sta(ListCore))
+                if (string.Equals(d.Id, id, StringComparison.OrdinalIgnoreCase))
+                    return d.Name;
+        }
+        catch { }
+
+        return "";
     }
 
     static List<string> ScanCore(Options opt, string dir, Action<int, string> onPage, CancellationToken token)

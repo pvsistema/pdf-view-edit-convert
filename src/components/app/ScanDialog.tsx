@@ -212,7 +212,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           return;
         }
         if (!r.pages?.length) {
-          setError('Сканер не передал ни одной страницы');
+          // Подробность из программы важнее общей фразы: по ней видно,
+          // на каком шаге оборвалась цепочка
+          setError(r.error || 'Сканер не передал ни одной страницы');
           return;
         }
 
