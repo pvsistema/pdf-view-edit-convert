@@ -247,6 +247,38 @@ internal static class Wia
         };
     }
 
+    // Один ли это аппарат. Сравниваем по сути: отбрасываем служебные
+    // слова драйверов и всё, кроме букв и цифр. «Kyocera TASKalfa 2020»
+    // и «KYOCERA TASKalfa 2020 KMTWAIN #2» — одно и то же устройство
+    public static bool Alike(string a, string b)
+    {
+        string Core(string s)
+        {
+            string t = s.ToLowerInvariant();
+
+            int hash = t.LastIndexOf('#');
+            if (hash > 0) t = t.Substring(0, hash);
+
+            foreach (string junk in new[]
+            {
+                "kmtwain", "twain", "wia", "driver", "scanner", "сканер",
+                "device", "usb", "network", "сеть",
+            })
+                t = t.Replace(junk, " ");
+
+            return new string(t.Where(char.IsLetterOrDigit).ToArray());
+        }
+
+        string x = Core(a), y = Core(b);
+        if (x.Length == 0 || y.Length == 0) return false;
+        if (x == y) return true;
+
+        // Вхождение засчитываем только у длинных названий: короткое
+        // «epson» иначе поглотило бы любой аппарат этой марки
+        if (x.Length < 6 || y.Length < 6) return false;
+        return x.Contains(y) || y.Contains(x);
+    }
+
     // Убираем из названия служебные слова драйвера: человеку нужен
     // «Kyocera TASKalfa 2020», а не «Kyocera TASKalfa 2020 WIA Driver»
     static string Pretty(string name)
@@ -279,6 +311,8 @@ internal static class Wia
                     "Служба сканирования Windows недоступна. Проверьте, что служба «Загрузка изображений (WIA)» запущена.");
 
             dynamic? info = null;
+            var seen = new List<string>();
+
             foreach (dynamic d in mgr.DeviceInfos)
             {
                 int type = -1;
@@ -294,6 +328,8 @@ internal static class Wia
                 // Ищем и по коду устройства, и по названию: помощник
                 // запускается заново на каждую команду, и главная
                 // программа передаёт то, что показывала человеку
+                seen.Add(string.IsNullOrWhiteSpace(name) ? id : name);
+
                 if (string.IsNullOrWhiteSpace(opt.Device) ||
                     string.Equals(id, opt.Device, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(name, opt.Device, StringComparison.OrdinalIgnoreCase) ||
@@ -304,8 +340,55 @@ internal static class Wia
                 }
             }
 
+            // Точного совпадения нет — сверяем по СУТИ названия.
+            //
+            // Один аппарат зовётся по-разному в списке, у драйвера и
+            // у службы: «Kyocera TASKalfa 2020», «...KMTWAIN», «...WIA»,
+            // иногда с номером через #. Требовать совпадения буква
+            // в букву — и есть причина «сканер не найден» у аппарата,
+            // который человек только что видел в списке
+            if (info == null && !string.IsNullOrWhiteSpace(opt.Device))
+            {
+                foreach (dynamic d in mgr.DeviceInfos)
+                {
+                    int type = -1;
+                    try { type = (int)d.Type; } catch { }
+                    if (type == 2 || type == 3) continue;
+
+                    string name = "";
+                    try { name = Prop(d.Properties, "Name") ?? ""; } catch { }
+
+                    if (Alike(name, opt.Device)) { info = d; break; }
+                }
+            }
+
+            // Аппарат один-единственный — берём его.
+            // Спорить тут не о чем, а человеку нужен снимок
+            if (info == null && !string.IsNullOrWhiteSpace(opt.Device))
+            {
+                dynamic? only = null;
+                int count = 0;
+
+                foreach (dynamic d in mgr.DeviceInfos)
+                {
+                    int type = -1;
+                    try { type = (int)d.Type; } catch { }
+                    if (type == 2 || type == 3) continue;
+
+                    only = d;
+                    count++;
+                }
+
+                if (count == 1) info = only;
+            }
+
             if (info == null)
-                throw new DeviceNotFoundException("Сканер не найден среди устройств Windows.");
+                throw new DeviceNotFoundException(
+                    "Сканер не найден среди устройств Windows." +
+                    (seen.Count > 0
+                        ? "\n\nСлужба показывает: " + string.Join(", ", seen) +
+                          "\nИскали: " + opt.Device
+                        : "\n\nСлужба Windows не показывает ни одного сканера."));
 
             device = info.Connect();
             dynamic item = device.Items[1];
