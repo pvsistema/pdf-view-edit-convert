@@ -789,7 +789,40 @@ internal static class Scanner
         if (deviceId.StartsWith("manual-wia:"))
             return Sta(() => ShowDriverUiCore(deviceId.Substring(11), dir));
 
-        return Sta(() => ShowDriverUiCore(deviceId, dir));
+        // Аппарат от службы Windows. Сначала её окно — а если оно
+        // ничего не дало, открываем РОДНОЕ окно драйвера производителя.
+        // Это ровно тот путь, которым снимает FineReader: у Kyocera
+        // служба Windows аппарат показывает, но снимок не отдаёт
+        try
+        {
+            var files = Sta(() => ShowDriverUiCore(deviceId, dir));
+            if (files.Count > 0) return files;
+
+            LastWhy = "Окно службы Windows не дало снимка.";
+        }
+        catch (Exception ex)
+        {
+            LastWhy = "Окно службы Windows: " + ex.Message;
+        }
+
+        string title = DeviceTitle(deviceId);
+        if (string.IsNullOrWhiteSpace(title))
+            throw new InvalidOperationException(
+                "Не удалось открыть окно сканера.\n\nЧто происходило:\n" + LastWhy);
+
+        try
+        {
+            var opt = new Options { DeviceName = title, Twain = true };
+            var got = TwainBridge.Scan(opt, dir, true, (_, _) => { }, CancellationToken.None);
+            if (got.Count > 0) return got;
+        }
+        catch (Exception ex)
+        {
+            LastWhy += "\nОкно драйвера производителя: " + ex.Message;
+        }
+
+        throw new InvalidOperationException(
+            "Не удалось открыть окно сканера.\n\nЧто происходило:\n" + LastWhy);
     }
 
     static List<string> ShowDriverUiCore(string deviceId, string dir)
