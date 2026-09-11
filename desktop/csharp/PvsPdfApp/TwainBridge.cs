@@ -524,6 +524,11 @@ internal static class TwainBridge
                 trouble.Add(Path.GetFileName(helpers[i]) + ": " + ex.Message);
             }
 
+            // Драйвер отпускает аппарат не мгновенно. Без паузы второй
+            // помощник застаёт его занятым — это и есть окно
+            // «TWAIN Driver is already running»
+            if (!last) System.Threading.Thread.Sleep(1200);
+
             if (last)
                 throw new InvalidOperationException(
                     "Сканер не передал ни одной страницы.\n\nЧто происходило:\n" +

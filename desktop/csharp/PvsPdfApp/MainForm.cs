@@ -571,6 +571,18 @@ public class MainForm : Form
                     opt.DeviceName = opt.DeviceId.Substring(6);
                 }
 
+                // Название нужно ВСЕГДА, не только устройствам драйвера.
+                // Запасной путь через драйвер производителя ищет аппарат
+                // по имени, а системный код ему ни о чём не говорит.
+                // Без имени драйвер открывал первый попавшийся сканер —
+                // так вместо Kyocera появлялось окно EPSON
+                if (string.IsNullOrWhiteSpace(opt.DeviceName))
+                {
+                    opt.DeviceName = root.TryGetProperty("deviceName", out var dn)
+                        ? (dn.GetString() ?? "")
+                        : "";
+                }
+
                 _ = ScanAsync(opt);
             }
             else if (type == "cancelScan")

@@ -173,6 +173,8 @@ export type ScanDevice = {
 
 export type ScanOptions = {
   device: string;
+  // Название аппарата: по нему его ищет драйвер производителя
+  deviceName?: string;
   dpi: number;
   color: 'color' | 'gray' | 'bw';
   feeder: boolean;

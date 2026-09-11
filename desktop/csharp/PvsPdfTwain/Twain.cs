@@ -547,7 +547,10 @@ internal static class Twain
     // отбрасываем служебные хвосты и сверяем по сути
     static bool Same(string a, string b)
     {
-        if (string.IsNullOrWhiteSpace(b)) return true;
+        // Пустое имя раньше подходило ЛЮБОМУ драйверу — и программа
+        // молча открывала первый попавшийся. Отсюда и окно EPSON
+        // при выбранной Kyocera. Теперь без имени совпадений нет
+        if (string.IsNullOrWhiteSpace(b)) return false;
         if (string.IsNullOrWhiteSpace(a)) return false;
 
         string x = Plain(a), y = Plain(b);

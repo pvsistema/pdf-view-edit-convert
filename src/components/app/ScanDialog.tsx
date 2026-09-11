@@ -265,7 +265,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
     setError('');
     setBusy(true);
     remember();
-    startScan({ device, dpi, color, feeder, duplex, limit });
+    // Имя аппарата шлём вместе с кодом: запасной путь через драйвер
+    // производителя ищет сканер именно по названию
+    startScan({ device, deviceName: current?.name || '', dpi, color, feeder, duplex, limit });
   };
 
   // Показываем то, что аппарат действительно умеет. Пояснения к
