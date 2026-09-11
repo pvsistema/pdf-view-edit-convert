@@ -123,6 +123,12 @@ internal static class TwainBridge
             CreateNoWindow = !visible,
             RedirectStandardOutput = true,
             StandardOutputEncoding = System.Text.Encoding.UTF8,
+
+            // Ругань помощника читаем тоже. Без этого его падение
+            // выглядело как «просто ноль страниц»: настоящая причина
+            // уходила в пустоту, и на экран шла голая фраза без объяснений
+            RedirectStandardError = true,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
         };
 
         return Process.Start(psi) ?? throw new InvalidOperationException(
@@ -474,7 +480,16 @@ internal static class TwainBridge
 
         // Снимаем тем помощником, которому этот аппарат отозвался
         // при опросе: другой разрядности он просто не ответит
-        using var p = Start(HelperFor(opt.DeviceName), string.Join(" ", args));
+        string helper = HelperFor(opt.DeviceName);
+        using var p = Start(helper, string.Join(" ", args));
+
+        // Поток ругани читаем ОТДЕЛЬНОЙ нитью. Если этого не делать,
+        // труба переполняется и помощник встаёт намертво
+        string crash = "";
+        var errReader = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { crash = p.StandardError.ReadToEnd().Trim(); } catch { }
+        });
 
         using (token.Register(() => { try { p.Kill(true); } catch { } }))
         {
@@ -524,11 +539,43 @@ internal static class TwainBridge
             p.WaitForExit();
         }
 
+        try { errReader.Wait(3000); } catch { }
+
         token.ThrowIfCancellationRequested();
 
         if (pages.Count == 0)
-            throw new InvalidOperationException(
-                error.Length > 0 ? error : "Сканер не передал ни одной страницы.");
+        {
+            var why = new System.Text.StringBuilder();
+            why.Append(error.Length > 0 ? error : "Сканер не передал ни одной страницы.");
+
+            // Всё, что поможет понять причину: код завершения,
+            // какой помощник работал и на что он жаловался
+            var facts = new List<string>();
+
+            try
+            {
+                if (p.ExitCode != 0 && error.Length == 0)
+                    facts.Add("помощник завершился с кодом " + p.ExitCode);
+            }
+            catch { }
+
+            facts.Add("помощник: " + Path.GetFileName(helper));
+            facts.Add("способ: " + (args.Contains("--wia") ? "служба Windows" : "драйвер производителя"));
+
+            if (crash.Length > 0)
+            {
+                string tail = crash.Length > 500 ? crash.Substring(0, 500) : crash;
+                facts.Add("сообщение помощника: " + tail);
+            }
+
+            if (ChooseLog.Count > 0)
+                facts.Add("поиск: " + string.Join("; ", ChooseLog.Take(6)));
+
+            if (facts.Count > 0)
+                why.Append("\n\nЧто происходило:\n" + string.Join("\n", facts));
+
+            throw new InvalidOperationException(why.ToString());
+        }
 
         return pages;
     }

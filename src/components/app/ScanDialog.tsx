@@ -772,7 +772,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
           {error && (
             <div className="mt-5 border border-destructive bg-destructive/5 px-4 py-3 text-[0.85rem]">
-              {error}
+              {/* Подробности приходят в несколько строк — сохраняем
+                  переносы, иначе объяснение слипается в кашу */}
+              <div className="whitespace-pre-wrap">{error}</div>
               {/* Частый случай: драйвер сообщил об аппарате, которого
                   на самом деле нет под рукой */}
               {current?.twain && (
