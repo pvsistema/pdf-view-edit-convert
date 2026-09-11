@@ -70,6 +70,13 @@ internal static class Twain
     const ushort CAP_DUPLEX = 0x1012;
     const ushort CAP_DUPLEXENABLED = 0x1013;
 
+    // Размер листа. Без него часть МФУ (Kyocera в их числе) считает
+    // область съёмки нулевой и не отдаёт ни одной страницы — молча.
+    // FineReader этот размер задаёт всегда, там в окне так и написано
+    // «Размер бумаги: A4». Мы не задавали его вовсе
+    const ushort ICAP_SUPPORTEDSIZES = 0x111A;
+    const ushort TWSS_A4 = 4;
+
     const ushort TWON_ONEVALUE = 5;
     // Виды ответа драйвера о возможностях: список значений и диапазон
     const ushort TWON_ENUMERATION = 3;
@@ -525,6 +532,56 @@ internal static class Twain
         var src = System.Text.Encoding.Default.GetBytes(s);
         Array.Copy(src, buf, Math.Min(src.Length, 33));
         return buf;
+    }
+
+    // Тот же это аппарат или нет.
+    //
+    // ГЛАВНАЯ ТОНКОСТЬ. Один и тот же аппарат зовётся по-разному в
+    // разных местах: драйвер представляется «Kyocera TASKalfa 2020
+    // TWAIN», служба Windows — «Kyocera TASKalfa 2020 WIA Driver», а
+    // человек в списке видит просто «Kyocera TASKalfa 2020».
+    //
+    // Раньше мы требовали совпадения буква в букву — и аппарат,
+    // выбранный в списке, при съёмке уже «не находился». Ровно это и
+    // видел человек: в списке сканер есть, а снять нечем. Теперь
+    // отбрасываем служебные хвосты и сверяем по сути
+    static bool Same(string a, string b)
+    {
+        if (string.IsNullOrWhiteSpace(b)) return true;
+        if (string.IsNullOrWhiteSpace(a)) return false;
+
+        string x = Plain(a), y = Plain(b);
+        if (x.Length == 0 || y.Length == 0) return false;
+
+        return x == y || x.StartsWith(y) || y.StartsWith(x);
+    }
+
+    // Имя без служебных слов, знаков и разной величины букв
+    public static string Plain(string name)
+    {
+        string s = name.Trim();
+
+        // Номер копии, который дописывает Windows: «... #3»
+        int hash = s.LastIndexOf('#');
+        if (hash > 0) s = s.Substring(0, hash);
+
+        s = s.ToLowerInvariant();
+
+        foreach (string tail in new[]
+        {
+            "twain driver", "wia driver", "wia-driver", "twain ds",
+            "twain", "wia", "driver", "scanner", "сканер",
+        })
+        {
+            if (s.EndsWith(" " + tail)) s = s.Substring(0, s.Length - tail.Length - 1).Trim();
+        }
+
+        // Пробелы, дефисы и точки в названиях ставят кто как хочет
+        var keep = new System.Text.StringBuilder();
+        foreach (char c in s)
+            if (char.IsLetterOrDigit(c)) keep.Append(c);
+
+        return keep.ToString();
     }
 
     static string FromStr32(byte[] b)
@@ -1021,8 +1078,7 @@ internal static class Twain
             {
                 if (rc == TWRC_ENDOFLIST) break;
 
-                if (rc == TWRC_SUCCESS &&
-                    (string.IsNullOrEmpty(opt.Device) || FromStr32(src.ProductName) == opt.Device))
+                if (rc == TWRC_SUCCESS && Same(FromStr32(src.ProductName), opt.Device))
                 {
                     picked = true;
                     break;
@@ -1169,6 +1225,10 @@ internal static class Twain
         int dpi = Math.Max(75, Math.Min(1200, opt.Dpi));
         SetFix(ref app, ref src, ICAP_XRESOLUTION, dpi);
         SetFix(ref app, ref src, ICAP_YRESOLUTION, dpi);
+
+        // Размер листа — A4. Аппарат, который сам его не выбирает,
+        // иначе снимает пустоту нулевого размера
+        SetOne(ref app, ref src, ICAP_SUPPORTEDSIZES, TWTY_UINT16, TWSS_A4);
 
         // Автоподатчик и двусторонняя съёмка
         SetOne(ref app, ref src, CAP_FEEDERENABLED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));

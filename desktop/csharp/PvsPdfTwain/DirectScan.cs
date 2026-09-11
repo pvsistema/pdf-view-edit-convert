@@ -56,6 +56,8 @@ internal static class DirectScan
     const ushort CAP_FEEDERENABLED = 0x1002;
     const ushort CAP_AUTOFEED = 0x1007;
     const ushort CAP_DUPLEXENABLED = 0x1013;
+    const ushort ICAP_SUPPORTEDSIZES = 0x111A;
+    const ushort TWSS_A4 = 4;
 
     const ushort TWON_ONEVALUE = 5;
     const ushort TWTY_INT16 = 1;
@@ -246,8 +248,11 @@ internal static class DirectScan
         {
             foreach (var d in DriverDirect.List())
             {
+                // Сверяем по сути, а не буква в букву: драйвер зовёт
+                // аппарат «Kyocera TASKalfa 2020 TWAIN», а в списке у
+                // человека — «Kyocera TASKalfa 2020»
                 if (!string.IsNullOrWhiteSpace(opt.Device) &&
-                    string.Equals(d.Name, opt.Device, StringComparison.OrdinalIgnoreCase))
+                    Twain.Plain(d.Name) == Twain.Plain(opt.Device))
                     order.Insert(0, d.File);
                 else if (!order.Contains(d.File))
                     order.Add(d.File);
@@ -570,6 +575,10 @@ internal static class DirectScan
         int dpi = Math.Max(75, Math.Min(1200, opt.Dpi));
         Raw(call, ref app, ICAP_XRESOLUTION, TWTY_FIX32, (uint)(ushort)dpi);
         Raw(call, ref app, ICAP_YRESOLUTION, TWTY_FIX32, (uint)(ushort)dpi);
+
+        // Размер листа A4: без него аппарат снимает область нулевого
+        // размера и не отдаёт страниц
+        One(call, ref app, ICAP_SUPPORTEDSIZES, TWTY_UINT16, TWSS_A4);
 
         One(call, ref app, CAP_FEEDERENABLED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));
         One(call, ref app, CAP_AUTOFEED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));

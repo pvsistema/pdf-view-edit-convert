@@ -53,14 +53,61 @@ internal static class TwainBridge
     // Каким способом аппарат нашёлся: службой Windows или драйвером
     static readonly Dictionary<string, bool> _viaWia = new(StringComparer.OrdinalIgnoreCase);
 
+    // Имя без служебных хвостов: один аппарат зовётся по-разному
+    // в списке, у драйвера и у службы Windows
+    static string Plain(string name)
+    {
+        string s = name.Trim();
+
+        int hash = s.LastIndexOf('#');
+        if (hash > 0) s = s.Substring(0, hash);
+
+        s = s.ToLowerInvariant();
+
+        foreach (string tail in new[]
+        {
+            "twain driver", "wia driver", "wia-driver", "twain ds",
+            "twain", "wia", "driver", "scanner", "сканер",
+        })
+        {
+            if (s.EndsWith(" " + tail)) s = s.Substring(0, s.Length - tail.Length - 1).Trim();
+        }
+
+        var keep = new System.Text.StringBuilder();
+        foreach (char c in s)
+            if (char.IsLetterOrDigit(c)) keep.Append(c);
+
+        return keep.ToString();
+    }
+
     static string HelperFor(string device)
     {
-        if (!string.IsNullOrWhiteSpace(device) &&
-            _owner.TryGetValue(device, out string? exe) &&
-            File.Exists(exe)) return exe;
+        if (!string.IsNullOrWhiteSpace(device))
+        {
+            if (_owner.TryGetValue(device, out string? exe) && File.Exists(exe)) return exe;
+
+            // Записали под одним написанием, спрашивают под другим —
+            // ищем по сути имени
+            string want = Plain(device);
+            foreach (var pair in _owner)
+                if (Plain(pair.Key) == want && File.Exists(pair.Value)) return pair.Value;
+        }
 
         var all = Helpers();
         return all.Count > 0 ? all[0] : ExePath();
+    }
+
+    // Нашёлся ли аппарат службой Windows. Сверяем по сути имени:
+    // записано могло быть другое написание
+    static bool ByWia(string device)
+    {
+        if (_viaWia.TryGetValue(device, out bool exact)) return exact;
+
+        string want = Plain(device);
+        foreach (var pair in _viaWia)
+            if (Plain(pair.Key) == want) return pair.Value;
+
+        return false;
     }
 
     static Process Start(string exe, string args, bool visible = false)
@@ -419,8 +466,7 @@ internal static class TwainBridge
         if (showUi) args.Add("--ui");
 
         // Аппарат от службы Windows снимается иначе, чем через драйвер
-        if (!string.IsNullOrEmpty(opt.DeviceName) &&
-            _viaWia.TryGetValue(opt.DeviceName, out bool byWia) && byWia)
+        if (!string.IsNullOrEmpty(opt.DeviceName) && ByWia(opt.DeviceName))
             args.Add("--wia");
 
         var pages = new List<string>();
