@@ -141,13 +141,67 @@ internal static class DirectScan
     }
 
     // У драйвера одна точка входа, но данные в неё передаются разные.
-    // Для каждого вида — своя подпись, иначе поля читаются со сдвигом
+    // Для каждого вида — своя подпись, иначе поля читаются со сдвигом.
+    //
+    // ГЛАВНАЯ ТОНКОСТЬ. У файла драйвера и у посредника точки входа
+    // РАЗНЫЕ. Стандарт требует от драйвера пять частей вопроса:
+    //     DS_Entry(кто спрашивает, группа, раздел, команда, данные)
+    // а у посредника их шесть — между «кто» и «группой» он ждёт ещё
+    // «кого спрашиваем». Раньше я звал драйвер как посредника: лишняя
+    // часть сдвигала все остальные, драйвер читал мусор и отвечал
+    // отказом. Теперь пробуем обе формы и берём ту, на которую аппарат
+    // отозвался — старые драйверы встречаются обеих разновидностей
+    delegate ushort DsId5(ref TwIdentity o, uint dg, ushort dat, ushort msg, ref TwIdentity x);
+    delegate ushort DsUi5(ref TwIdentity o, uint dg, ushort dat, ushort msg, ref TwUserInterface x);
+    delegate ushort DsCap5(ref TwIdentity o, uint dg, ushort dat, ushort msg, ref TwCapability x);
+    delegate ushort DsEv5(ref TwIdentity o, uint dg, ushort dat, ushort msg, ref TwEvent x);
+    delegate ushort DsPend5(ref TwIdentity o, uint dg, ushort dat, ushort msg, ref TwPendingXfers x);
+    delegate ushort DsPtr5(ref TwIdentity o, uint dg, ushort dat, ushort msg, ref IntPtr x);
+
     delegate ushort DsId(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref TwIdentity x);
     delegate ushort DsUi(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref TwUserInterface x);
     delegate ushort DsCap(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref TwCapability x);
     delegate ushort DsEv(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref TwEvent x);
     delegate ushort DsPend(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref TwPendingXfers x);
     delegate ushort DsPtr(ref TwIdentity o, ref TwIdentity d, uint dg, ushort dat, ushort msg, ref IntPtr x);
+
+    // Разговор с драйвером в выбранной форме. Какая форма верная —
+    // выясняется при открытии аппарата, дальше весь сеанс идёт ею
+    sealed class Talk
+    {
+        public bool Short;          // пятичастная форма (по стандарту)
+        public TwIdentity Dest;     // «кого спрашиваем» — для шестичастной
+
+        public DsId5? Id5; public DsUi5? Ui5; public DsCap5? Cap5;
+        public DsEv5? Ev5; public DsPend5? Pend5; public DsPtr5? Ptr5;
+
+        public DsId? Id6; public DsUi? Ui6; public DsCap? Cap6;
+        public DsEv? Ev6; public DsPend? Pend6; public DsPtr? Ptr6;
+
+        public ushort Id(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref TwIdentity x)
+            => Short ? Id5!(ref app, dg, dat, msg, ref x)
+                     : Id6!(ref app, ref Dest, dg, dat, msg, ref x);
+
+        public ushort Ui(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref TwUserInterface x)
+            => Short ? Ui5!(ref app, dg, dat, msg, ref x)
+                     : Ui6!(ref app, ref Dest, dg, dat, msg, ref x);
+
+        public ushort Cap(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref TwCapability x)
+            => Short ? Cap5!(ref app, dg, dat, msg, ref x)
+                     : Cap6!(ref app, ref Dest, dg, dat, msg, ref x);
+
+        public ushort Ev(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref TwEvent x)
+            => Short ? Ev5!(ref app, dg, dat, msg, ref x)
+                     : Ev6!(ref app, ref Dest, dg, dat, msg, ref x);
+
+        public ushort Pend(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref TwPendingXfers x)
+            => Short ? Pend5!(ref app, dg, dat, msg, ref x)
+                     : Pend6!(ref app, ref Dest, dg, dat, msg, ref x);
+
+        public ushort Ptr(ref TwIdentity app, uint dg, ushort dat, ushort msg, ref IntPtr x)
+            => Short ? Ptr5!(ref app, dg, dat, msg, ref x)
+                     : Ptr6!(ref app, ref Dest, dg, dat, msg, ref x);
+    }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern IntPtr LoadLibraryEx(string file, IntPtr reserved, uint flags);
@@ -162,6 +216,8 @@ internal static class DirectScan
     [DllImport("kernel32.dll")] static extern UIntPtr GlobalSize(IntPtr h);
 
     [DllImport("user32.dll")] static extern bool GetMessage(out WinMsg m, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] static extern bool PeekMessage(out WinMsg m, IntPtr hwnd, uint min, uint max, uint remove);
+    [DllImport("user32.dll")] static extern uint MsgWaitForMultipleObjects(uint count, IntPtr[]? handles, bool all, uint ms, uint mask);
     [DllImport("user32.dll")] static extern bool TranslateMessage(ref WinMsg m);
     [DllImport("user32.dll")] static extern IntPtr DispatchMessage(ref WinMsg m);
 
@@ -177,40 +233,83 @@ internal static class DirectScan
         Log.Clear();
         var files = new List<string>();
 
-        // Ищем файл драйвера, который знает наш аппарат. Заодно
-        // запоминаем, по каким правилам он согласился отвечать
-        string file = "";
-        foreach (var d in DriverDirect.List())
+        // Какие файлы драйверов пробовать. Сначала тот, что назвался
+        // именем выбранного аппарата, затем — все остальные.
+        //
+        // Перебор важен: имя в списке могло прийти от службы Windows
+        // или быть вписано человеком вручную, и тогда точного совпадения
+        // с именем внутри драйвера просто нет. Сдаваться на этом нельзя —
+        // сканер на компьютере один, и снять надо им
+        var order = new List<string>();
+
+        try
         {
-            if (string.IsNullOrWhiteSpace(opt.Device) ||
-                string.Equals(d.Name, opt.Device, StringComparison.OrdinalIgnoreCase))
+            foreach (var d in DriverDirect.List())
             {
-                file = d.File;
-                break;
+                if (!string.IsNullOrWhiteSpace(opt.Device) &&
+                    string.Equals(d.Name, opt.Device, StringComparison.OrdinalIgnoreCase))
+                    order.Insert(0, d.File);
+                else if (!order.Contains(d.File))
+                    order.Add(d.File);
             }
         }
+        catch (Exception ex) { Log.Add("прямая съёмка: опрос драйверов не удался — " + Short(ex)); }
 
-        if (file.Length == 0)
+        // Драйвер мог не назваться при опросе, но снимать — уметь.
+        // Поэтому добавляем и те файлы, что просто лежат на месте
+        foreach (string f in DriverFiles())
+            if (!order.Contains(f)) order.Add(f);
+
+        if (order.Count == 0)
         {
-            Log.Add("прямая съёмка: файл драйвера для этого аппарата не найден");
+            Log.Add("прямая съёмка: файлов драйверов на компьютере не найдено");
             return files;
         }
 
-        Log.Add("прямая съёмка: драйвер " + Path.GetFileName(file));
-
-        // Правила старые/новые: аппарат отзывается только на своё
-        foreach (bool oldRules in new[] { false, true })
+        foreach (string file in order)
         {
-            try
+            Log.Add("прямая съёмка: пробую драйвер " + Path.GetFileName(file));
+
+            // Правила старые/новые: аппарат отзывается только на своё
+            foreach (bool oldRules in new[] { false, true })
             {
-                var got = Session(file, oldRules, opt, dir, onPage);
-                if (got.Count > 0) return got;
-            }
-            catch (Exception ex)
-            {
-                Log.Add("прямая съёмка: сбой — " + Short(ex));
+                try
+                {
+                    var got = Session(file, oldRules, opt, dir, onPage);
+                    if (got.Count > 0) return got;
+                }
+                catch (Exception ex)
+                {
+                    Log.Add("прямая съёмка: сбой — " + Short(ex));
+                }
             }
         }
+
+        return files;
+    }
+
+    // Файлы драйверов своей разрядности, лежащие в папках Windows
+    static List<string> DriverFiles()
+    {
+        var files = new List<string>();
+
+        try
+        {
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string root = Path.Combine(win, Environment.Is64BitProcess ? "twain_64" : "twain_32");
+            if (!Directory.Exists(root)) return files;
+
+            foreach (string dir in Directory.GetDirectories(root))
+            {
+                try
+                {
+                    foreach (string f in Directory.GetFiles(dir, "*.ds", SearchOption.TopDirectoryOnly))
+                        files.Add(f);
+                }
+                catch { }
+            }
+        }
+        catch { }
 
         return files;
     }
@@ -249,25 +348,69 @@ internal static class DirectScan
                 return files;
             }
 
-            var asId = Marshal.GetDelegateForFunctionPointer<DsId>(entry);
-            var asUi = Marshal.GetDelegateForFunctionPointer<DsUi>(entry);
-            var asCap = Marshal.GetDelegateForFunctionPointer<DsCap>(entry);
-            var asEv = Marshal.GetDelegateForFunctionPointer<DsEv>(entry);
-            var asPend = Marshal.GetDelegateForFunctionPointer<DsPend>(entry);
-            var asPtr = Marshal.GetDelegateForFunctionPointer<DsPtr>(entry);
-
-            // Открываем аппарат — здесь драйвер называет себя сам
-            ushort rc = asId(ref app, ref src, DG_CONTROL, DAT_IDENTITY, MSG_OPENDS, ref src);
-            if (rc != TWRC_SUCCESS)
+            var talk = new Talk
             {
-                Log.Add($"прямая съёмка: {rules} — аппарат не открывается (ответ {rc})");
-                return files;
+                Id5 = Marshal.GetDelegateForFunctionPointer<DsId5>(entry),
+                Ui5 = Marshal.GetDelegateForFunctionPointer<DsUi5>(entry),
+                Cap5 = Marshal.GetDelegateForFunctionPointer<DsCap5>(entry),
+                Ev5 = Marshal.GetDelegateForFunctionPointer<DsEv5>(entry),
+                Pend5 = Marshal.GetDelegateForFunctionPointer<DsPend5>(entry),
+                Ptr5 = Marshal.GetDelegateForFunctionPointer<DsPtr5>(entry),
+
+                Id6 = Marshal.GetDelegateForFunctionPointer<DsId>(entry),
+                Ui6 = Marshal.GetDelegateForFunctionPointer<DsUi>(entry),
+                Cap6 = Marshal.GetDelegateForFunctionPointer<DsCap>(entry),
+                Ev6 = Marshal.GetDelegateForFunctionPointer<DsEv>(entry),
+                Pend6 = Marshal.GetDelegateForFunctionPointer<DsPend>(entry),
+                Ptr6 = Marshal.GetDelegateForFunctionPointer<DsPtr>(entry),
+            };
+
+            // Открываем аппарат. Форму вызова подбираем: сначала по
+            // стандарту (пять частей), затем как у посредника (шесть).
+            //
+            // Отдельная тонкость: ответ драйвер пишет в ТУ ЖЕ запись,
+            // которую получил вопросом. Держим их раздельно, иначе
+            // драйвер затирает вопрос своим ответом на полпути
+            ushort rc = 1;
+            bool opened = false;
+
+            foreach (bool shortForm in new[] { true, false })
+            {
+                talk.Short = shortForm;
+                talk.Dest = Blank();
+
+                var self = Blank();
+                string form = shortForm ? "по стандарту" : "как у посредника";
+
+                try { rc = talk.Id(ref app, DG_CONTROL, DAT_IDENTITY, MSG_OPENDS, ref self); }
+                catch (Exception ex)
+                {
+                    Log.Add($"прямая съёмка: {rules}, {form} — сбой: {Short(ex)}");
+                    continue;
+                }
+
+                if (rc != TWRC_SUCCESS)
+                {
+                    Log.Add($"прямая съёмка: {rules}, {form} — не открылся (ответ {rc})");
+                    continue;
+                }
+
+                // Аппарат открыт: дальше все вопросы адресуем ему,
+                // а не пустышке
+                src = self;
+                talk.Dest = self;
+                opened = true;
+
+                string name = FromStr32(self.ProductName);
+                Log.Add($"прямая съёмка: {rules}, {form} — открыт аппарат «{name}»");
+                break;
             }
 
-            dsOpen = true;
-            Log.Add($"прямая съёмка: {rules} — аппарат открыт");
+            if (!opened) return files;
 
-            Setup(asCap, ref app, ref src, opt);
+            dsOpen = true;
+
+            Setup(talk, ref app, opt);
 
             IntPtr hwnd = Handle.Window;
             var ui = new TwUserInterface
@@ -277,7 +420,7 @@ internal static class DirectScan
                 hParent = hwnd,
             };
 
-            rc = asUi(ref app, ref src, DG_CONTROL, DAT_USERINTERFACE, MSG_ENABLEDS, ref ui);
+            rc = talk.Ui(ref app, DG_CONTROL, DAT_USERINTERFACE, MSG_ENABLEDS, ref ui);
             if (rc != TWRC_SUCCESS && rc != 2)
             {
                 Log.Add($"прямая съёмка: {rules} — аппарат не начал работу (ответ {rc})");
@@ -290,13 +433,48 @@ internal static class DirectScan
             int cap = opt.Limit > 0 ? opt.Limit : 500;
             bool done = false;
 
-            while (!done && GetMessage(out WinMsg m, IntPtr.Zero, 0, 0))
+            // Ждём сообщений от драйвера, но не бесконечно: если аппарат
+            // замолчал совсем, лучше честно сказать об этом, чем
+            // оставить программу висеть без ответа
+            const uint QS_ALLINPUT = 0x04FF;
+            const uint PM_REMOVE = 0x0001;
+            const uint WAIT_TIMEOUT = 0x00000102;
+            int silentFor = 0;
+
+            while (!done)
             {
+                // Ничего не пришло — ждём порцию времени
+                if (!PeekMessage(out WinMsg m, IntPtr.Zero, 0, 0, PM_REMOVE))
+                {
+                    uint w = MsgWaitForMultipleObjects(0, null, false, 1000, QS_ALLINPUT);
+
+                    if (w == WAIT_TIMEOUT)
+                    {
+                        silentFor++;
+
+                        // Две минуты полной тишины: первый лист так и
+                        // не пришёл. Дальше ждать бессмысленно
+                        if (silentFor >= 120 && files.Count == 0)
+                        {
+                            Log.Add($"прямая съёмка: {rules} — аппарат не отозвался за две минуты");
+                            break;
+                        }
+
+                        // Листы уже есть, а новых нет полминуты —
+                        // считаем, что пачка закончилась
+                        if (silentFor >= 30 && files.Count > 0) break;
+                    }
+
+                    continue;
+                }
+
+                silentFor = 0;
+
                 IntPtr raw = Marshal.AllocHGlobal(Marshal.SizeOf<WinMsg>());
                 Marshal.StructureToPtr(m, raw, false);
 
                 var ev = new TwEvent { pEvent = raw, TWMessage = 0 };
-                ushort erc = asEv(ref app, ref src, DG_CONTROL, DAT_EVENT, MSG_PROCESSEVENT, ref ev);
+                ushort erc = talk.Ev(ref app, DG_CONTROL, DAT_EVENT, MSG_PROCESSEVENT, ref ev);
                 Marshal.FreeHGlobal(raw);
 
                 if (erc != TWRC_DSEVENT)
@@ -313,7 +491,7 @@ internal static class DirectScan
                 do
                 {
                     IntPtr img = IntPtr.Zero;
-                    ushort trc = asPtr(ref app, ref src, DG_IMAGE, DAT_IMAGENATIVEXFER, MSG_GET, ref img);
+                    ushort trc = talk.Ptr(ref app, DG_IMAGE, DAT_IMAGENATIVEXFER, MSG_GET, ref img);
 
                     if (trc == TWRC_XFERDONE && img != IntPtr.Zero)
                     {
@@ -327,7 +505,7 @@ internal static class DirectScan
                     }
 
                     pend = new TwPendingXfers();
-                    asPend(ref app, ref src, DG_CONTROL, DAT_PENDINGXFERS, MSG_ENDXFER, ref pend);
+                    talk.Pend(ref app, DG_CONTROL, DAT_PENDINGXFERS, MSG_ENDXFER, ref pend);
 
                     if (trc == TWRC_CANCEL) { done = true; break; }
                     if (made >= cap) break;
@@ -335,8 +513,12 @@ internal static class DirectScan
                 while (pend.Count != 0);
 
                 var rest = new TwPendingXfers();
-                asPend(ref app, ref src, DG_CONTROL, DAT_PENDINGXFERS, MSG_RESET, ref rest);
-                done = true;
+                talk.Pend(ref app, DG_CONTROL, DAT_PENDINGXFERS, MSG_RESET, ref rest);
+
+                // Пачка из автоподатчика приходит несколькими порциями:
+                // ждём дальше, пока аппарат не замолчит. При съёмке со
+                // стекла лист один — на нём и заканчиваем
+                if (!opt.Feeder) done = true;
             }
 
             Log.Add($"прямая съёмка: {rules} — листов снято {files.Count}");
@@ -344,14 +526,14 @@ internal static class DirectScan
             if (enabled)
             {
                 var off = new TwUserInterface { ShowUI = 0, ModalUI = 0, hParent = hwnd };
-                asUi(ref app, ref src, DG_CONTROL, DAT_USERINTERFACE, MSG_DISABLEDS, ref off);
+                talk.Ui(ref app, DG_CONTROL, DAT_USERINTERFACE, MSG_DISABLEDS, ref off);
                 enabled = false;
             }
 
             if (dsOpen)
             {
                 var closing = src;
-                asId(ref app, ref src, DG_CONTROL, DAT_IDENTITY, MSG_CLOSEDS, ref closing);
+                talk.Id(ref app, DG_CONTROL, DAT_IDENTITY, MSG_CLOSEDS, ref closing);
                 dsOpen = false;
             }
 
@@ -366,10 +548,10 @@ internal static class DirectScan
 
     // Настройки съёмки. Что аппарат не принял — пропускаем молча:
     // важнее получить лист, чем добиться точного качества
-    static void Setup(DsCap call, ref TwIdentity app, ref TwIdentity src, Twain.Options opt)
+    static void Setup(Talk call, ref TwIdentity app, Twain.Options opt)
     {
-        One(call, ref app, ref src, ICAP_XFERMECH, TWTY_UINT16, TWSX_NATIVE);
-        One(call, ref app, ref src, ICAP_UNITS, TWTY_UINT16, TWUN_INCHES);
+        One(call, ref app, ICAP_XFERMECH, TWTY_UINT16, TWSX_NATIVE);
+        One(call, ref app, ICAP_UNITS, TWTY_UINT16, TWUN_INCHES);
 
         ushort pixel = opt.Color switch
         {
@@ -377,8 +559,8 @@ internal static class DirectScan
             "gray" => TWPT_GRAY,
             _ => TWPT_RGB,
         };
-        One(call, ref app, ref src, ICAP_PIXELTYPE, TWTY_UINT16, pixel);
-        One(call, ref app, ref src, ICAP_BITDEPTH, TWTY_UINT16, opt.Color switch
+        One(call, ref app, ICAP_PIXELTYPE, TWTY_UINT16, pixel);
+        One(call, ref app, ICAP_BITDEPTH, TWTY_UINT16, opt.Color switch
         {
             "bw" => (ushort)1,
             "gray" => (ushort)8,
@@ -386,22 +568,22 @@ internal static class DirectScan
         });
 
         int dpi = Math.Max(75, Math.Min(1200, opt.Dpi));
-        Raw(call, ref app, ref src, ICAP_XRESOLUTION, TWTY_FIX32, (uint)(ushort)dpi);
-        Raw(call, ref app, ref src, ICAP_YRESOLUTION, TWTY_FIX32, (uint)(ushort)dpi);
+        Raw(call, ref app, ICAP_XRESOLUTION, TWTY_FIX32, (uint)(ushort)dpi);
+        Raw(call, ref app, ICAP_YRESOLUTION, TWTY_FIX32, (uint)(ushort)dpi);
 
-        One(call, ref app, ref src, CAP_FEEDERENABLED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));
-        One(call, ref app, ref src, CAP_AUTOFEED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));
+        One(call, ref app, CAP_FEEDERENABLED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));
+        One(call, ref app, CAP_AUTOFEED, TWTY_BOOL, (ushort)(opt.Feeder ? 1 : 0));
         if (opt.Feeder)
-            One(call, ref app, ref src, CAP_DUPLEXENABLED, TWTY_BOOL, (ushort)(opt.Duplex ? 1 : 0));
+            One(call, ref app, CAP_DUPLEXENABLED, TWTY_BOOL, (ushort)(opt.Duplex ? 1 : 0));
 
-        One(call, ref app, ref src, CAP_XFERCOUNT, TWTY_INT16,
+        One(call, ref app, CAP_XFERCOUNT, TWTY_INT16,
             opt.Limit > 0 ? (ushort)opt.Limit : unchecked((ushort)-1));
     }
 
-    static void One(DsCap call, ref TwIdentity app, ref TwIdentity src, ushort cap, ushort type, ushort value)
-        => Raw(call, ref app, ref src, cap, type, value);
+    static void One(Talk call, ref TwIdentity app, ushort cap, ushort type, ushort value)
+        => Raw(call, ref app, cap, type, value);
 
-    static void Raw(DsCap call, ref TwIdentity app, ref TwIdentity src, ushort cap, ushort type, uint value)
+    static void Raw(Talk call, ref TwIdentity app, ushort cap, ushort type, uint value)
     {
         IntPtr h = GlobalAlloc(GHND, (UIntPtr)8);
         if (h == IntPtr.Zero) return;
@@ -414,7 +596,7 @@ internal static class DirectScan
         GlobalUnlock(h);
 
         var c = new TwCapability { Cap = cap, ConType = TWON_ONEVALUE, hContainer = h };
-        try { call(ref app, ref src, DG_CONTROL, DAT_CAPABILITY, MSG_SET, ref c); }
+        try { call.Cap(ref app, DG_CONTROL, DAT_CAPABILITY, MSG_SET, ref c); }
         catch { }
 
         GlobalFree(h);
@@ -496,6 +678,13 @@ internal static class DirectScan
         var raw = System.Text.Encoding.Default.GetBytes(s);
         Array.Copy(raw, b, Math.Min(raw.Length, 33));
         return b;
+    }
+
+    static string FromStr32(byte[] b)
+    {
+        if (b == null) return "";
+        int n = Array.IndexOf(b, (byte)0);
+        return System.Text.Encoding.Default.GetString(b, 0, n < 0 ? b.Length : n).Trim();
     }
 
     static string Short(Exception ex)
