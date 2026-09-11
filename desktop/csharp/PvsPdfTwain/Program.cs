@@ -203,6 +203,11 @@ internal static class Program
                 files = Wia.Scan(opt, dir, Page);
                 if (files.Count == 0) files = Direct(dir, Page, opt.Device);
                 if (files.Count == 0) files = Straight(opt, dir, Page);
+
+                // Служба Windows молчит — идём к драйверу производителя.
+                // Раньше этот путь для «windows-аппарата» не пробовался
+                // вовсе, хотя именно им снимает FineReader
+                if (files.Count == 0) files = ViaTwain(opt, dir, Page);
             }
             catch (Exception first)
             {
@@ -210,6 +215,7 @@ internal static class Program
                 catch { files = new List<string>(); }
 
                 if (files.Count == 0) files = Straight(opt, dir, Page);
+                if (files.Count == 0) files = ViaTwain(opt, dir, Page);
                 if (files.Count == 0) return Fail(first.Message);
             }
         }
@@ -274,6 +280,18 @@ internal static class Program
         catch (Exception ex)
         {
             DirectScan.Log.Add("прямая съёмка: сорвалась — " + ex.Message);
+            return new List<string>();
+        }
+    }
+
+    // Драйвер производителя — запасной путь для аппарата, который
+    // числится за службой Windows, но снимок ею не отдаёт
+    static List<string> ViaTwain(Twain.Options opt, string dir, Action<int, string> onPage)
+    {
+        try { return Twain.Scan(opt, dir, onPage); }
+        catch (Exception ex)
+        {
+            DirectScan.Log.Add("драйвер производителя: " + ex.Message);
             return new List<string>();
         }
     }

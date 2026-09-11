@@ -80,6 +80,33 @@ internal static class TwainBridge
         return keep.ToString();
     }
 
+    // В каком порядке пробовать помощников.
+    //
+    // Разрядность решает всё: 32-разрядный помощник видит ТОЛЬКО
+    // драйверы из twain_32, 64-разрядный — только из twain_64. Они
+    // не видят друг друга вовсе. Драйверы Kyocera, Canon, Epson,
+    // HP чаще всего 32-разрядные — в панели управления такой драйвер
+    // прямо и зовётся «Kyocera TWAIN (32-bit)».
+    //
+    // Раньше мы брали ОДНОГО помощника и на нём останавливались. Если
+    // угадали неверно, аппарат «не найден» — хотя его драйвер стоит
+    // рядом, просто в другой разрядности. Теперь пробуем обоих
+    static List<string> HelpersFor(string device)
+    {
+        var order = new List<string>();
+
+        string known = HelperFor(device);
+        if (File.Exists(known)) order.Add(known);
+
+        // 32-разрядный ставим следующим: там живёт большинство
+        // драйверов производителей
+        foreach (string exe in new[] { ExePath(), ExePath64() })
+            if (File.Exists(exe) && !order.Contains(exe, StringComparer.OrdinalIgnoreCase))
+                order.Add(exe);
+
+        return order;
+    }
+
     static string HelperFor(string device)
     {
         if (!string.IsNullOrWhiteSpace(device))
@@ -475,12 +502,48 @@ internal static class TwainBridge
         if (!string.IsNullOrEmpty(opt.DeviceName) && ByWia(opt.DeviceName))
             args.Add("--wia");
 
+        // Пробуем помощников по очереди: аппарат отзывается только
+        // «своей» разрядности, а угадать её заранее нельзя
+        var helpers = HelpersFor(opt.DeviceName);
+        var trouble = new List<string>();
+
+        for (int i = 0; i < helpers.Count; i++)
+        {
+            bool last = i == helpers.Count - 1;
+
+            try
+            {
+                var got = RunHelper(helpers[i], args, dir, onPage, token);
+                if (got.Count > 0) return got;
+
+                trouble.Add(Path.GetFileName(helpers[i]) + ": страниц нет");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                trouble.Add(Path.GetFileName(helpers[i]) + ": " + ex.Message);
+            }
+
+            if (last)
+                throw new InvalidOperationException(
+                    "Сканер не передал ни одной страницы.\n\nЧто происходило:\n" +
+                    string.Join("\n", trouble));
+        }
+
+        throw new InvalidOperationException("Помощник сканирования не запустился.");
+    }
+
+    // Один заход одним помощником
+    static List<string> RunHelper(
+        string helper,
+        List<string> args,
+        string dir,
+        Action<int, string> onPage,
+        CancellationToken token)
+    {
         var pages = new List<string>();
         string error = "";
 
-        // Снимаем тем помощником, которому этот аппарат отозвался
-        // при опросе: другой разрядности он просто не ответит
-        string helper = HelperFor(opt.DeviceName);
         using var p = Start(helper, string.Join(" ", args));
 
         // Поток ругани читаем ОТДЕЛЬНОЙ нитью. Если этого не делать,
@@ -559,7 +622,6 @@ internal static class TwainBridge
             }
             catch { }
 
-            facts.Add("помощник: " + Path.GetFileName(helper));
             facts.Add("способ: " + (args.Contains("--wia") ? "служба Windows" : "драйвер производителя"));
 
             if (crash.Length > 0)
