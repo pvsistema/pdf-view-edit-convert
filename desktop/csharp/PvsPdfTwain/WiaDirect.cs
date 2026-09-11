@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace PvsPdfTwain;
@@ -500,10 +501,16 @@ internal static class WiaDirect
                 string folder = Path.GetDirectoryName(path) ?? "";
                 Directory.CreateDirectory(folder);
 
-                // Образец имени служба ждёт С РАСШИРЕНИЕМ: по нему она
-                // понимает, в каком виде сохранять. Без него отвечает
-                // «неверные данные»
-                string template = Path.GetFileName(path);
+                // Образец имени служба ждёт БЕЗ расширения: она сама
+                // дописывает его по формату, в котором сохранила,
+                // и сама добавляет номер страницы
+                string template = Path.GetFileNameWithoutExtension(path);
+
+                // Запоминаем, что в папке было ДО съёмки: служба
+                // порой не возвращает список путей, и тогда снимок
+                // придётся опознать как новый файл в папке
+                var before = new HashSet<string>(
+                    Directory.GetFiles(folder), StringComparer.OrdinalIgnoreCase);
 
                 // Команда рисует окно и требует настоящее окно-хозяина.
                 // Пустое место она не принимает — это и была причина
@@ -531,22 +538,34 @@ internal static class WiaDirect
 
                     Log.Add($"прямая съёмка ({how}): ответ {step:X8}, файлов {count}");
 
-                    // Служба вернула список путей — забираем первый
-                    if (step == 0 && count > 0 && paths != IntPtr.Zero)
+                    // Служба вернула список путей — забираем первый.
+                    // Если списка нет, ищем свежий файл в папке: часть
+                    // драйверов кладёт снимок молча
+                    string? got = (count > 0 && paths != IntPtr.Zero)
+                        ? Taken(paths, count)
+                        : null;
+
+                    if (got == null && step == 0)
+                        got = Directory.GetFiles(folder)
+                            .FirstOrDefault(f => !before.Contains(f));
+
+                    if (got != null)
                     {
-                        string? got = Taken(paths, count);
-                        if (got != null)
-                        {
-                            if (!string.Equals(got, path, StringComparison.OrdinalIgnoreCase))
-                            {
-                                try { File.Copy(got, path, true); File.Delete(got); }
-                                catch { return null; }
-                            }
+                        Log.Add($"прямая съёмка: снимок «{Path.GetFileName(got)}»");
+
+                        if (string.Equals(got, path, StringComparison.OrdinalIgnoreCase))
                             return null;
+
+                        // Раньше сбой копирования возвращал null — то есть
+                        // ДОКЛАДЫВАЛ ОБ УСПЕХЕ при отсутствии файла. Отсюда
+                        // и бралось «сканер не передал ни одной страницы»
+                        try { File.Copy(got, path, true); File.Delete(got); return null; }
+                        catch (Exception ex)
+                        {
+                            Log.Add("прямая съёмка: снимок не забрать — " + Short(ex));
+                            return "Снимок получен, но его не удалось прочитать.";
                         }
                     }
-
-                    if (step == 0 && File.Exists(path)) return null;
 
                     // 1 — человек закрыл окно, ничего не сняв
                     if (step == 1) return "Съёмка отменена.";
