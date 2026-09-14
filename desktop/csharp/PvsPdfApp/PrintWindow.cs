@@ -47,6 +47,10 @@ public class PrintWindow : Form
         {
             await _web.EnsureCoreWebView2Async(_env);
 
+            // Встроенный просмотрщик PDF сообщает о загрузке НЕ ОДИН раз:
+            // сначала сама страница, затем её внутренние части. Защёлка
+            // _started пропускает только первый доклад — без неё один
+            // документ уходил на печать дважды
             _web.CoreWebView2.NavigationCompleted += async (s, e) =>
             {
                 if (_started) return;

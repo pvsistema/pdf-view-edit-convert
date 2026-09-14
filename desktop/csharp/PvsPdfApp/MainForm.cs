@@ -970,6 +970,9 @@ public class MainForm : Form
 
     // Печать: пользователь выбирает принтер в окне Windows,
     // документ печатается напрямую, лишние окна не показываются
+    // Окно последней печати: их не должно быть двух сразу
+    PrintWindow? _printWin;
+
     async Task PrintPdfAsync(string base64, string fileName, string printer = "")
     {
         try
@@ -1006,6 +1009,17 @@ public class MainForm : Form
                 }
             }, printer);
 
+            // Прошлое окно печати закрываем.
+            //
+            // Оно невидимое и живёт, пока принтер не ответит. Сетевой
+            // аппарат отвечает долго, и к моменту второй печати первое
+            // окно ещё держит СВОЙ документ и СВОЙ принтер. Дальше оба
+            // окна доводят дело до конца — отсюда и печать сразу на два
+            // принтера. Живым оставляем только последнее
+            try { _printWin?.Close(); } catch { }
+            _printWin = win;
+
+            win.FormClosed += (s, e) => { if (ReferenceEquals(_printWin, win)) _printWin = null; };
             win.Owner = this;
             win.Show();
         }
