@@ -206,10 +206,38 @@ const Viewer = ({ tool, setTool }: Props) => {
       const padY = 88;
       const byWidth = (box.clientWidth - padX) / size.w;
       const scale = mode === 'width' ? byWidth : Math.min(byWidth, (box.clientHeight - padY) / size.h);
-      setZoomRaw(Math.max(0.2, Math.min(3, +scale.toFixed(2))));
+      // Нижнюю границу опустили с 20% до 5%: вытянутый чертёж
+      // (длинная схема, развёртка) требует сильного уменьшения,
+      // и на 20% он всё равно не помещался целиком
+      setZoomRaw(Math.max(0.05, Math.min(3, +scale.toFixed(2))));
     },
     [pages, active, docOf, spread],
   );
+
+  // Крупный лист показываем целиком с самого начала.
+  //
+  // Раньше любой документ открывался с жёстким увеличением 120%.
+  // Для A4 это удобно, а чертёж A1 больше листа A4 вчетверо — он
+  // уходил далеко за края окна, и охватить схему взглядом было
+  // нельзя, пока человек сам не нажмёт «страница целиком».
+  // Считаем по площади: лист заметно крупнее A4 — вписываем
+  const fitted = useRef('');
+
+  useEffect(() => {
+    const first = pages[0];
+    if (!hint || !first) return;
+
+    // Один документ подгоняем один раз, иначе подгонка перебивала бы
+    // масштаб, выставленный человеком вручную
+    const mark = `${name}|${pages.length}`;
+    if (fitted.current === mark) return;
+    fitted.current = mark;
+
+    // A4 — 595x842 точки. Берём запас в полтора раза по площади,
+    // чтобы обычные бланки с полями остались в привычном виде
+    const big = hint.w * hint.h > 595 * 842 * 1.5;
+    if (big) setFit('page');
+  }, [hint, pages, name]);
 
   // Пока подгонка включена, масштаб следует за размером окна
   useEffect(() => {
@@ -232,7 +260,7 @@ const Viewer = ({ tool, setTool }: Props) => {
     // Если включена подгонка, она сама пересчитается под новый вид
     if (fit === 'none') {
       setZoomRaw((z) =>
-        next ? Math.max(0.4, +(z * 0.62).toFixed(2)) : Math.min(3, +(z / 0.62).toFixed(2)),
+        next ? Math.max(0.1, +(z * 0.62).toFixed(2)) : Math.min(3, +(z / 0.62).toFixed(2)),
       );
     }
     setTimeout(() => scrollToPage(active), 80);
@@ -309,7 +337,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)));
         } else if (e.key === '-') {
           e.preventDefault();
-          setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)));
+          setZoom((z) => Math.max(0.1, +(z - 0.2).toFixed(2)));
         } else if (e.key === '0') {
           e.preventDefault();
           setZoom(1.2);
@@ -377,7 +405,7 @@ const Viewer = ({ tool, setTool }: Props) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
       setZoom((z) =>
-        e.deltaY > 0 ? Math.max(0.4, +(z - 0.2).toFixed(2)) : Math.min(3, +(z + 0.2).toFixed(2)),
+        e.deltaY > 0 ? Math.max(0.1, +(z - 0.2).toFixed(2)) : Math.min(3, +(z + 0.2).toFixed(2)),
       );
     };
 
@@ -738,7 +766,7 @@ const Viewer = ({ tool, setTool }: Props) => {
         <div className="flex items-center border border-border bg-background">
           <button
             className="px-3 py-2 hover:bg-card"
-            onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)))}
+            onClick={() => setZoom((z) => Math.max(0.1, +(z - 0.2).toFixed(2)))}
             title="Уменьшить (Ctrl и колесо мыши)"
           >
             <Icon name="Minus" size={16} />
