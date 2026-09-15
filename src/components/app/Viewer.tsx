@@ -6,7 +6,7 @@ import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
 import { onSearchRequest } from '@/lib/searchBus';
 import { requestPrint } from '@/lib/printBus';
-import { downloadBlob } from '@/lib/files';
+import { downloadBlob, expectRename } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import { readNotes, saveNotes, makeNote, readAuthor, saveAuthor } from '@/lib/notes';
 import { notesChanged, onNotesChanged, openNotes } from '@/lib/noteBus';
@@ -55,6 +55,7 @@ const Viewer = ({ tool, setTool }: Props) => {
     remove,
     buildPdf,
     name,
+    renameDoc,
   } = useDoc();
   // Клавиши слушает только вкладка, открытая на экране
   const onScreen = useTabActive();
@@ -747,6 +748,9 @@ const Viewer = ({ tool, setTool }: Props) => {
       setBusy(true);
       try {
         const bytes = await buildPdf();
+        // Сохраняем сам документ: если в окне Windows зададут другое
+        // название, документ должен дальше жить под ним
+        expectRename(renameDoc);
         downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
       } finally {
         setBusy(false);

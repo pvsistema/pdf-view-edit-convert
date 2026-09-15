@@ -3,12 +3,28 @@ import { isDesktop, nativeSave } from '@/lib/desktop';
 // Сохранение и печать файлов. Модуль намеренно отделён от просмотрщика:
 // стартовому экрану тяжёлый движок PDF не нужен, и окно открывается быстрее
 
+// Кому сообщить новое имя, если в окне «Сохранить как» его изменили.
+// Ставится только на сохранение САМОГО документа: выгрузка одной
+// страницы или таблицы имя документа менять не должна
+let renameWaiter: ((title: string) => void) | null = null;
+
+export const expectRename = (cb: (title: string) => void) => {
+  renameWaiter = cb;
+};
+
+export const takeRenameWaiter = () => {
+  const cb = renameWaiter;
+  renameWaiter = null;
+  return cb;
+};
+
 export const downloadBlob = (blob: Blob, name: string) => {
   // В десктопной версии открываем системное окно "Сохранить как" с выбором папки
   if (isDesktop()) {
     void nativeSave(blob, name);
     return;
   }
+  renameWaiter = null;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

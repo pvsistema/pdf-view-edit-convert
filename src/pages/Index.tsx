@@ -10,6 +10,7 @@ import { LicenseProvider } from '@/context/LicenseContext';
 import { TabsProvider, useTabs } from '@/context/TabsContext';
 import { isDesktop, onDesktopFile, onPrintDone, onSaveDone, setNativeTitle } from '@/lib/desktop';
 import { toast } from '@/hooks/use-toast';
+import { takeRenameWaiter } from '@/lib/files';
 import UpdateBanner from '@/components/app/UpdateBanner';
 import VersionGate from '@/components/app/VersionGate';
 
@@ -44,8 +45,16 @@ const Workspace = () => {
   useEffect(
     () =>
       onSaveDone((r) => {
-        if (r.cancelled) return;
+        // Окно закрыли без сохранения — имя менять не на что
+        if (r.cancelled) {
+          takeRenameWaiter();
+          return;
+        }
         if (r.ok) {
+          // Документ сохранили под другим названием — под ним он
+          // и будет дальше жить: на вкладке и в заголовке окна
+          const waiting = takeRenameWaiter();
+          if (waiting && r.name && !r.count) waiting(r.name);
           if (r.count && r.count > 1) {
             toast({ title: 'Файлы сохранены', description: `${r.count} шт. — ${r.path}` });
           } else {
@@ -53,6 +62,7 @@ const Workspace = () => {
             toast({ title: 'Файл сохранён', description: file });
           }
         } else if (r.error) {
+          takeRenameWaiter();
           toast({ title: 'Не удалось сохранить', description: r.error });
         }
       }),

@@ -105,6 +105,9 @@ type SaveResult = {
   ok: boolean;
   cancelled?: boolean;
   path?: string;
+  // Имя, под которым файл в итоге сохранили: в окне Windows
+  // его могли изменить
+  name?: string;
   count?: number;
   error?: string;
 };

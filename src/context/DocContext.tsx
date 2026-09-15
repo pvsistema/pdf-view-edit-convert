@@ -83,6 +83,8 @@ type Ctx = {
   files: SourceFile[];
   pages: PageMeta[];
   name: string;
+  // Имя меняется, когда документ сохранили под другим названием
+  renameDoc: (title: string) => void;
   loading: boolean;
   active: number;
   setActive: React.Dispatch<React.SetStateAction<number>>;
@@ -128,6 +130,15 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
+
+  // Документ сохранили под другим названием — под ним он и должен
+  // дальше жить: и на вкладке, и в заголовке окна, и при следующем
+  // сохранении. Раньше имя задавалось только при открытии и навсегда
+  const renameDoc = useCallback((title: string) => {
+    const clean = (title || '').trim();
+    if (!clean) return;
+    setName(clean.toLowerCase().endsWith('.pdf') ? clean : `${clean}.pdf`);
+  }, []);
   const [version, setVersion] = useState(0);
   // Версия, на которой документ последний раз сохраняли.
   // Если текущая ушла вперёд — есть несохранённые правки
@@ -841,6 +852,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       files,
       pages,
       name,
+      renameDoc,
       loading,
       active,
       setActive,
@@ -875,6 +887,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       files,
       pages,
       name,
+      renameDoc,
       loading,
       active,
       open,

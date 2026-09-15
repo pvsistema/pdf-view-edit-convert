@@ -1090,7 +1090,17 @@ public class MainForm : Form
             }
 
             await File.WriteAllBytesAsync(dlg.FileName, bytes);
-            PostToPage(new { type = "saveDone", ok = true, path = dlg.FileName });
+
+            // Отдаём и само имя файла: человек мог задать в окне
+            // «Сохранить как» другое название, и документ должен
+            // дальше жить под ним, а не под прежним
+            PostToPage(new
+            {
+                type = "saveDone",
+                ok = true,
+                path = dlg.FileName,
+                name = Path.GetFileName(dlg.FileName)
+            });
         }
         catch (Exception ex)
         {
