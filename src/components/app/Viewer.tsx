@@ -38,6 +38,10 @@ const MAX_ZOOM = 8;
 const zoomIn = (z: number) => Math.min(MAX_ZOOM, +(z * 1.25).toFixed(2));
 const zoomOut = (z: number) => Math.max(0.05, +(z / 1.25).toFixed(2));
 
+// Готовые ступени масштаба. Крупные нужны, чтобы разобрать мелкие
+// подписи на чертеже, не щёлкая «плюс» десяток раз
+const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
+
 const Viewer = ({ tool, setTool }: Props) => {
   const {
     pages,
@@ -61,6 +65,8 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Через эту ссылку клавиша F3 попадает к переходу по находкам
   const jumpRef = useRef<(dir: number) => void>(() => undefined);
   const [zoom, setZoomRaw] = useState(1.2);
+  // Открыт ли список готовых масштабов
+  const [zoomList, setZoomList] = useState(false);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<number[] | null>(null);
@@ -248,6 +254,20 @@ const Viewer = ({ tool, setTool }: Props) => {
     const big = hint.w * hint.h > 595 * 842 * 1.5;
     if (big) setFit('page');
   }, [hint, pages, name]);
+
+  // Список масштабов закрывается сам: щелчком мимо или клавишей Esc.
+  // Иначе он оставался бы висеть поверх документа
+  useEffect(() => {
+    if (!zoomList) return;
+    const away = () => setZoomList(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setZoomList(false);
+    window.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [zoomList]);
 
   // Пока подгонка включена, масштаб следует за размером окна
   useEffect(() => {
@@ -781,13 +801,49 @@ const Viewer = ({ tool, setTool }: Props) => {
           >
             <Icon name="Minus" size={16} />
           </button>
-          <button
-            className="px-2 font-head text-[0.82rem] font-bold hover:bg-card"
-            onClick={() => setZoom(1.2)}
-            title="Обычный масштаб (Ctrl и 0)"
-          >
-            {Math.round(zoom * 100)}%
-          </button>
+          <div className="relative">
+            <button
+              className="px-2 py-2 font-head text-[0.82rem] font-bold hover:bg-card"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setZoomList((v) => !v)}
+              title="Выбрать масштаб"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+
+            {zoomList && (
+              <div
+                className="absolute bottom-full left-1/2 z-50 mb-1 -translate-x-1/2 border border-border bg-background shadow-lg"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {ZOOM_STEPS.map((v) => (
+                  <button
+                    key={v}
+                    className={`block w-full px-4 py-1.5 text-right font-head text-[0.78rem] transition-colors hover:bg-card ${
+                      Math.round(zoom * 100) === Math.round(v * 100)
+                        ? 'bg-primary text-primary-foreground'
+                        : ''
+                    }`}
+                    onClick={() => {
+                      setZoom(v);
+                      setZoomList(false);
+                    }}
+                  >
+                    {Math.round(v * 100)}%
+                  </button>
+                ))}
+                <button
+                  className="block w-full border-t border-border px-4 py-1.5 text-right font-head text-[0.78rem] transition-colors hover:bg-card"
+                  onClick={() => {
+                    setFit('page');
+                    setZoomList(false);
+                  }}
+                >
+                  Целиком
+                </button>
+              </div>
+            )}
+          </div>
           <button
             className="px-3 py-2 hover:bg-card"
             onClick={() => setZoom(zoomIn)}
