@@ -265,7 +265,21 @@ const drawPage = async (
 
   // Размер на экране остаётся прежним, а точек внутри становится больше
   const view = page.getViewport({ scale, rotation });
-  const viewport = page.getViewport({ scale: scale * sharpen, rotation });
+
+  // Браузер не умеет рисовать картинку больше 16384 точек по стороне:
+  // за этим пределом лист выходит ПУСТЫМ. На сильном увеличении
+  // крупный чертёж легко переступает черту, поэтому добавочную
+  // плотность убавляем ровно настолько, чтобы уложиться
+  const LIMIT = 16384;
+  let dense = sharpen;
+  const side = Math.max(view.width, view.height);
+  if (side * dense > LIMIT) dense = Math.max(1, LIMIT / side);
+
+  // Даже при плотности 1 гигантский лист может не поместиться —
+  // тогда лучше показать его чуть мягче, чем не показать совсем
+  const safe = side * dense > LIMIT ? (LIMIT / side) * dense : dense;
+
+  const viewport = page.getViewport({ scale: scale * safe, rotation });
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.floor(viewport.width);
