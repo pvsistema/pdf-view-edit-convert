@@ -19,12 +19,23 @@ import {
 
 const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
+// Как распознанные страницы складываются в один текст для показа.
+// Тем же способом потом проверяем, правил ли человек результат руками
+const joinPages = (sheets: string[]) =>
+  sheets
+    .map((t, i) => (t ? (sheets.length > 1 ? `— Страница ${i + 1} —\n\n${t}` : t) : ''))
+    .filter(Boolean)
+    .join('\n\n');
+
 const ToolsPanel = () => {
   const { pages, name, active, docOf, buildPdf } = useDoc();
   const { isFull, license } = useLicense();
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [ocrText, setOcrText] = useState('');
+  // Тот же текст, но разложенный по страницам: нужен для выгрузки
+  // в Word, где каждая страница должна лечь на отдельный лист
+  const [ocrPages, setOcrPages] = useState<string[]>([]);
   const [showAct, setShowAct] = useState(false);
   const [left, setLeft] = useState(() => trialLeft());
   const desktop = isDesktop();
@@ -216,7 +227,7 @@ const ToolsPanel = () => {
 
       // Распознаём весь документ, а не одну страницу: сканы обычно
       // многостраничные, и разбирать их по листу было бы мучением
-      const parts: string[] = [];
+      const sheets: string[] = [];
 
       for (let i = 0; i < pages.length; i++) {
         const pg = pages[i];
@@ -228,10 +239,9 @@ const ToolsPanel = () => {
         const canvas = await renderPageOnce(doc, pg.src, 3, pg.rotation);
         const { data } = await worker.recognize(canvas);
 
-        const text = (data.text || '').trim();
-        if (text) {
-          parts.push(pages.length > 1 ? `— Страница ${i + 1} —\n\n${text}` : text);
-        }
+        // Пустую страницу тоже запоминаем, чтобы нумерация листов
+        // в Word совпадала с нумерацией в самом документе
+        sheets.push((data.text || '').trim());
 
         // Общий ход по всему документу, а не по текущей странице
         setProgress(Math.round(((i + 1) / pages.length) * 100));
@@ -239,8 +249,9 @@ const ToolsPanel = () => {
 
       await worker.terminate();
 
-      const all = parts.join('\n\n');
+      const all = joinPages(sheets);
       setOcrText(all);
+      setOcrPages(sheets);
 
       toast({
         title: all ? 'Текст распознан' : 'Текст не найден',
@@ -249,6 +260,44 @@ const ToolsPanel = () => {
           : 'На страницах не удалось разобрать текст',
       });
     });
+
+  // Распознанный текст — в Word. Каждая страница документа ложится
+  // на отдельный лист, как в исходнике. Если текст правили руками
+  // в окне ниже, выгружаем именно правленый
+  const ocrToWord = () => {
+    const esc = (t: string) =>
+      t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+
+    const asParagraphs = (t: string) =>
+      t
+        .split('\n')
+        .map((l) => `<p>${esc(l) || '&nbsp;'}</p>`)
+        .join('');
+
+    // Пока текст не трогали, раскладываем по страницам. После правки
+    // границы страниц теряются — тогда сохраняем одним листом
+    const edited = ocrPages.length > 0 && ocrText !== joinPages(ocrPages);
+
+    const body =
+      edited || ocrPages.length < 2
+        ? asParagraphs(ocrText)
+        : ocrPages
+            .map(
+              (t, i) =>
+                `<div style="page-break-after:always">${asParagraphs(
+                  t,
+                )}<small>Стр. ${i + 1}</small></div>`,
+            )
+            .join('');
+
+    const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"></head><body style="font-family:Times New Roman,serif">${body}</body></html>`;
+
+    downloadBlob(
+      new Blob(['\ufeff', html], { type: 'application/msword' }),
+      `${baseName(name)}-распознано.doc`,
+    );
+    if (!desktop) toast({ title: 'Готов файл Word', description: 'Распознанный текст' });
+  };
 
   const TOOLS = [
     { key: 'pdf', icon: 'Save', label: 'Сохранить PDF', note: 'Со всеми правками', fn: toPdf },
@@ -345,18 +394,27 @@ const ToolsPanel = () => {
           <div className="border-b border-border p-4">
             <div className="flex items-center justify-between">
               <span className="label-caps">Распознанный текст</span>
-              <button
-                className="text-primary hover:opacity-70"
-                title="Скачать текст"
-                onClick={() =>
-                  downloadBlob(
-                    new Blob([ocrText], { type: 'text/plain;charset=utf-8' }),
-                    `${baseName(name)}-распознано.txt`,
-                  )
-                }
-              >
-                <Icon name="Download" size={15} />
-              </button>
+              <span className="flex items-center gap-3">
+                <button
+                  className="text-primary hover:opacity-70"
+                  title="Сохранить в Word — каждая страница на своём листе"
+                  onClick={ocrToWord}
+                >
+                  <Icon name="FileText" size={15} />
+                </button>
+                <button
+                  className="text-primary hover:opacity-70"
+                  title="Сохранить простым текстом"
+                  onClick={() =>
+                    downloadBlob(
+                      new Blob([ocrText], { type: 'text/plain;charset=utf-8' }),
+                      `${baseName(name)}-распознано.txt`,
+                    )
+                  }
+                >
+                  <Icon name="Download" size={15} />
+                </button>
+              </span>
             </div>
             <textarea
               value={ocrText}
