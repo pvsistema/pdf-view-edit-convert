@@ -191,26 +191,63 @@ const ToolsPanel = () => {
 
   const runOcr = () =>
     run('ocr', false, async () => {
-      const p = pages[active];
-      const doc = docOf(p);
-      if (!doc) return;
-      const canvas = await renderPageOnce(doc, p.src, 2, p.rotation);
-
       // Модуль распознавания хранится зашифрованным, ключ даёт сервер
       // по действующей лицензии — иначе он просто не запустится
       const mod = (await loadOcrModule(license?.key || '')) as {
         createWorker: typeof import('tesseract.js').createWorker;
       };
       const { createWorker } = mod;
+
+      // Словари и сам движок лежат внутри программы, поэтому
+      // распознавание работает без интернета и не качает по 20 МБ
+      // при каждом запуске. Готовые настройки tesseract тянут всё
+      // это с чужого сервера — на рабочем месте без сети это провал
+      const base = `${location.origin}${import.meta.env.BASE_URL}tessdata`;
+
       const worker = await createWorker('rus+eng', 1, {
+        langPath: base,
+        workerPath: `${base}/worker.min.js`,
+        corePath: `${base}/core`,
+        gzip: true,
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') setProgress(Math.round(m.progress * 100));
         },
       });
-      const { data } = await worker.recognize(canvas);
+
+      // Распознаём весь документ, а не одну страницу: сканы обычно
+      // многостраничные, и разбирать их по листу было бы мучением
+      const parts: string[] = [];
+
+      for (let i = 0; i < pages.length; i++) {
+        const pg = pages[i];
+        const doc = docOf(pg);
+        if (!doc) continue;
+
+        // Чем крупнее отрисовка, тем точнее распознавание.
+        // 300 точек на дюйм — то, к чему привык сканер
+        const canvas = await renderPageOnce(doc, pg.src, 3, pg.rotation);
+        const { data } = await worker.recognize(canvas);
+
+        const text = (data.text || '').trim();
+        if (text) {
+          parts.push(pages.length > 1 ? `— Страница ${i + 1} —\n\n${text}` : text);
+        }
+
+        // Общий ход по всему документу, а не по текущей странице
+        setProgress(Math.round(((i + 1) / pages.length) * 100));
+      }
+
       await worker.terminate();
-      setOcrText(data.text.trim());
-      toast({ title: 'Текст распознан', description: `Страница ${active + 1}` });
+
+      const all = parts.join('\n\n');
+      setOcrText(all);
+
+      toast({
+        title: all ? 'Текст распознан' : 'Текст не найден',
+        description: all
+          ? `Обработано страниц: ${pages.length}`
+          : 'На страницах не удалось разобрать текст',
+      });
     });
 
   const TOOLS = [

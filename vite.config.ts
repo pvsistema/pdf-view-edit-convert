@@ -35,6 +35,20 @@ export default defineConfig(({mode}) => ({
             "@": path.resolve(__dirname, "./src"),
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                // Модуль распознавания выносим в отдельный кусок с понятным
+                // именем. После сборки он шифруется скриптом encrypt-module,
+                // который ищет файл ровно по имени ocr-*.js. Без этого
+                // tesseract попадал в общий кусок src-*.js, шифрование
+                // не находило его и распознавание в программе не включалось
+                manualChunks(id: string) {
+                    if (id.includes('tesseract.js')) return 'ocr';
+                },
+            },
+        },
+    },
     server: {
         host: '0.0.0.0',
         port: 5173,
