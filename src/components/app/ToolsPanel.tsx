@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { canvasToBlob, downloadBlob } from '@/lib/files';
@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import { useLicense } from '@/context/LicenseContext';
 import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
+import { parseRange } from '@/components/app/PrintDialog';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import {
   isTrialTool,
@@ -19,11 +20,14 @@ import {
 
 const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
+// Распознанный лист: настоящий номер страницы и её текст
+export type OcrSheet = { no: number; text: string };
+
 // Как распознанные страницы складываются в один текст для показа.
 // Тем же способом потом проверяем, правил ли человек результат руками
-const joinPages = (sheets: string[]) =>
+const joinPages = (sheets: OcrSheet[]) =>
   sheets
-    .map((t, i) => (t ? (sheets.length > 1 ? `— Страница ${i + 1} —\n\n${t}` : t) : ''))
+    .map((s) => (s.text ? (sheets.length > 1 ? `— Страница ${s.no} —\n\n${s.text}` : s.text) : ''))
     .filter(Boolean)
     .join('\n\n');
 
@@ -35,7 +39,16 @@ const ToolsPanel = () => {
   const [ocrText, setOcrText] = useState('');
   // Тот же текст, но разложенный по страницам: нужен для выгрузки
   // в Word, где каждая страница должна лечь на отдельный лист
-  const [ocrPages, setOcrPages] = useState<string[]>([]);
+  const [ocrPages, setOcrPages] = useState<OcrSheet[]>([]);
+  // Какие страницы распознавать. В толстом скане обычно нужна пара
+  // листов, а разбор всей пачки занял бы много времени
+  const [ocrScope, setOcrScope] = useState<'all' | 'current' | 'range'>('all');
+  const [ocrRange, setOcrRange] = useState('');
+
+  // Сколько листов уйдёт в работу при нынешнем выборе —
+  // по этому числу считается полоса хода у распознавания
+  const ocrCount =
+    ocrScope === 'current' ? 1 : ocrScope === 'range' ? parseRange(ocrRange, pages.length).length : pages.length;
   const [showAct, setShowAct] = useState(false);
   const [left, setLeft] = useState(() => trialLeft());
   const desktop = isDesktop();
@@ -225,11 +238,26 @@ const ToolsPanel = () => {
         },
       });
 
-      // Распознаём весь документ, а не одну страницу: сканы обычно
-      // многостраничные, и разбирать их по листу было бы мучением
-      const sheets: string[] = [];
+      // Какие листы разбирать. По умолчанию весь документ, но в толстом
+      // скане можно указать только нужные — это экономит много времени
+      const picked =
+        ocrScope === 'current'
+          ? [active]
+          : ocrScope === 'range'
+            ? parseRange(ocrRange, pages.length)
+            : pages.map((_, i) => i);
 
-      for (let i = 0; i < pages.length; i++) {
+      if (!picked.length) {
+        toast({ title: 'Страницы не выбраны', description: 'Проверьте указанный диапазон' });
+        return;
+      }
+
+      // Держим настоящий номер листа рядом с текстом: при выборочном
+      // разборе третья страница должна остаться третьей, а не первой
+      const sheets: { no: number; text: string }[] = [];
+
+      for (let n = 0; n < picked.length; n++) {
+        const i = picked[n];
         const pg = pages[i];
         const doc = docOf(pg);
         if (!doc) continue;
@@ -241,10 +269,10 @@ const ToolsPanel = () => {
 
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
-        sheets.push((data.text || '').trim());
+        sheets.push({ no: i + 1, text: (data.text || '').trim() });
 
-        // Общий ход по всему документу, а не по текущей странице
-        setProgress(Math.round(((i + 1) / pages.length) * 100));
+        // Ход считаем по выбранным листам, а не по всему документу
+        setProgress(Math.round(((n + 1) / picked.length) * 100));
       }
 
       await worker.terminate();
@@ -256,7 +284,7 @@ const ToolsPanel = () => {
       toast({
         title: all ? 'Текст распознан' : 'Текст не найден',
         description: all
-          ? `Обработано страниц: ${pages.length}`
+          ? `Обработано страниц: ${sheets.length}`
           : 'На страницах не удалось разобрать текст',
       });
     });
@@ -283,10 +311,10 @@ const ToolsPanel = () => {
         ? asParagraphs(ocrText)
         : ocrPages
             .map(
-              (t, i) =>
+              (s) =>
                 `<div style="page-break-after:always">${asParagraphs(
-                  t,
-                )}<small>Стр. ${i + 1}</small></div>`,
+                  s.text,
+                )}<small>Стр. ${s.no}</small></div>`,
             )
             .join('');
 
@@ -327,8 +355,8 @@ const ToolsPanel = () => {
           const trial = !!t.pro && !isFull && isTrialTool(t.key);
           const locked = !!t.pro && !isFull && (!trial || left === 0);
           return (
+          <Fragment key={t.key}>
           <button
-            key={t.key}
             onClick={locked ? () => setShowAct(true) : t.fn}
             disabled={!!busy}
             className="flex w-full items-start gap-3 border-b border-border px-4 py-4 text-left transition-colors hover:bg-background disabled:opacity-50"
@@ -360,14 +388,55 @@ const ToolsPanel = () => {
                     />
                   </span>
                   <span className="mt-1 block text-[0.75rem] text-muted-foreground">
-                    {progress > 0
-                      ? `Обработано ${Math.round((progress / 100) * pages.length)} из ${pages.length} стр.`
-                      : 'Подготовка'}
+                    {(() => {
+                      const total = t.key === 'ocr' ? ocrCount || pages.length : pages.length;
+                      return progress > 0
+                        ? `Обработано ${Math.round((progress / 100) * total)} из ${total} стр.`
+                        : 'Подготовка';
+                    })()}
                   </span>
                 </>
               )}
             </span>
           </button>
+
+          {/* Выбор листов показываем только у распознавания: в толстом
+              скане обычно нужна пара страниц, а не вся пачка */}
+          {t.key === 'ocr' && !locked && pages.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+              {(
+                [
+                  ['all', 'Все'],
+                  ['current', `Текущая (${active + 1})`],
+                  ['range', 'Выбрать'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  disabled={!!busy}
+                  onClick={() => setOcrScope(id)}
+                  className={`border px-3 py-1.5 text-[0.78rem] transition-colors disabled:opacity-50 ${
+                    ocrScope === id
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border hover:bg-background'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+
+              {ocrScope === 'range' && (
+                <input
+                  value={ocrRange}
+                  onChange={(e) => setOcrRange(e.target.value)}
+                  disabled={!!busy}
+                  placeholder={`например 1-3, 7 (всего ${pages.length})`}
+                  className="min-w-0 flex-1 border border-border bg-background px-3 py-1.5 text-[0.78rem] outline-none focus:border-primary disabled:opacity-50"
+                />
+              )}
+            </div>
+          )}
+          </Fragment>
           );
         })}
 
