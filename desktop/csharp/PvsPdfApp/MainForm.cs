@@ -1063,6 +1063,8 @@ public class MainForm : Form
             {
                 "pdf" => "Документ PDF (*.pdf)|*.pdf",
                 "docx" => "Документ Word (*.docx)|*.docx",
+                "doc" => "Документ Word (*.doc)|*.doc",
+                "xls" => "Таблица Excel (*.xls)|*.xls",
                 "xlsx" => "Таблица Excel (*.xlsx)|*.xlsx",
                 "txt" => "Текстовый файл (*.txt)|*.txt",
                 "jpg" or "jpeg" => "Изображение JPEG (*.jpg)|*.jpg",

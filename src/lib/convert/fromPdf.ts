@@ -33,22 +33,6 @@ export const readAllText = async (file: File, onStep?: StepFn) => {
 export const toPlainText = (pages: string[]) =>
   pages.map((t, i) => `--- Страница ${i + 1} ---\n${t}`).join('\n\n');
 
-// Файл для Word: размеченный текст, который Word открывает как документ
-export const toWordHtml = (pages: string[], title = 'Документ') => {
-  const body = pages
-    .map(
-      (t, i) =>
-        `<div style="page-break-after:always">${t
-          .split('\n')
-          .map((l) => `<p>${escape(l) || '&nbsp;'}</p>`)
-          .join('')}<p style="color:#888;font-size:9pt">Страница ${i + 1}</p></div>`,
-    )
-    .join('');
-  return `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${escape(
-    title,
-  )}</title></head><body style="font-family:Times New Roman,serif;font-size:12pt">${body}</body></html>`;
-};
-
 // Таблица для Excel: строки страницы разбиваются на ячейки
 // по двойным пробелам и табуляции — так набраны колонки в PDF
 export const toExcelHtml = (pages: string[]) => {

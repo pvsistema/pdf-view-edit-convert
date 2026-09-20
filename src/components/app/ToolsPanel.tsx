@@ -8,6 +8,7 @@ import { useLicense } from '@/context/LicenseContext';
 import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { parseRange } from '@/components/app/PrintDialog';
+import { buildDocx, DOCX_TYPE } from '@/lib/docx';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import {
   isTrialTool,
@@ -131,17 +132,11 @@ const ToolsPanel = () => {
   const toWord = () =>
     run('word', !isFull, async () => {
       const chunks = await collectText();
-      const body = chunks
-        .map(
-          (t, i) =>
-            `<div style="page-break-after:always"><p>${t
-              .split('\n')
-              .map((l) => l.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!))
-              .join('</p><p>')}</p><small>Стр. ${i + 1}</small></div>`,
-        )
-        .join('');
-      const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"></head><body style="font-family:Times New Roman,serif">${body}</body></html>`;
-      downloadBlob(new Blob(['\ufeff', html], { type: 'application/msword' }), `${baseName(name)}.doc`);
+      const bytes = buildDocx(
+        chunks.map((t, i) => ({ no: i + 1, text: t })),
+        chunks.length > 1,
+      );
+      downloadBlob(new Blob([bytes as BlobPart], { type: DOCX_TYPE }), `${baseName(name)}.docx`);
       if (!desktop)
         toast({ title: 'Готов файл Word', description: 'Открывается в Word и в редакторах документов' });
     });
@@ -238,6 +233,10 @@ const ToolsPanel = () => {
         },
       });
 
+      // Сохраняем пробелы между словами: без этого столбцы и отступы
+      // в актах и накладных слипались в сплошную строку
+      await worker.setParameters({ preserve_interword_spaces: '1' });
+
       // Какие листы разбирать. По умолчанию весь документ, но в толстом
       // скане можно указать только нужные — это экономит много времени
       const picked =
@@ -265,7 +264,10 @@ const ToolsPanel = () => {
         // Чем крупнее отрисовка, тем точнее распознавание.
         // 300 точек на дюйм — то, к чему привык сканер
         const canvas = await renderPageOnce(doc, pg.src, 3, pg.rotation);
-        const { data } = await worker.recognize(canvas);
+
+        // Лист, положенный в сканер с перекосом, программа выравнивает
+        // сама — иначе строки распознаются с ошибками
+        const { data } = await worker.recognize(canvas, { rotateAuto: true });
 
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
@@ -293,37 +295,18 @@ const ToolsPanel = () => {
   // на отдельный лист, как в исходнике. Если текст правили руками
   // в окне ниже, выгружаем именно правленый
   const ocrToWord = () => {
-    const esc = (t: string) =>
-      t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
-
-    const asParagraphs = (t: string) =>
-      t
-        .split('\n')
-        .map((l) => `<p>${esc(l) || '&nbsp;'}</p>`)
-        .join('');
-
     // Пока текст не трогали, раскладываем по страницам. После правки
     // границы страниц теряются — тогда сохраняем одним листом
     const edited = ocrPages.length > 0 && ocrText !== joinPages(ocrPages);
 
-    const body =
+    const sheets =
       edited || ocrPages.length < 2
-        ? asParagraphs(ocrText)
-        : ocrPages
-            .map(
-              (s) =>
-                `<div style="page-break-after:always">${asParagraphs(
-                  s.text,
-                )}<small>Стр. ${s.no}</small></div>`,
-            )
-            .join('');
+        ? [{ no: ocrPages[0]?.no ?? 1, text: ocrText }]
+        : ocrPages;
 
-    const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"></head><body style="font-family:Times New Roman,serif">${body}</body></html>`;
+    const bytes = buildDocx(sheets, !edited && ocrPages.length > 1);
 
-    downloadBlob(
-      new Blob(['\ufeff', html], { type: 'application/msword' }),
-      `${baseName(name)}-распознано.doc`,
-    );
+    downloadBlob(new Blob([bytes as BlobPart], { type: DOCX_TYPE }), `${baseName(name)}-распознано.docx`);
     if (!desktop) toast({ title: 'Готов файл Word', description: 'Распознанный текст' });
   };
 

@@ -23,8 +23,8 @@ import {
   toExcelHtml,
   toHtmlPage,
   toPlainText,
-  toWordHtml,
 } from '@/lib/convert/fromPdf';
+import { buildDocx, DOCX_TYPE } from '@/lib/docx';
 
 export type ToolSettings = {
   level: CompressLevel;
@@ -124,7 +124,13 @@ export const runTool = async (
 
     case 'to-word': {
       const pages = await readAllText(first, onStep);
-      saveText(toWordHtml(pages, base(first)), `${base(first)}.doc`, 'application/msword');
+      // Настоящий .docx, а не веб-страница с подменённым расширением:
+      // на такую подделку Word ругается «файл повреждён»
+      const doc = buildDocx(
+        pages.map((t, i) => ({ no: i + 1, text: t })),
+        pages.length > 1,
+      );
+      downloadBlob(new Blob([doc as BlobPart], { type: DOCX_TYPE }), `${base(first)}.docx`);
       return { message: 'Готов файл Word', note: 'Открывается в Word и других редакторах' };
     }
 

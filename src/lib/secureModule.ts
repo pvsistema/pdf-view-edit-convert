@@ -49,7 +49,17 @@ const decrypt = async (blob: ArrayBuffer, secret: string) => {
 
 // Запуск расшифрованного кода. Он остаётся в памяти и на диск не попадает
 const runModule = async (code: string) => {
-  const blob = new Blob([code], { type: 'text/javascript' });
+  // Модуль запускается из памяти, а внутри он ссылается на соседний
+  // служебный файл коротким путём «./файл.js». От памяти такой путь
+  // отсчитать нельзя — браузер спотыкается и распознавание не стартует.
+  // Поэтому подставляем полный адрес файла на диске программы
+  const assets = new URL(`${import.meta.env.BASE_URL}assets/`, location.href).href;
+  const fixed = code.replace(
+    /(\bfrom\s*|\bimport\s*\(\s*)(["'])\.\/([^"']+\.js)\2/g,
+    (_m, head, q, file) => `${head}${q}${assets}${file}${q}`,
+  );
+
+  const blob = new Blob([fixed], { type: 'text/javascript' });
   const url = URL.createObjectURL(blob);
   try {
     return await import(/* @vite-ignore */ url);
