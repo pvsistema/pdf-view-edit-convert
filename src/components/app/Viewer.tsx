@@ -774,8 +774,10 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
-        <div className="flex items-center border border-border bg-background">
+      {/* На телефоне панель переносилась на три строки и съедала экран.
+          Теперь она в одну строку и прокручивается пальцем вбок */}
+      <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-2 py-2 md:flex-wrap md:gap-2 md:overflow-visible md:px-4">
+        <div className="flex shrink-0 items-center border border-border bg-background">
           <button
             className="px-3 py-2 hover:bg-card disabled:opacity-30"
             onClick={() => go(-1)}
@@ -797,7 +799,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           </button>
         </div>
 
-        <div className="flex items-center border border-border bg-background">
+        <div className="flex shrink-0 items-center border border-border bg-background">
           <button
             className="px-3 py-2 hover:bg-card"
             onClick={() => setZoom(zoomOut)}
@@ -875,7 +877,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           </button>
         </div>
 
-        <div className="flex items-center border border-border bg-background">
+        <div className="flex shrink-0 items-center border border-border bg-background">
           <button className="px-3 py-2 hover:bg-card" onClick={() => rotate(page.uid, -90)} title="Повернуть влево">
             <Icon name="RotateCcw" size={16} />
           </button>
@@ -884,7 +886,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           </button>
         </div>
 
-        <div className="flex items-center border border-border bg-background">
+        <div className="flex shrink-0 items-center border border-border bg-background">
           <button
             className={`px-3 py-2 transition-colors ${spread ? 'bg-primary text-primary-foreground' : 'hover:bg-card'}`}
             onClick={toggleSpread}
@@ -894,7 +896,7 @@ const Viewer = ({ tool, setTool }: Props) => {
           </button>
         </div>
 
-        <div className="flex items-center border border-border bg-background">
+        <div className="flex shrink-0 items-center border border-border bg-background">
           {toolBtn('hand', 'MousePointer2', 'Просмотр')}
           {toolBtn('text', 'Type', 'Добавить надпись')}
           {toolBtn('block', 'Square', 'Закрасить данные: обведите область мышью')}
@@ -961,7 +963,7 @@ const Viewer = ({ tool, setTool }: Props) => {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && search()}
             placeholder="Поиск (Ctrl+F)"
-            className="w-[180px] bg-transparent px-3 py-2 text-[0.86rem] outline-none"
+            className="w-[120px] bg-transparent px-2 py-2 text-[0.86rem] outline-none md:w-[180px] md:px-3"
           />
           <button
             className="px-3 py-2 text-primary hover:bg-card"

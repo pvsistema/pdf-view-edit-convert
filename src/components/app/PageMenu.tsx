@@ -224,7 +224,7 @@ const PageMenu = ({ at, onClose, ...act }: Props) => {
   return (
     <div
       ref={box}
-      className="animate-fade-in fixed z-[70] min-w-[262px] border border-foreground bg-background py-1 shadow-[0_8px_28px_rgba(20,24,28,0.22)]"
+      className="animate-fade-in fixed z-[70] min-w-[min(262px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] border border-foreground bg-background py-1 shadow-[0_8px_28px_rgba(20,24,28,0.22)]"
       style={{ left: pos.x, top: pos.y }}
       onMouseDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}

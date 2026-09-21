@@ -321,7 +321,7 @@ const ToolsPanel = () => {
   ];
 
   return (
-    <aside className="flex h-full w-[290px] shrink-0 flex-col border-l border-border bg-card">
+    <aside className="flex h-full w-[min(290px,85vw)] shrink-0 flex-col overflow-y-auto border-l border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <span className="label-caps">Инструменты</span>
         {!isFull && (

@@ -55,8 +55,8 @@ const ConvertDialog = ({ start = '', onClose }: Props) => {
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">
-      <div className="flex h-full max-h-[760px] w-full max-w-[880px] flex-col border border-foreground bg-background">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-2 md:p-6">
+      <div className="flex h-full max-h-[92vh] w-full max-w-[880px] flex-col border border-foreground bg-background md:max-h-[760px]">
         {tool ? (
           <ToolRunner
             tool={tool}
@@ -85,7 +85,7 @@ const ConvertDialog = ({ start = '', onClose }: Props) => {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Что нужно сделать"
-                    className="w-[200px] bg-transparent px-3 py-2 text-[0.86rem] outline-none"
+                    className="w-full min-w-0 bg-transparent px-3 py-2 text-[0.86rem] outline-none md:w-[200px]"
                   />
                 </div>
                 <button onClick={onClose} className="hover:text-destructive" title="Закрыть">

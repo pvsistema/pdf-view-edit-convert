@@ -103,7 +103,7 @@ const UpdateBanner = () => {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-[85] w-[min(380px,calc(100vw-2.5rem))] animate-fade-in border border-foreground bg-background shadow-[0_12px_40px_rgba(20,24,28,0.25)]">
+    <div className="fixed bottom-2 right-2 z-[85] w-[min(380px,calc(100vw-1rem))] animate-fade-in border border-foreground bg-background shadow-[0_12px_40px_rgba(20,24,28,0.25)] sm:bottom-5 sm:right-5">
       <div className="flex items-center gap-2 border-b border-foreground bg-primary px-4 py-2.5 text-primary-foreground">
         <Icon name="Download" size={15} />
         <span className="font-head text-[0.72rem] font-bold uppercase tracking-[0.1em]">

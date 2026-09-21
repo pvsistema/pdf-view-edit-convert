@@ -487,7 +487,9 @@ const MenuBar = () => {
   ];
 
   return (
-    <div className="flex items-center gap-1">
+    // На узком экране меню не помещалось целиком и обрезалось —
+    // теперь его можно прокрутить пальцем вбок
+    <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto md:gap-1">
       <MenuShell
         title="Файл"
         open={menu === 'file'}
@@ -581,7 +583,7 @@ const MenuBar = () => {
       {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
 
       {askName && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-2 md:p-6">
           <div className="w-full max-w-[420px] border border-foreground bg-background p-6">
             <div className="label-caps">Сохранить как</div>
             <p className="mt-3 text-[0.88rem] text-muted-foreground">Укажите имя файла</p>

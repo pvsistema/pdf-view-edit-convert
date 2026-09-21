@@ -59,29 +59,31 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
       key={title}
       onClick={fn}
       disabled={loading}
-      className="flex w-full items-center gap-4 border border-border bg-card px-5 py-4 text-left transition-colors hover:border-primary hover:bg-background disabled:opacity-50"
+      className="flex w-full items-center gap-3 border border-border bg-card px-3 py-3 text-left transition-colors hover:border-primary hover:bg-background disabled:opacity-50 md:gap-4 md:px-5 md:py-4"
     >
       <span
-        className={`flex h-11 w-11 shrink-0 items-center justify-center ${
+        className={`flex h-9 w-9 shrink-0 items-center justify-center md:h-11 md:w-11 ${
           accent ? 'bg-primary text-primary-foreground' : 'bg-secondary text-primary'
         }`}
       >
         <Icon name={icon} size={20} />
       </span>
       <span className="min-w-0">
-        <span className="block font-head text-[0.98rem] font-bold uppercase tracking-[-0.01em]">
+        <span className="block font-head text-[0.85rem] font-bold uppercase leading-tight tracking-[-0.01em] md:text-[0.98rem]">
           {title}
         </span>
-        <span className="mt-0.5 block text-[0.86rem] text-muted-foreground">{note}</span>
+        <span className="mt-0.5 block text-[0.78rem] text-muted-foreground md:text-[0.86rem]">{note}</span>
       </span>
       <Icon name="ChevronRight" size={16} className="ml-auto shrink-0 text-muted-foreground" />
     </button>
   );
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+    // На телефоне колонка с видами работ съедала половину экрана,
+    // поэтому там она превращается в полосу закладок сверху
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:flex-row">
       {/* Закладки видов работ — как в привычных деловых программах */}
-      <div className="flex w-[210px] shrink-0 flex-col border-r border-border bg-panel py-3 text-panel-foreground">
+      <div className="flex shrink-0 overflow-x-auto border-b border-border bg-panel text-panel-foreground md:w-[210px] md:flex-col md:overflow-visible md:border-b-0 md:border-r md:py-3">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -89,28 +91,30 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
               setTab(t.id);
               if (t.id === 'recent') setRecent(readRecent());
             }}
-            className={`flex items-center gap-3 border-l-[3px] px-5 py-3 text-left transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap border-b-[3px] px-4 py-3 text-left transition-colors md:gap-3 md:border-b-0 md:border-l-[3px] md:px-5 ${
               tab === t.id
                 ? 'border-primary bg-panel-foreground/10 font-bold'
                 : 'border-transparent hover:bg-panel-foreground/5'
             }`}
           >
             <Icon name={t.icon} size={17} />
-            <span className="font-head text-[0.86rem] uppercase tracking-[0.02em]">{t.label}</span>
+            <span className="font-head text-[0.8rem] uppercase tracking-[0.02em] md:text-[0.86rem]">
+              {t.label}
+            </span>
           </button>
         ))}
 
-        <div className="mt-auto px-5 pb-1 pt-4 text-[0.72rem] uppercase tracking-[0.14em] text-panel-foreground/50">
+        <div className="mt-auto hidden px-5 pb-1 pt-4 text-[0.72rem] uppercase tracking-[0.14em] text-panel-foreground/50 md:block">
           Файлы обрабатываются
           <br />
           на вашем компьютере
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 overflow-auto px-8 py-7">
+      <div className="min-w-0 flex-1 overflow-auto px-4 py-5 md:px-8 md:py-7">
         {tab === 'open' && (
           <>
-            <h1 className="font-head text-[1.6rem] font-black uppercase tracking-[-0.02em]">
+            <h1 className="font-head text-[1.15rem] font-black uppercase tracking-[-0.02em] md:text-[1.6rem]">
               Просмотр и правка PDF
             </h1>
 
@@ -125,7 +129,7 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
                 setOver(false);
                 take(e.dataTransfer.files?.[0]);
               }}
-              className={`mt-4 flex flex-col items-center justify-center border-2 border-dashed px-6 py-10 text-center transition-colors ${
+              className={`mt-4 flex flex-col items-center justify-center border-2 border-dashed px-4 py-7 text-center md:px-6 md:py-10 transition-colors ${
                 over ? 'border-primary bg-card' : 'border-border bg-card/60'
               }`}
             >
@@ -147,7 +151,7 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
               </button>
             </div>
 
-            <h2 className="mt-8 font-head text-[1.2rem] font-black uppercase tracking-[-0.02em]">
+            <h2 className="mt-8 font-head text-[1rem] font-black uppercase tracking-[-0.02em] md:text-[1.2rem]">
               Конвертация документов
             </h2>
             <div className="mt-4 grid gap-2">
@@ -169,7 +173,7 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
 
         {tab === 'scan' && (
           <>
-            <h1 className="font-head text-[1.6rem] font-black uppercase tracking-[-0.02em]">
+            <h1 className="font-head text-[1.15rem] font-black uppercase tracking-[-0.02em] md:text-[1.6rem]">
               Сканирование
             </h1>
             <p className="mt-3 max-w-[40em] text-muted-foreground">
@@ -187,7 +191,7 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
         {tab === 'recent' && (
           <>
             <div className="flex items-center gap-3">
-              <h1 className="font-head text-[1.6rem] font-black uppercase tracking-[-0.02em]">
+              <h1 className="font-head text-[1.15rem] font-black uppercase tracking-[-0.02em] md:text-[1.6rem]">
                 Последние документы
               </h1>
               {recent.length > 0 && (

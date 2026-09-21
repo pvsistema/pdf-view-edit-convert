@@ -467,7 +467,7 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-6">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-2 md:p-6">
       <div className="flex max-h-full w-full max-w-[720px] flex-col border border-foreground bg-background">
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>

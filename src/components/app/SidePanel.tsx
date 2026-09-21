@@ -45,7 +45,7 @@ const SidePanel = () => {
 
       {/* Оба вида остаются в памяти: скрытая панель закладок должна
           услышать Ctrl+B, даже когда на экране миниатюры */}
-      <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-border bg-card">
+      <aside className="flex h-full w-[min(236px,calc(85vw-2.75rem))] shrink-0 flex-col border-r border-border bg-card">
         <div className={view === 'pages' ? 'flex h-full flex-col' : 'hidden'}>
           <PagesPanel />
         </div>

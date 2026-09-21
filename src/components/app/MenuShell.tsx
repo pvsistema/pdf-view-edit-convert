@@ -33,7 +33,7 @@ const MenuShell = ({ title, open, onToggle, onClose, items }: Props) => {
     <div className="relative" ref={box}>
       <button
         onClick={onToggle}
-        className={`flex h-9 items-center gap-1.5 px-3 font-head text-[0.78rem] font-bold uppercase tracking-[0.08em] transition-colors ${
+        className={`flex h-9 shrink-0 items-center gap-1 whitespace-nowrap px-2 font-head text-[0.7rem] font-bold uppercase tracking-[0.04em] transition-colors md:gap-1.5 md:px-3 md:text-[0.78rem] md:tracking-[0.08em] ${
           open ? 'bg-foreground text-background' : 'hover:bg-card'
         }`}
       >
@@ -42,7 +42,7 @@ const MenuShell = ({ title, open, onToggle, onClose, items }: Props) => {
       </button>
 
       {open && (
-        <div className="animate-fade-in absolute left-0 top-full z-50 mt-px w-[290px] border border-foreground bg-background shadow-[6px_6px_0_hsl(var(--rule)/0.25)]">
+        <div className="animate-fade-in absolute left-0 top-full z-50 mt-px w-[min(290px,calc(100vw-1rem))] border border-foreground bg-background shadow-[6px_6px_0_hsl(var(--rule)/0.25)]">
           {items.map((it) => (
             <button
               key={it.label}

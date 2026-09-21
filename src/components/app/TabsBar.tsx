@@ -103,7 +103,7 @@ const TabsBar = () => {
               onDragOver={dragOver}
               onDragLeave={leave}
               onDrop={drop}
-              className={`group flex min-w-[130px] max-w-[240px] shrink-0 items-center gap-2 border-r px-3 py-2 transition-colors ${
+              className={`group flex min-w-[112px] max-w-[160px] shrink-0 items-center gap-2 border-r px-2 py-2 transition-colors md:min-w-[130px] md:max-w-[240px] md:px-3 ${
                 target
                   ? 'border-primary bg-primary/10 ring-2 ring-inset ring-primary'
                   : on
