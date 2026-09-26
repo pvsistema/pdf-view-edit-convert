@@ -82,9 +82,12 @@ const ToolsPanel = () => {
         toast({ title: 'Нужна полная версия', description: e.message });
         setShowAct(true);
       } else {
+        // Настоящую причину пишем в журнал: без неё сбой у пользователя
+        // не отличить от сбоя в документе
+        console.error('Сбой инструмента', key, e);
         toast({
           title: 'Не удалось выполнить',
-          description: 'Попробуйте другой файл или операцию',
+          description: e instanceof Error ? e.message : 'Попробуйте другой файл или операцию',
         });
       }
     } finally {

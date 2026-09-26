@@ -68,6 +68,39 @@ const runModule = async (code: string) => {
   }
 };
 
+// Достаём из модуля функцию, создающую движок распознавания.
+//
+// Внутри программы модуль собран иначе, чем в браузере: имена укорочены
+// до одной буквы, а наружу торчит не сам набор функций, а «обёртка» —
+// её нужно сначала вызвать, и только тогда она отдаёт содержимое.
+// Раньше код искал строго createWorker, не находил его и распознавание
+// молча срывалось. Теперь разбираем оба случая
+type WorkerMaker = typeof import('tesseract.js').createWorker;
+
+const pickWorkerMaker = (mod: Record<string, unknown>): WorkerMaker => {
+  const find = (o: unknown): unknown =>
+    o && typeof o === 'object' && typeof (o as Record<string, unknown>).createWorker === 'function'
+      ? (o as Record<string, unknown>).createWorker
+      : null;
+
+  // Обычный случай: набор функций лежит прямо в модуле
+  const direct = find(mod);
+  if (direct) return direct as WorkerMaker;
+
+  // Собранный случай: разворачиваем обёртку и смотрим, что внутри
+  for (const value of Object.values(mod)) {
+    if (typeof value !== 'function') continue;
+    try {
+      const inner = find((value as () => unknown)());
+      if (inner) return inner as WorkerMaker;
+    } catch {
+      // не та функция — пробуем следующую
+    }
+  }
+
+  throw new Error('Модуль распознавания повреждён');
+};
+
 export const loadOcrModule = async (licenseKey: string) => {
   if (cachedModule) return cachedModule;
 
@@ -85,7 +118,11 @@ export const loadOcrModule = async (licenseKey: string) => {
   if (!res.ok) throw new Error('Модуль распознавания не найден');
 
   const code = await decrypt(await res.arrayBuffer(), cachedKey);
-  cachedModule = await runModule(code);
+  const mod = (await runModule(code)) as Record<string, unknown>;
+
+  // Наружу отдаём под привычным именем, чтобы остальной код не зависел
+  // от того, как сборщик переименовал внутренности модуля
+  cachedModule = { createWorker: pickWorkerMaker(mod) };
   return cachedModule;
 };
 
