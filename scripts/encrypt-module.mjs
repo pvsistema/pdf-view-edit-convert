@@ -7,13 +7,35 @@
 // Запуск: node scripts/encrypt-module.mjs <папка-сборки> <ключ>
 
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const [, , outDir = 'dist-desktop', secret = ''] = process.argv;
 
 if (!secret) {
   console.error('ERROR: module key is empty - OCR module stays unprotected.');
+  process.exit(1);
+}
+
+// Проверка комплектности распознавания. Движок подгружает ядро по строго
+// определённым именам, и нехватка даже одного файла тихо ломает разбор:
+// программа думает, что работает, а текст не появляется. Уже наступали на
+// это — теперь сборка падает сразу, а не у пользователя
+const OCR_FILES = [
+  'tessdata/rus.traineddata.gz',
+  'tessdata/eng.traineddata.gz',
+  'tessdata/worker.min.js',
+  'tessdata/core/tesseract-core-simd-lstm.wasm',
+  'tessdata/core/tesseract-core-simd-lstm.wasm.js',
+  'tessdata/core/tesseract-core-lstm.wasm',
+  'tessdata/core/tesseract-core-lstm.wasm.js',
+];
+
+const missing = OCR_FILES.filter((f) => !existsSync(join(outDir, f)));
+
+if (missing.length) {
+  console.error('ERROR: OCR files are missing from the build:');
+  for (const f of missing) console.error(`       ${f}`);
   process.exit(1);
 }
 
