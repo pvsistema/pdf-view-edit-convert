@@ -22,6 +22,28 @@ import {
 
 const baseName = (n: string) => n.replace(/\.pdf$/i, '') || 'document';
 
+// Может ли этот компьютер взять ускоренное ядро распознавания.
+// Проверяем крошечной пробной программой: если процессор умеет считать
+// пачками, она запустится. На старых машинах — нет, и тогда берём обычное
+let fastCore: boolean | null = null;
+
+const canFast = async () => {
+  if (fastCore !== null) return fastCore;
+  try {
+    // Это готовый образец из описания WebAssembly: одна операция над пачкой
+    await WebAssembly.instantiate(
+      new Uint8Array([
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0,
+        253, 15, 253, 98, 11,
+      ]),
+    );
+    fastCore = true;
+  } catch {
+    fastCore = false;
+  }
+  return fastCore;
+};
+
 // Распознанный лист: настоящий номер страницы и её текст
 export type OcrSheet = { no: number; text: string };
 
@@ -237,10 +259,23 @@ const ToolsPanel = () => {
       // это с чужого сервера — на рабочем месте без сети это провал
       const base = `${location.origin}${import.meta.env.BASE_URL}tessdata`;
 
+      // Ядро распознавания есть в двух видах: ускоренное и обычное.
+      // Ускоренное работает заметно быстрее, но идёт не на любом
+      // процессоре — какое взять, решаем по самому компьютеру
+      const fast = await canFast();
+
       const worker = await createWorker('rus+eng', 1, {
         langPath: base,
         workerPath: `${base}/worker.min.js`,
-        corePath: `${base}/core`,
+        // Указываем файл ядра прямо. Сам движок искал бы файлы без
+        // пометки lstm, которых в программе нет: он их не находил и
+        // распознавание обрывалось
+        corePath: `${base}/core/tesseract-core${fast ? '-simd' : ''}-lstm.wasm.js`,
+        // Рабочий поток запускаем напрямую из файла программы.
+        // Обычно движок делает это в обход — через кусок кода в памяти,
+        // но в программе такой запуск запрещён, и распознавание падало
+        // с жалобой на worker.min.js
+        workerBlobURL: false,
         gzip: true,
         // Словари берём только из файлов программы и НЕ складываем в
         // память браузера. Иначе после обновления программы там остаются
