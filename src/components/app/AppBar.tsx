@@ -6,6 +6,7 @@ import { downloadBlob, formatSize } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';
+import TopLayer from '@/components/app/TopLayer';
 import { onPrintRequest, type PrintStart } from '@/lib/printBus';
 import { isDesktop } from '@/lib/desktop';
 import ActivateDialog from '@/components/app/ActivateDialog';
@@ -113,8 +114,12 @@ const AppBar = () => {
         </div>
       </div>
 
-      {showPrint && <PrintDialog start={showPrint} onClose={() => setShowPrint(null)} />}
-      {showAct && <ActivateDialog onClose={() => setShowAct(false)} />}
+      {/* Окна поднимаем над всей программой: изнутри прилипающей
+          панели они уходили под рамку окна и под документ */}
+      <TopLayer>
+        {showPrint && <PrintDialog start={showPrint} onClose={() => setShowPrint(null)} />}
+        {showAct && <ActivateDialog onClose={() => setShowAct(false)} />}
+      </TopLayer>
     </header>
   );
 };

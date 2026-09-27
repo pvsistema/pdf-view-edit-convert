@@ -9,6 +9,7 @@ import { onScanRequest, onConvertRequest } from '@/lib/startBus';
 import { requestBookmark } from '@/lib/markBus';
 import { requestCloseTab } from '@/lib/closeBus';
 import ShortcutsDialog from '@/components/app/ShortcutsDialog';
+import TopLayer from '@/components/app/TopLayer';
 import ScanDialog from '@/components/app/ScanDialog';
 import ConvertDialog from '@/components/app/ConvertDialog';
 import { isDesktop, desktopVersion } from '@/lib/desktop';
@@ -556,61 +557,66 @@ const MenuBar = () => {
 
 
 
-      {showScan && (
-        <ScanDialog
-          batch={scanMode === 'batch'}
-          quick={quick}
-          onReady={async (f) => {
-            // Листы либо присоединяются к открытому документу,
-            // либо становятся новым документом в своей вкладке
-            if (scanAppend) {
-              await append(f);
-              toast({ title: 'Страницы добавлены', description: 'Сканы в конце документа' });
-            } else if (tabsApi) {
-              tabsApi.openTab(f);
-            } else {
-              await open(f);
-            }
-          }}
-          onClose={() => setShowScan(false)}
-        />
-      )}
+      {/* Окна поднимаем над всей программой: изнутри прилипающей
+          панели меню они уходили под рамку окна и под документ */}
+      <TopLayer>
+        {showScan && (
+          <ScanDialog
+            batch={scanMode === 'batch'}
+            quick={quick}
+            onReady={async (f) => {
+              // Листы либо присоединяются к открытому документу,
+              // либо становятся новым документом в своей вкладке
+              if (scanAppend) {
+                await append(f);
+                toast({ title: 'Страницы добавлены', description: 'Сканы в конце документа' });
+              } else if (tabsApi) {
+                tabsApi.openTab(f);
+              } else {
+                await open(f);
+              }
+            }}
+            onClose={() => setShowScan(false)}
+          />
+        )}
 
-      {convertAt !== null && (
-        <ConvertDialog start={convertAt} onClose={() => setConvertAt(null)} />
-      )}
+        {convertAt !== null && (
+          <ConvertDialog start={convertAt} onClose={() => setConvertAt(null)} />
+        )}
 
-      {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
+        {showKeys && <ShortcutsDialog onClose={() => setShowKeys(false)} />}
 
-      {askName && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-2 md:p-6">
-          <div className="w-full max-w-[420px] border border-foreground bg-background p-6">
-            <div className="label-caps">Сохранить как</div>
-            <p className="mt-3 text-[0.88rem] text-muted-foreground">Укажите имя файла</p>
-            <div className="mt-4 flex items-center border border-border">
-              <input
-                autoFocus
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && confirmSaveAs()}
-                className="w-full bg-background px-3 py-3 text-[0.92rem] outline-none"
-              />
-              <span className="px-3 font-head text-[0.82rem] text-muted-foreground">.pdf</span>
-            </div>
-            <div className="mt-6 flex gap-3">
-              <button className="btn-block flex-1 justify-center" onClick={confirmSaveAs}>
-                Сохранить
-              </button>
-              <button
-                className="border border-foreground px-5 py-3 font-head text-[0.74rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
-                onClick={() => setAskName(false)}
-              >
-                Отмена
-              </button>
+        {askName && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/50 p-2 md:p-6">
+            <div className="w-full max-w-[420px] border border-foreground bg-background p-6">
+              <div className="label-caps">Сохранить как</div>
+              <p className="mt-3 text-[0.88rem] text-muted-foreground">Укажите имя файла</p>
+              <div className="mt-4 flex items-center border border-border">
+                <input
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && confirmSaveAs()}
+                  className="w-full bg-background px-3 py-3 text-[0.92rem] outline-none"
+                />
+                <span className="px-3 font-head text-[0.82rem] text-muted-foreground">.pdf</span>
+              </div>
+              <div className="mt-6 flex gap-3">
+                <button className="btn-block flex-1 justify-center" onClick={confirmSaveAs}>
+                  Сохранить
+                </button>
+                <button
+                  className="border border-foreground px-5 py-3 font-head text-[0.74rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
+                  onClick={() => setAskName(false)}
+                >
+                  Отмена
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </TopLayer>
+
     </div>
   );
 };

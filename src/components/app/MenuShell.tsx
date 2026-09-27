@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
+import TopLayer from '@/components/app/TopLayer';
 
 export type MenuItem = {
   icon: string;
@@ -20,14 +21,42 @@ type Props = {
 
 const MenuShell = ({ title, open, onToggle, onClose, items }: Props) => {
   const box = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) onClose();
+      const t = e.target as Node;
+      if (box.current?.contains(t) || list.current?.contains(t)) return;
+      onClose();
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [onClose]);
+
+  // Список раскрывается поверх всей программы, поэтому его место
+  // на экране считаем сами — от кнопки меню
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const place = () => {
+      const b = box.current?.getBoundingClientRect();
+      if (!b) return;
+
+      const width = Math.min(290, window.innerWidth - 16);
+      // У правого края списку не хватало места и он уезжал за экран
+      const x = Math.max(8, Math.min(b.left, window.innerWidth - width - 8));
+      setAt({ x, y: b.bottom + 1 });
+    };
+
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   return (
     <div className="relative" ref={box}>
@@ -41,27 +70,40 @@ const MenuShell = ({ title, open, onToggle, onClose, items }: Props) => {
         <Icon name="ChevronDown" size={13} />
       </button>
 
+      {/* Список выносим наверх страницы: внутри прилипающей панели меню
+          он обрезался полосой прокрутки и прятался под документом */}
       {open && (
-        <div className="animate-fade-in absolute left-0 top-full z-50 mt-px w-[min(290px,calc(100vw-1rem))] border border-foreground bg-background shadow-[6px_6px_0_hsl(var(--rule)/0.25)]">
-          {items.map((it) => (
-            <button
-              key={it.label}
-              onClick={it.fn}
-              disabled={!it.on}
-              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors disabled:opacity-35 enabled:hover:bg-card ${
-                it.sep ? 'border-t border-border' : ''
-              }`}
-            >
-              <Icon name={it.icon} size={16} className="shrink-0 text-primary" />
-              <span className="flex-1 truncate text-[0.88rem]">{it.label}</span>
-              {it.hint && (
-                <span className="shrink-0 font-head text-[0.7rem] tracking-[0.06em] text-muted-foreground">
-                  {it.hint}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <TopLayer>
+          <div
+            ref={list}
+            style={{
+              left: at.x,
+              top: at.y,
+              width: Math.min(290, window.innerWidth - 16),
+              maxHeight: `calc(100vh - ${at.y + 8}px)`,
+            }}
+            className="animate-fade-in fixed z-[120] overflow-y-auto border border-foreground bg-background shadow-[6px_6px_0_hsl(var(--rule)/0.25)]"
+          >
+            {items.map((it) => (
+              <button
+                key={it.label}
+                onClick={it.fn}
+                disabled={!it.on}
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors disabled:opacity-35 enabled:hover:bg-card ${
+                  it.sep ? 'border-t border-border' : ''
+                }`}
+              >
+                <Icon name={it.icon} size={16} className="shrink-0 text-primary" />
+                <span className="flex-1 truncate text-[0.88rem]">{it.label}</span>
+                {it.hint && (
+                  <span className="shrink-0 font-head text-[0.7rem] tracking-[0.06em] text-muted-foreground">
+                    {it.hint}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </TopLayer>
       )}
     </div>
   );

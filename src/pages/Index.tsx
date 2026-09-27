@@ -77,7 +77,7 @@ const Workspace = () => {
 
   return (
     <AppWindow title={activeTitle ? `${activeTitle} — ПВ-Система PDF` : undefined}>
-      <div className="flex h-full flex-col overflow-hidden bg-background font-body text-foreground">
+      <div className="relative flex h-full flex-col overflow-hidden bg-background font-body text-foreground">
         {tabs.length === 0 ? (
           // Пока ничего не открыто, показываем стартовое окно с задачами
           <DocProvider>

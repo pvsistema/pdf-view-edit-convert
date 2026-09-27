@@ -4,6 +4,7 @@ import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { heldPage, dropInto } from '@/lib/pageSwap';
 import { onCloseTabRequest } from '@/lib/closeBus';
+import TopLayer from '@/components/app/TopLayer';
 
 // Полоса вкладок: каждый открытый документ занимает свою вкладку,
 // переключение между ними мгновенное
@@ -161,7 +162,8 @@ const TabsBar = () => {
       {/* Последний шанс не потерять работу: документ правили,
           но в файл эти правки ещё не записаны */}
       {ask && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/40 px-4">
+        <TopLayer>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-foreground/40 px-4">
           <div className="w-full max-w-[420px] border border-border bg-background shadow-xl">
             <div className="flex items-center gap-2.5 border-b border-border px-5 py-3.5">
               <Icon name="TriangleAlert" size={17} className="shrink-0 text-primary" />
@@ -190,6 +192,7 @@ const TabsBar = () => {
             </div>
           </div>
         </div>
+        </TopLayer>
       )}
     </div>
   );
