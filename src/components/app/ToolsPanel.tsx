@@ -89,9 +89,16 @@ const ToolsPanel = () => {
         // Настоящую причину пишем в журнал: без неё сбой у пользователя
         // не отличить от сбоя в документе
         console.error('Сбой инструмента', key, e);
+
+        // Движок распознавания сообщает о сбое простой строкой, а не
+        // полноценной ошибкой. Раньше такую строку отбрасывали и писали
+        // «попробуйте другой файл», хотя дело было вовсе не в файле
+        const why =
+          e instanceof Error ? e.message : typeof e === 'string' && e.trim() ? e.trim() : '';
+
         toast({
           title: 'Не удалось выполнить',
-          description: e instanceof Error ? e.message : 'Попробуйте другой файл или операцию',
+          description: why || 'Попробуйте другой файл или операцию',
         });
       }
     } finally {
@@ -235,6 +242,11 @@ const ToolsPanel = () => {
         workerPath: `${base}/worker.min.js`,
         corePath: `${base}/core`,
         gzip: true,
+        // Словари берём только из файлов программы и НЕ складываем в
+        // память браузера. Иначе после обновления программы там остаются
+        // словари от прошлой сборки: движок молча берёт старые, спотыкается
+        // на них и распознавание срывается без внятной причины
+        cacheMethod: 'none',
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') setProgress(Math.round(m.progress * 100));
         },
