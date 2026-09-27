@@ -8,6 +8,7 @@ import { useLicense } from '@/context/LicenseContext';
 import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { parseRange } from '@/components/app/PrintDialog';
+import { cleanScan } from '@/lib/scanClean';
 import { buildDocx, DOCX_TYPE } from '@/lib/docx';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import {
@@ -45,6 +46,9 @@ const ToolsPanel = () => {
   // листов, а разбор всей пачки занял бы много времени
   const [ocrScope, setOcrScope] = useState<'all' | 'current' | 'range'>('all');
   const [ocrRange, setOcrRange] = useState('');
+  // Подготовка скана перед разбором. По умолчанию включена: выцветшие
+  // копии без неё почти не читаются
+  const [clean, setClean] = useState(true);
 
   // Сколько листов уйдёт в работу при нынешнем выборе —
   // по этому числу считается полоса хода у распознавания
@@ -268,9 +272,14 @@ const ToolsPanel = () => {
         // 300 точек на дюйм — то, к чему привык сканер
         const canvas = await renderPageOnce(doc, pg.src, 3, pg.rotation);
 
+        // Готовим лист к разбору: выравниваем освещённость, поднимаем
+        // контраст бледной копии и убираем пыль. На выцветших документах
+        // это поднимает точность в разы
+        const sheet = clean ? cleanScan(canvas) : canvas;
+
         // Лист, положенный в сканер с перекосом, программа выравнивает
         // сама — иначе строки распознаются с ошибками
-        const { data } = await worker.recognize(canvas, { rotateAuto: true });
+        const { data } = await worker.recognize(sheet, { rotateAuto: true });
 
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
@@ -385,6 +394,27 @@ const ToolsPanel = () => {
               )}
             </span>
           </button>
+
+          {/* Подготовка скана. Бледные и запылённые копии без неё
+              распознаются плохо, но на чистой цифровой выкладке
+              её можно выключить */}
+          {t.key === 'ocr' && !locked && (
+            <label className="flex cursor-pointer items-start gap-2 border-b border-border px-4 py-3">
+              <input
+                type="checkbox"
+                checked={clean}
+                disabled={!!busy}
+                onChange={(e) => setClean(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-primary disabled:opacity-50"
+              />
+              <span className="min-w-0">
+                <span className="block text-[0.82rem] font-bold">Улучшать скан</span>
+                <span className="mt-0.5 block text-[0.76rem] leading-snug text-muted-foreground">
+                  Выравнивает контраст и убирает пятна
+                </span>
+              </span>
+            </label>
+          )}
 
           {/* Выбор листов показываем только у распознавания: в толстом
               скане обычно нужна пара страниц, а не вся пачка */}
