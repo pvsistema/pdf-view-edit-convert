@@ -11,6 +11,7 @@
 
 import type { OcrPart } from '@/lib/ocrLayout';
 import type { TextPiece } from '@/lib/pdf';
+import { buildRows as rowsOf, findTables } from '@/lib/tables';
 
 // Кусочки, попавшие на одну строку, собираем вместе. Опорой служит
 // высота букв: строки ближе этого расстояния считаем одной
@@ -100,6 +101,12 @@ export const layoutFromPieces = (pieces: TextPiece[]): OcrPart[] => {
     right = Math.max(right, r.x1);
   }
 
+  // Сначала ищем таблицы: их строки не должны попасть в обычные абзацы,
+  // иначе столбцы слипнутся в сплошную строку
+  const tables = findTables(rowsOf(pieces.filter((p) => p.str.trim())));
+  const inTable = new Map<number, (typeof tables)[number]>();
+  for (const t of tables) for (let k = t.from; k <= t.to; k++) inTable.set(k, t);
+
   const parts: OcrPart[] = [];
   let current: { rows: Row[]; align: OcrPart['align']; heading: boolean } | null = null;
 
@@ -130,6 +137,24 @@ export const layoutFromPieces = (pieces: TextPiece[]): OcrPart[] => {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const prev = rows[i - 1];
+
+    // Строки таблицы обходим стороной: таблица кладётся целиком,
+    // когда доходим до её первой строки
+    const t = inTable.get(i);
+    if (t) {
+      if (t.from === i) {
+        flush();
+        parts.push({
+          text: t.rows.map((row) => row.join('\t')).join('\n'),
+          heading: false,
+          bold: false,
+          italic: false,
+          align: 'left',
+          table: t.rows,
+        });
+      }
+      continue;
+    }
 
     const heading = body > 0 && r.h >= body * 1.15;
     const align = alignOf(r, left, right);

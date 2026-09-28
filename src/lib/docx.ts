@@ -151,6 +151,51 @@ export type DocxPart = {
   bold: boolean;
   italic: boolean;
   align: 'left' | 'center' | 'right';
+  // Таблица: строки, в каждой — ячейки. Если поле заполнено,
+  // кусок ложится в Word настоящей таблицей, а не текстом
+  table?: string[][];
+};
+
+// Ширина листа за вычетом полей — в тех единицах, которыми меряет Word.
+// По ней столбцы таблицы растягиваются на всю ширину текста
+const TABLE_WIDTH = 9355;
+
+// Ячейка таблицы. Первая строка идёт заголовком: жирная и с заливкой,
+// как в деловых бумагах
+const cell = (text: string, width: number, head: boolean) =>
+  `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${
+    head ? '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/>' : ''
+  }<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:spacing w:before="20" w:after="20"/></w:pPr><w:r>${
+    head ? '<w:rPr><w:b/></w:rPr>' : ''
+  }<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p></w:tc>`;
+
+// Таблица целиком: с видимыми границами, как её рисуют в документах
+const table = (rows: string[][]) => {
+  const cols = rows.reduce((n, r) => Math.max(n, r.length), 0);
+  if (!cols) return '';
+
+  const width = Math.floor(TABLE_WIDTH / cols);
+
+  const line = 'w:val="single" w:sz="4" w:space="0" w:color="999999"';
+  const borders = `<w:tblBorders><w:top ${line}/><w:left ${line}/><w:bottom ${line}/><w:right ${line}/><w:insideH ${line}/><w:insideV ${line}/></w:tblBorders>`;
+
+  const body = rows
+    .map((r, i) => {
+      // Недостающие ячейки дополняем пустыми: в Word все строки
+      // таблицы должны быть одной длины, иначе файл считается битым
+      const cells = Array.from({ length: cols }, (_, c) => cell(r[c] ?? '', width, i === 0));
+      return `<w:tr>${cells.join('')}</w:tr>`;
+    })
+    .join('');
+
+  // Опись столбцов обязательна: без неё Word считает таблицу
+  // повреждённой и отказывается её показывать
+  const grid = `<w:tblGrid>${Array.from(
+    { length: cols },
+    () => `<w:gridCol w:w="${width}"/>`,
+  ).join('')}</w:tblGrid>`;
+
+  return `<w:tbl><w:tblPr><w:tblW w:w="${TABLE_WIDTH}" w:type="dxa"/>${borders}</w:tblPr>${grid}${body}</w:tbl><w:p/>`;
 };
 
 export type DocxPage = { no: number; text: string; parts?: DocxPart[] };
@@ -164,7 +209,10 @@ export const buildDocx = (pages: DocxPage[], withMarks: boolean) => {
     // заголовками, выравниванием и абзацами, как в исходнике. Если нет
     // (текст правили руками) — раскладываем построчно, как раньше
     if (p.parts && p.parts.length) {
-      for (const part of p.parts) body.push(richPara(part));
+      for (const part of p.parts) {
+        // Таблицу собираем таблицей, всё остальное — абзацем
+        body.push(part.table?.length ? table(part.table) : richPara(part));
+      }
     } else {
       for (const line of p.text.split('\n')) body.push(para(line));
     }

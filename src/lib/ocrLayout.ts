@@ -7,6 +7,8 @@
 // остаются заголовками, выравнивание по центру сохраняется,
 // а абзац не рассыпается на отдельные строки.
 
+import { buildRows, findTables, type Cell } from '@/lib/tables';
+
 // Кусок документа: абзац со своим видом
 export type OcrPart = {
   text: string;
@@ -15,6 +17,9 @@ export type OcrPart = {
   bold: boolean;
   italic: boolean;
   align: 'left' | 'center' | 'right';
+  // Заполнено, если кусок оказался таблицей: строки и ячейки.
+  // В Word такой кусок ложится настоящей таблицей с границами
+  table?: string[][];
 };
 
 type Word = {
@@ -23,6 +28,7 @@ type Word = {
   is_bold?: boolean;
   is_italic?: boolean;
   confidence?: number;
+  bbox?: Bbox;
 };
 
 type Line = { text?: string; words?: Word[]; bbox?: Bbox };
@@ -125,6 +131,45 @@ const joinLines = (p: Para) => {
   return out.trim();
 };
 
+// Размер листа берём по самому дальнему краю текста: движок не сообщает
+// размер картинки прямо, но границы блоков его показывают
+const pageWidth = (blocks: Block[]) => {
+  let max = 0;
+  for (const b of blocks) if (b.bbox) max = Math.max(max, b.bbox.x1);
+  return max;
+};
+
+const pageHeight = (blocks: Block[]) => {
+  let max = 0;
+  for (const b of blocks) if (b.bbox) max = Math.max(max, b.bbox.y1);
+  return max;
+};
+
+// Слова с их местом на листе — в долях от размера страницы.
+// В таком виде поиск таблиц одинаково работает и со сканом, и с обычным
+// документом, где числа изначально в долях
+const wordCells = (paras: Para[], width: number, height: number): Cell[] => {
+  const out: Cell[] = [];
+
+  for (const p of paras)
+    for (const l of p.lines || [])
+      for (const w of l.words || []) {
+        const b = w.bbox;
+        const str = (w.text || '').trim();
+        if (!b || !str) continue;
+
+        out.push({
+          str,
+          x: b.x0 / width,
+          y: b.y0 / height,
+          w: (b.x1 - b.x0) / width,
+          h: (b.y1 - b.y0) / height,
+        });
+      }
+
+  return out;
+};
+
 // Разбор листа на части с сохранением облика
 export const readLayout = (data: PageData): OcrPart[] => {
   const blocks = data.blocks;
@@ -141,6 +186,25 @@ export const readLayout = (data: PageData): OcrPart[] => {
   for (const b of blocks) for (const p of b.paragraphs || []) paras.push(p);
   if (!paras.length) return [];
 
+  // Ищем таблицы по расположению слов на листе. Движок отдаёт место
+  // каждого слова в точках картинки — приводим к долям листа, чтобы
+  // разбор не зависел от разрешения
+  const width = pageWidth(blocks);
+  const height = pageHeight(blocks);
+
+  const rows = width && height ? buildRows(wordCells(paras, width, height)) : [];
+  const tables = rows.length ? findTables(rows) : [];
+
+  // Запоминаем, какую полосу листа занимает каждая таблица: по ней
+  // отсеиваем абзацы, попавшие внутрь неё. Иначе строки таблицы попали бы
+  // в документ дважды — и таблицей, и сплошным текстом
+  const bands = tables.map((t) => ({
+    top: rows[t.from].y,
+    bottom: rows[t.to].y + rows[t.to].h,
+    rows: t.rows,
+    used: false,
+  }));
+
   const body = bodySize(paras);
 
   // Границы текста на листе — по самим абзацам, а не по краю картинки:
@@ -156,6 +220,29 @@ export const readLayout = (data: PageData): OcrPart[] => {
   const parts: OcrPart[] = [];
 
   for (const p of paras) {
+    // Абзац лежит внутри таблицы — вместо него в документ идёт сама
+    // таблица, и только один раз
+    const band = p.bbox
+      ? bands.find(
+          (b) => p.bbox!.y0 / height >= b.top - 0.005 && p.bbox!.y1 / height <= b.bottom + 0.005,
+        )
+      : undefined;
+
+    if (band) {
+      if (!band.used) {
+        band.used = true;
+        parts.push({
+          text: band.rows.map((r) => r.join('\t')).join('\n'),
+          heading: false,
+          bold: false,
+          italic: false,
+          align: 'left',
+          table: band.rows,
+        });
+      }
+      continue;
+    }
+
     const text = joinLines(p);
     if (!text) continue;
 
