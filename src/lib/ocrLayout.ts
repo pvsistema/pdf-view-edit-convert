@@ -7,7 +7,7 @@
 // остаются заголовками, выравнивание по центру сохраняется,
 // а абзац не рассыпается на отдельные строки.
 
-import { buildRows, findTables, type Cell } from '@/lib/tables';
+import { buildRows, findTables, type Cell, type TableRow } from '@/lib/tables';
 
 // Кусок документа: абзац со своим видом
 export type OcrPart = {
@@ -40,6 +40,12 @@ type PageData = {
   text?: string;
   blocks?: Block[] | null;
 };
+
+// Размер разобранного листа в точках. Нужен, чтобы перевести место
+// каждого слова в доли страницы. Раньше размер брался по краю текста —
+// но текст не доходит до краёв, и доли получались завышены в разы:
+// строки «росли», а разрывы между столбцами переставали распознаваться
+export type PageSize = { width: number; height: number };
 
 // Самый обычный размер шрифта на листе. Считаем по числу слов каждого
 // размера, а не средним: среднее задирают редкие крупные заголовки
@@ -131,20 +137,6 @@ const joinLines = (p: Para) => {
   return out.trim();
 };
 
-// Размер листа берём по самому дальнему краю текста: движок не сообщает
-// размер картинки прямо, но границы блоков его показывают
-const pageWidth = (blocks: Block[]) => {
-  let max = 0;
-  for (const b of blocks) if (b.bbox) max = Math.max(max, b.bbox.x1);
-  return max;
-};
-
-const pageHeight = (blocks: Block[]) => {
-  let max = 0;
-  for (const b of blocks) if (b.bbox) max = Math.max(max, b.bbox.y1);
-  return max;
-};
-
 // Слова с их местом на листе — в долях от размера страницы.
 // В таком виде поиск таблиц одинаково работает и со сканом, и с обычным
 // документом, где числа изначально в долях
@@ -170,8 +162,107 @@ const wordCells = (paras: Para[], width: number, height: number): Cell[] => {
   return out;
 };
 
-// Разбор листа на части с сохранением облика
-export const readLayout = (data: PageData): OcrPart[] => {
+// Сборка документа по строкам листа.
+//
+// Нужна там, где на листе нашлись таблицы: движок часто отдаёт весь лист
+// одним абзацем, и разделить таблицу с текстом по абзацам не выходит.
+// Строки же всегда на месте, и по ним документ собирается верно.
+const byRows = (
+  rows: TableRow[],
+  tables: ReturnType<typeof findTables>,
+  left: number,
+  right: number,
+  width: number,
+): OcrPart[] => {
+  // Какие строки заняты таблицами
+  const owner = new Map<number, (typeof tables)[number]>();
+  for (const t of tables) for (let k = t.from; k <= t.to; k++) owner.set(k, t);
+
+  // Обычный размер букв на листе — по нему узнаём заголовки
+  const heights = rows.map((r) => r.h).sort((a, b) => a - b);
+  const body = heights[Math.floor(heights.length / 2)] || 0;
+
+  // Границы текста в долях листа: по ним определяется выравнивание
+  const l = left / width;
+  const r = right / width;
+
+  const parts: OcrPart[] = [];
+  let group: TableRow[] = [];
+
+  const flush = () => {
+    if (!group.length) return;
+
+    const text = group
+      .map((row) => row.cells.map((c) => c.str).join(' '))
+      .reduce((acc, line) => {
+        if (!acc) return line;
+        if (/[-\u2010\u2011]$/.test(acc) && /^[a-zа-яё]/i.test(line))
+          return acc.replace(/[-\u2010\u2011]$/, '') + line;
+        return acc + ' ' + line;
+      }, '');
+
+    if (text.trim()) {
+      const first = group[0];
+      const x0 = Math.min(...group.map((g) => Math.min(...g.cells.map((c) => c.x))));
+      const x1 = Math.max(...group.map((g) => Math.max(...g.cells.map((c) => c.x + c.w))));
+
+      const width2 = r - l;
+      const padLeft = width2 > 0 ? (x0 - l) / width2 : 0;
+      const padRight = width2 > 0 ? (r - x1) / width2 : 0;
+
+      const align: OcrPart['align'] =
+        padLeft > 0.12 && padRight > 0.12 && Math.abs(padLeft - padRight) < 0.12
+          ? 'center'
+          : padLeft > 0.3 && padRight < 0.08
+            ? 'right'
+            : 'left';
+
+      parts.push({
+        text: text.trim(),
+        heading: body > 0 && first.h >= body * 1.15 && text.length <= 120,
+        bold: false,
+        italic: false,
+        align,
+      });
+    }
+    group = [];
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const t = owner.get(i);
+
+    if (t) {
+      if (t.from === i) {
+        flush();
+        parts.push({
+          text: t.rows.map((row) => row.join('\t')).join('\n'),
+          heading: false,
+          bold: false,
+          italic: false,
+          align: 'left',
+          table: t.rows,
+        });
+      }
+      continue;
+    }
+
+    // Просвет между строками больше полутора высот — новый абзац
+    const prev = rows[i - 1];
+    if (prev && group.length) {
+      const gap = rows[i].y - (prev.y + prev.h);
+      if (gap > Math.max(rows[i].h, prev.h) * 1.5) flush();
+    }
+
+    group.push(rows[i]);
+  }
+  flush();
+
+  return parts;
+};
+
+// Разбор листа на части с сохранением облика.
+// size — настоящий размер разобранной картинки в точках
+export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   const blocks = data.blocks;
   if (!blocks || !blocks.length) {
     // Разметки нет — отдаём текст как есть, по абзацам
@@ -189,21 +280,11 @@ export const readLayout = (data: PageData): OcrPart[] => {
   // Ищем таблицы по расположению слов на листе. Движок отдаёт место
   // каждого слова в точках картинки — приводим к долям листа, чтобы
   // разбор не зависел от разрешения
-  const width = pageWidth(blocks);
-  const height = pageHeight(blocks);
+  const width = size?.width || 0;
+  const height = size?.height || 0;
 
   const rows = width && height ? buildRows(wordCells(paras, width, height)) : [];
   const tables = rows.length ? findTables(rows) : [];
-
-  // Запоминаем, какую полосу листа занимает каждая таблица: по ней
-  // отсеиваем абзацы, попавшие внутрь неё. Иначе строки таблицы попали бы
-  // в документ дважды — и таблицей, и сплошным текстом
-  const bands = tables.map((t) => ({
-    top: rows[t.from].y,
-    bottom: rows[t.to].y + rows[t.to].h,
-    rows: t.rows,
-    used: false,
-  }));
 
   const body = bodySize(paras);
 
@@ -219,30 +300,12 @@ export const readLayout = (data: PageData): OcrPart[] => {
 
   const parts: OcrPart[] = [];
 
+  // Если на листе есть таблицы, собираем документ по строкам, а не по
+  // абзацам: движок нередко сваливает весь лист в один абзац, и тогда
+  // таблицу внутри него не отделить
+  if (tables.length) return byRows(rows, tables, left, right, width);
+
   for (const p of paras) {
-    // Абзац лежит внутри таблицы — вместо него в документ идёт сама
-    // таблица, и только один раз
-    const band = p.bbox
-      ? bands.find(
-          (b) => p.bbox!.y0 / height >= b.top - 0.005 && p.bbox!.y1 / height <= b.bottom + 0.005,
-        )
-      : undefined;
-
-    if (band) {
-      if (!band.used) {
-        band.used = true;
-        parts.push({
-          text: band.rows.map((r) => r.join('\t')).join('\n'),
-          heading: false,
-          bold: false,
-          italic: false,
-          align: 'left',
-          table: band.rows,
-        });
-      }
-      continue;
-    }
-
     const text = joinLines(p);
     if (!text) continue;
 

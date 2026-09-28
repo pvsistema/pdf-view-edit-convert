@@ -10,6 +10,7 @@ import ActivateDialog from '@/components/app/ActivateDialog';
 import { parseRange } from '@/components/app/PrintDialog';
 import { cleanScan } from '@/lib/scanClean';
 import { buildDocx, DOCX_TYPE } from '@/lib/docx';
+import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
 import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
@@ -128,6 +129,9 @@ const ToolsPanel = () => {
   // Тот же текст, но разложенный по страницам: нужен для выгрузки
   // в Word, где каждая страница должна лечь на отдельный лист
   const [ocrPages, setOcrPages] = useState<OcrSheet[]>([]);
+  // Готовый PDF с невидимым текстовым слоем: вид страницы как у исходника,
+  // но по документу работает поиск. Собирается во время распознавания
+  const [ocrSearchable, setOcrSearchable] = useState<Uint8Array | null>(null);
   // Какие страницы распознавать. В толстом скане обычно нужна пара
   // листов, а разбор всей пачки занял бы много времени
   const [ocrScope, setOcrScope] = useState<'all' | 'current' | 'range'>('all');
@@ -386,6 +390,9 @@ const ToolsPanel = () => {
       // Держим настоящий номер листа рядом с текстом: при выборочном
       // разборе третья страница должна остаться третьей, а не первой
       const sheets: OcrSheet[] = [];
+      // Страницы будущего PDF с поиском. Пусто там, где страница и так
+      // содержит текст — её берём из исходного документа без изменений
+      const searchable: (Uint8Array | null)[] = [];
 
       for (let n = 0; n < picked.length; n++) {
         const i = picked[n];
@@ -400,6 +407,8 @@ const ToolsPanel = () => {
         const ready = await readyText(doc, pg.src);
         if (ready) {
           sheets.push({ no: i + 1, text: ready.text, parts: ready.parts });
+          // По такой странице поиск и так работает — берём её как есть
+          searchable.push(null);
           setProgress(Math.round(((n + 1) / picked.length) * 100));
           continue;
         }
@@ -419,14 +428,24 @@ const ToolsPanel = () => {
         // Вместе с текстом забираем разметку листа: где абзацы, где
         // заголовки, какие слова крупнее и жирнее. По ней документ
         // потом собирается в Word похожим на исходник
-        const { data } = await worker.recognize(sheet, { rotateAuto: true }, { blocks: true });
+        // Заодно просим готовую страницу PDF с невидимым текстовым слоем:
+        // выглядит как скан, но по ней работает поиск — как в FineReader
+        const { data } = await worker.recognize(
+          sheet,
+          { rotateAuto: true },
+          { blocks: true, pdf: true },
+        );
+
+        searchable.push(data.pdf ? new Uint8Array(data.pdf) : null);
 
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
         sheets.push({
           no: i + 1,
           text: (data.text || '').trim(),
-          parts: readLayout(data),
+          // Передаём настоящий размер листа: по нему места слов переводятся
+          // в доли страницы, и разбивка на столбцы считается верно
+          parts: readLayout(data, { width: sheet.width, height: sheet.height }),
         });
 
         // Ход считаем по выбранным листам, а не по всему документу
@@ -438,6 +457,29 @@ const ToolsPanel = () => {
       const all = joinPages(sheets);
       setOcrText(all);
       setOcrPages(sheets);
+
+      // Склеиваем страницы в один PDF с поиском. Делаем это осторожно:
+      // даже если склейка не удастся, распознанный текст уже готов
+      // и пользователь его не потеряет
+      const searchablePdf = await (async () => {
+        if (!searchable.some(Boolean)) return null;
+
+        const { mergeSearchable } = await import('@/lib/searchablePdf');
+
+        // Страницы, где текст уже был, берём из исходного документа —
+        // собираем его теми же средствами, что и обычное сохранение
+        const needBase = searchable.some((s) => !s);
+        const base = needBase ? await buildPdf(picked.map((i) => pages[i])) : null;
+
+        // В собранном исходнике страницы идут подряд, по порядку выбора
+        return mergeSearchable(
+          searchable,
+          base,
+          picked.map((_, k) => k),
+        );
+      })().catch(() => null);
+
+      setOcrSearchable(searchablePdf);
 
       toast({
         title: all ? 'Текст распознан' : 'Текст не найден',
@@ -469,6 +511,67 @@ const ToolsPanel = () => {
     downloadBlob(new Blob([bytes as BlobPart], { type: DOCX_TYPE }), `${baseName(name)}-распознано.docx`);
     if (!desktop) toast({ title: 'Готов файл Word', description: 'Распознанный текст' });
   };
+
+  // Распознанное — в Excel. Таблицы из документа ложатся ячейка в ячейку,
+  // числа остаются числами, поэтому по ним сразу считаются суммы.
+  // Если таблиц в документе не нашлось, строки текста идут по одной в строку
+  const ocrToExcel = () => {
+    const edited = ocrPages.length > 0 && ocrText !== joinPages(ocrPages);
+
+    const sheets: SheetData[] = [];
+
+    if (edited || !ocrPages.length) {
+      // Текст правили руками — раскладываем построчно
+      sheets.push({
+        name: 'Распознано',
+        rows: ocrText.split('\n').map((line) => line.split('\t')),
+      });
+    } else {
+      for (const p of ocrPages) {
+        const rows: string[][] = [];
+        for (const part of p.parts || []) {
+          if (part.table?.length) {
+            rows.push(...part.table);
+            // Пустая строка отделяет таблицу от следующего куска
+            rows.push([]);
+          } else {
+            rows.push([part.text]);
+          }
+        }
+        if (!rows.length) rows.push([p.text]);
+        sheets.push({ name: `Стр. ${p.no}`, rows });
+      }
+    }
+
+    const bytes = buildXlsx(sheets);
+    downloadBlob(
+      new Blob([bytes as BlobPart], { type: XLSX_TYPE }),
+      `${baseName(name)}-распознано.xlsx`,
+    );
+    if (!desktop) toast({ title: 'Готова таблица Excel', description: 'Распознанные данные' });
+  };
+
+  // Распознанное — в PDF с возможностью поиска.
+  //
+  // Так делает FineReader: страница выглядит как исходник, но под
+  // картинкой лежит невидимый текстовый слой. Документ можно листать,
+  // искать в нём слова и копировать текст
+  const ocrToPdf = () =>
+    run('ocr-pdf', !isFull, async () => {
+      if (!ocrSearchable) {
+        toast({
+          title: 'Нужно распознать заново',
+          description: 'Для поиска по PDF запустите распознавание ещё раз',
+        });
+        return;
+      }
+
+      downloadBlob(
+        new Blob([ocrSearchable as BlobPart], { type: 'application/pdf' }),
+        `${baseName(name)}-распознано.pdf`,
+      );
+      if (!desktop) toast({ title: 'Готов PDF с поиском', description: 'Текст под картинкой' });
+    });
 
   const TOOLS = [
     { key: 'pdf', icon: 'Save', label: 'Сохранить PDF', note: 'Со всеми правками', fn: toPdf },
@@ -625,29 +728,63 @@ const ToolsPanel = () => {
 
         {ocrText && (
           <div className="border-b border-border p-4">
-            <div className="flex items-center justify-between">
-              <span className="label-caps">Распознанный текст</span>
-              <span className="flex items-center gap-3">
-                <button
-                  className="text-primary hover:opacity-70"
-                  title="Сохранить в Word — каждая страница на своём листе"
-                  onClick={ocrToWord}
-                >
-                  <Icon name="FileText" size={15} />
-                </button>
-                <button
-                  className="text-primary hover:opacity-70"
-                  title="Сохранить простым текстом"
-                  onClick={() =>
+            <span className="label-caps">Распознанный текст</span>
+
+            {/* Передача документа дальше — как в промышленных программах
+                распознавания: один и тот же результат можно отправить
+                в Word, Excel или PDF с поиском */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                {
+                  key: 'word',
+                  icon: 'FileText',
+                  label: 'В Word',
+                  note: 'Документ с разметкой',
+                  fn: ocrToWord,
+                },
+                {
+                  key: 'excel',
+                  icon: 'Table',
+                  label: 'В Excel',
+                  note: 'Таблицы и числа',
+                  fn: ocrToExcel,
+                },
+                {
+                  key: 'pdf',
+                  icon: 'FileSearch',
+                  label: 'В PDF',
+                  note: ocrSearchable ? 'С поиском по тексту' : 'Только для сканов',
+                  fn: ocrToPdf,
+                  off: !ocrSearchable,
+                },
+                {
+                  key: 'txt',
+                  icon: 'AlignLeft',
+                  label: 'В текст',
+                  note: 'Простой файл TXT',
+                  fn: () =>
                     downloadBlob(
                       new Blob([ocrText], { type: 'text/plain;charset=utf-8' }),
                       `${baseName(name)}-распознано.txt`,
-                    )
-                  }
+                    ),
+                },
+              ].map((b) => (
+                <button
+                  key={b.key}
+                  onClick={b.fn}
+                  disabled={b.off}
+                  title={b.off ? 'Доступно после распознавания скана' : b.note}
+                  className="flex items-center gap-2 border border-border px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent"
                 >
-                  <Icon name="Download" size={15} />
+                  <Icon name={b.icon} size={16} className="shrink-0 text-primary" />
+                  <span className="min-w-0">
+                    <span className="block text-[0.8rem] font-bold">{b.label}</span>
+                    <span className="block truncate text-[0.7rem] text-muted-foreground">
+                      {b.note}
+                    </span>
+                  </span>
                 </button>
-              </span>
+              ))}
             </div>
             <textarea
               value={ocrText}
