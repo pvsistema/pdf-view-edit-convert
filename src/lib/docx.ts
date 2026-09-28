@@ -116,20 +116,58 @@ const esc = (t: string) =>
 const para = (line: string) =>
   `<w:p><w:r><w:t xml:space="preserve">${esc(line)}</w:t></w:r></w:p>`;
 
+// Абзац распознанного документа — с сохранением облика исходника.
+// Заголовок остаётся заголовком, текст по центру — по центру,
+// жирное — жирным. Так распознанное в Word похоже на бумагу,
+// а не на сплошную ленту строк
+const richPara = (p: DocxPart) => {
+  const look: string[] = [];
+  if (p.align !== 'left') look.push(`<w:jc w:val="${p.align}"/>`);
+  // Заголовку даём воздух сверху, чтобы он не липнул к тексту выше
+  look.push(`<w:spacing w:before="${p.heading ? 240 : 0}" w:after="${p.heading ? 120 : 120}"/>`);
+
+  const font: string[] = [];
+  if (p.bold || p.heading) font.push('<w:b/>');
+  if (p.italic) font.push('<w:i/>');
+  // Заголовок крупнее основного текста: 14 пунктов против 12
+  if (p.heading) font.push('<w:sz w:val="28"/>');
+
+  const rPr = font.length ? `<w:rPr>${font.join('')}</w:rPr>` : '';
+
+  return `<w:p><w:pPr>${look.join('')}</w:pPr><w:r>${rPr}<w:t xml:space="preserve">${esc(
+    p.text,
+  )}</w:t></w:r></w:p>`;
+};
+
 // Подпись с номером листа: помельче и серым, как колонтитул
 const pageMark = (no: number) =>
   `<w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="808080"/></w:rPr><w:t>Стр. ${no}</w:t></w:r></w:p>`;
 
 const pageBreak = () => `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
 
-export type DocxPage = { no: number; text: string };
+export type DocxPart = {
+  text: string;
+  heading: boolean;
+  bold: boolean;
+  italic: boolean;
+  align: 'left' | 'center' | 'right';
+};
+
+export type DocxPage = { no: number; text: string; parts?: DocxPart[] };
 
 // Сборка документа. Каждая страница исходника ложится на отдельный лист
 export const buildDocx = (pages: DocxPage[], withMarks: boolean) => {
   const body: string[] = [];
 
   pages.forEach((p, idx) => {
-    for (const line of p.text.split('\n')) body.push(para(line));
+    // Если разметка страницы известна, собираем документ по ней: с
+    // заголовками, выравниванием и абзацами, как в исходнике. Если нет
+    // (текст правили руками) — раскладываем построчно, как раньше
+    if (p.parts && p.parts.length) {
+      for (const part of p.parts) body.push(richPara(part));
+    } else {
+      for (const line of p.text.split('\n')) body.push(para(line));
+    }
     if (withMarks) body.push(pageMark(p.no));
     if (idx < pages.length - 1) body.push(pageBreak());
   });

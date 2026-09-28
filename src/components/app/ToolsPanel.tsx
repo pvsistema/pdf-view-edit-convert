@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { canvasToBlob, downloadBlob } from '@/lib/files';
-import { pageText, renderPageOnce } from '@/lib/pdf';
+import { pageText, pageTextLayout, renderPageOnce, type TextPiece } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { useLicense } from '@/context/LicenseContext';
 import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
@@ -10,6 +10,8 @@ import ActivateDialog from '@/components/app/ActivateDialog';
 import { parseRange } from '@/components/app/PrintDialog';
 import { cleanScan } from '@/lib/scanClean';
 import { buildDocx, DOCX_TYPE } from '@/lib/docx';
+import { readLayout, type OcrPart } from '@/lib/ocrLayout';
+import { layoutFromPieces } from '@/lib/pdfLayout';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import {
   isTrialTool,
@@ -44,8 +46,70 @@ const canFast = async () => {
   return fastCore;
 };
 
-// Распознанный лист: настоящий номер страницы и её текст
-export type OcrSheet = { no: number; text: string };
+// Разрешение, в котором лист уходит на распознавание. 300 точек на дюйм —
+// то, с чем работают промышленные программы разбора документов: мельче
+// движок путает похожие буквы, крупнее — только дольше считает
+const OCR_DPI = 300;
+
+// Распознанный лист: номер страницы, её текст и разметка —
+// где заголовки, где абзацы, что набрано жирным
+export type OcrSheet = { no: number; text: string; parts?: OcrPart[] };
+
+// Готовый текст страницы, если он в ней уже записан.
+//
+// Обычный документ (не скан) хранит текст как текст — его можно взять
+// точно, без единой ошибки. Разбирать такую страницу картинкой значит
+// своими руками портить готовое. Возвращаем пусто, если текста мало:
+// у скана иногда есть жалкий слой в пару слов, ему верить нельзя
+const readyText = async (doc: unknown, pageIndex: number) => {
+  const pieces = await pageTextLayout(doc, pageIndex).catch(() => [] as TextPiece[]);
+
+  const text = pieces
+    .map((p) => p.str)
+    .join('')
+    .trim();
+
+  // Меньше сотни знаков на лист — это не текстовый документ,
+  // а скан с обрывками. Такую страницу разбираем движком
+  if (text.length < 100) return null;
+
+  const parts = layoutFromPieces(pieces);
+  if (!parts.length) return null;
+
+  return { text: parts.map((p) => p.text).join('\n\n'), parts };
+};
+
+// Нужна ли странице подготовка перед разбором.
+//
+// Чистка задумана для сканов: бледных, серых, с пылью. Но на чёткой
+// странице она огрубляет буквы и текст разбирается заметно хуже —
+// проверка показала 55 ошибок против нуля. Поэтому сначала смотрим,
+// похож ли лист на скан: у скана фон шумный, а у чистой страницы
+// он ровный белый
+const needsClean = (canvas: HTMLCanvasElement) => {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return false;
+
+  // Берём небольшой кусок в середине листа — там обычно текст
+  const w = Math.min(600, canvas.width);
+  const h = Math.min(600, canvas.height);
+  const x = Math.max(0, ((canvas.width - w) / 2) | 0);
+  const y = Math.max(0, ((canvas.height - h) / 2) | 0);
+
+  const px = ctx.getImageData(x, y, w, h).data;
+
+  // Считаем, сколько точек «серые» — не белые и не чёрные.
+  // У чистой страницы их почти нет, у скана — заметная доля
+  let gray = 0;
+  let total = 0;
+  for (let i = 0; i < px.length; i += 16) {
+    const v = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
+    total++;
+    if (v > 60 && v < 200) gray++;
+  }
+
+  return total > 0 && gray / total > 0.08;
+};
 
 // Как распознанные страницы складываются в один текст для показа.
 // Тем же способом потом проверяем, правил ли человек результат руками
@@ -295,9 +359,15 @@ const ToolsPanel = () => {
         },
       });
 
-      // Сохраняем пробелы между словами: без этого столбцы и отступы
-      // в актах и накладных слипались в сплошную строку
-      await worker.setParameters({ preserve_interword_spaces: '1' });
+      await worker.setParameters({
+        // Сохраняем пробелы между словами: без этого столбцы и отступы
+        // в актах и накладных слипались в сплошную строку
+        preserve_interword_spaces: '1',
+        // Говорим движку настоящее разрешение листа. Без этого он гадает
+        // по картинке, ошибается в размере букв и путает похожие знаки —
+        // отсюда были искажённые слова
+        user_defined_dpi: String(OCR_DPI),
+      });
 
       // Какие листы разбирать. По умолчанию весь документ, но в толстом
       // скане можно указать только нужные — это экономит много времени
@@ -315,7 +385,7 @@ const ToolsPanel = () => {
 
       // Держим настоящий номер листа рядом с текстом: при выборочном
       // разборе третья страница должна остаться третьей, а не первой
-      const sheets: { no: number; text: string }[] = [];
+      const sheets: OcrSheet[] = [];
 
       for (let n = 0; n < picked.length; n++) {
         const i = picked[n];
@@ -323,22 +393,41 @@ const ToolsPanel = () => {
         const doc = docOf(pg);
         if (!doc) continue;
 
-        // Чем крупнее отрисовка, тем точнее распознавание.
-        // 300 точек на дюйм — то, к чему привык сканер
-        const canvas = await renderPageOnce(doc, pg.src, 3, pg.rotation);
+        // Если страница не сканированная — текст в ней уже записан, и его можно
+        // взять напрямую, без разбора картинки. Это и точнее (ни одной
+        // ошибки), и быстрее. Разбираем только то, что снято сканером —
+        // так же поступают промышленные программы распознавания
+        const ready = await readyText(doc, pg.src);
+        if (ready) {
+          sheets.push({ no: i + 1, text: ready.text, parts: ready.parts });
+          setProgress(Math.round(((n + 1) / picked.length) * 100));
+          continue;
+        }
 
-        // Готовим лист к разбору: выравниваем освещённость, поднимаем
-        // контраст бледной копии и убираем пыль. На выцветших документах
-        // это поднимает точность в разы
-        const sheet = clean ? cleanScan(canvas) : canvas;
+        // Чем крупнее отрисовка, тем точнее распознавание. Раньше здесь
+        // стояло втрое — это всего 216 точек на дюйм, движку не хватало
+        // деталей и он путал похожие буквы. 300 — то, к чему привык сканер
+        const canvas = await renderPageOnce(doc, pg.src, OCR_DPI / 72, pg.rotation);
+
+        // Чистку применяем только к настоящим сканам — бледным, серым,
+        // с пылью. Чёткую страницу она портит: буквы огрубляются и текст
+        // разбирается заметно хуже, чем без всякой подготовки
+        const sheet = clean && needsClean(canvas) ? cleanScan(canvas) : canvas;
 
         // Лист, положенный в сканер с перекосом, программа выравнивает
-        // сама — иначе строки распознаются с ошибками
-        const { data } = await worker.recognize(sheet, { rotateAuto: true });
+        // сама — иначе строки распознаются с ошибками.
+        // Вместе с текстом забираем разметку листа: где абзацы, где
+        // заголовки, какие слова крупнее и жирнее. По ней документ
+        // потом собирается в Word похожим на исходник
+        const { data } = await worker.recognize(sheet, { rotateAuto: true }, { blocks: true });
 
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
-        sheets.push({ no: i + 1, text: (data.text || '').trim() });
+        sheets.push({
+          no: i + 1,
+          text: (data.text || '').trim(),
+          parts: readLayout(data),
+        });
 
         // Ход считаем по выбранным листам, а не по всему документу
         setProgress(Math.round(((n + 1) / picked.length) * 100));
@@ -366,9 +455,13 @@ const ToolsPanel = () => {
     // границы страниц теряются — тогда сохраняем одним листом
     const edited = ocrPages.length > 0 && ocrText !== joinPages(ocrPages);
 
-    const sheets =
-      edited || ocrPages.length < 2
-        ? [{ no: ocrPages[0]?.no ?? 1, text: ocrText }]
+    // Пока текст не правили, несём в Word и разметку страницы: заголовки,
+    // выравнивание, жирный шрифт. После ручной правки разметка уже не
+    // соответствует тексту, поэтому сохраняем просто абзацами
+    const sheets: OcrSheet[] = edited
+      ? [{ no: ocrPages[0]?.no ?? 1, text: ocrText }]
+      : ocrPages.length < 2
+        ? [{ no: ocrPages[0]?.no ?? 1, text: ocrText, parts: ocrPages[0]?.parts }]
         : ocrPages;
 
     const bytes = buildDocx(sheets, !edited && ocrPages.length > 1);
