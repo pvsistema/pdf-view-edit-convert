@@ -13,6 +13,14 @@ import { buildDocx, DOCX_TYPE } from '@/lib/docx';
 import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
 import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
+import {
+  brokenFontsOf,
+  cropBox,
+  findBrokenRuns,
+  repairPieces,
+  type BrokenRun,
+} from '@/lib/brokenText';
+import { matchBrokenGlyphs } from '@/lib/glyphMatch';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import {
   isTrialTool,
@@ -62,10 +70,19 @@ export type OcrSheet = { no: number; text: string; parts?: OcrPart[] };
 // точно, без единой ошибки. Разбирать такую страницу картинкой значит
 // своими руками портить готовое. Возвращаем пусто, если текста мало:
 // у скана иногда есть жалкий слой в пару слов, ему верить нельзя
-const readyText = async (doc: unknown, pageIndex: number) => {
-  const pieces = await pageTextLayout(doc, pageIndex).catch(() => [] as TextPiece[]);
+//
+// Если часть текста записана «битым» шрифтом (формулы, индексы,
+// заголовки без таблицы перевода кодов в буквы), эти места читаются
+// заново с картинки страницы — функцией read. Всё остальное берётся
+// из файла как есть
+const readyText = async (
+  doc: unknown,
+  pageIndex: number,
+  read: (box: BrokenRun['box']) => Promise<string>,
+) => {
+  const raw = await pageTextLayout(doc, pageIndex).catch(() => [] as TextPiece[]);
 
-  const text = pieces
+  const text = raw
     .map((p) => p.str)
     .join('')
     .trim();
@@ -73,6 +90,17 @@ const readyText = async (doc: unknown, pageIndex: number) => {
   // Меньше сотни знаков на лист — это не текстовый документ,
   // а скан с обрывками. Такую страницу разбираем движком
   if (text.length < 100) return null;
+
+  // Буквы битых шрифтов сначала опознаём по рисунку: шрифт сравнивается
+  // с эталонным, и буква находится точно. Что не опознали — читаем
+  // с картинки страницы
+  let pieces = raw;
+  if (findBrokenRuns(raw).length) {
+    const glyphs = await matchBrokenGlyphs(doc, pageIndex, brokenFontsOf(raw)).catch(
+      () => undefined,
+    );
+    pieces = await repairPieces(raw, read, glyphs);
+  }
 
   const parts = layoutFromPieces(pieces);
   if (!parts.length) return null;
@@ -404,7 +432,20 @@ const ToolsPanel = () => {
         // взять напрямую, без разбора картинки. Это и точнее (ни одной
         // ошибки), и быстрее. Разбираем только то, что снято сканером —
         // так же поступают промышленные программы распознавания
-        const ready = await readyText(doc, pg.src);
+        // Битые места читаем с картинки страницы. Рисуем её только если
+        // такие места нашлись, и один раз на всю страницу
+        let picture: HTMLCanvasElement | null = null;
+        const readBox = async (box: BrokenRun['box']) => {
+          if (!picture) picture = await renderPageOnce(doc, pg.src, OCR_DPI / 72, pg.rotation);
+          // Кусок — одна строка текста: так движок не ищет на нём
+          // колонки и абзацы и не теряет мелкие знаки формулы
+          await worker.setParameters({ tessedit_pageseg_mode: '7' as never });
+          const { data } = await worker.recognize(cropBox(picture, box));
+          await worker.setParameters({ tessedit_pageseg_mode: '6' as never });
+          return data.text || '';
+        };
+
+        const ready = await readyText(doc, pg.src, readBox);
         if (ready) {
           sheets.push({ no: i + 1, text: ready.text, parts: ready.parts });
           // По такой странице поиск и так работает — берём её как есть

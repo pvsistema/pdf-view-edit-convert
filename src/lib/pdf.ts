@@ -303,6 +303,9 @@ export type TextPiece = {
   w: number;
   h: number;
   angle: number;
+  // Шрифт, которым набран кусочек. По нему узнаём «битые» шрифты:
+  // те, у которых в файле нет таблицы перевода кодов в буквы
+  font?: string;
 };
 
 // Раскладка текста страницы: по ней строится невидимый слой поверх картинки,
@@ -341,6 +344,7 @@ export const pageTextLayout = async (
       w: w / W,
       h: h / H,
       angle,
+      font: item.fontName,
     });
   }
 
