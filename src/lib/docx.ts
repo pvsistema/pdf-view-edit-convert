@@ -27,8 +27,7 @@ const esc = (t: string) =>
 
 // Абзац текста. Пустая строка тоже становится абзацем —
 // так сохраняются отступы между частями документа
-const para = (line: string) =>
-  `<w:p><w:r><w:t xml:space="preserve">${esc(line)}</w:t></w:r></w:p>`;
+const para = (line: string) => `<w:p><w:r><w:t xml:space="preserve">${esc(line)}</w:t></w:r></w:p>`;
 
 // Абзац распознанного документа — с сохранением облика исходника.
 // Заголовок остаётся заголовком, текст по центру — по центру,
@@ -36,21 +35,44 @@ const para = (line: string) =>
 // а не на сплошную ленту строк
 const richPara = (p: DocxPart) => {
   const look: string[] = [];
+  // Позиции табуляции: так строка бланка «Фамилия …… 00294» ложится
+  // в Word на те же места, что и на бумаге
+  if (p.tabs?.length)
+    look.push(
+      `<w:tabs>${p.tabs.map((t) => `<w:tab w:val="${t.right ? 'right' : 'left'}" w:pos="${t.pos}"/>`).join('')}</w:tabs>`,
+    );
+
+  // Разметка, снятая с листа, несёт точный просвет перед строкой.
+  // У старой разметки его нет — тогда прежние отступы
+  const exact = p.before !== undefined || p.size !== undefined;
+  const before = p.before ?? (p.heading ? 240 : 0);
+  const after = exact ? 0 : 120;
+  look.push(
+    `<w:spacing w:before="${before}" w:after="${after}"${exact ? ' w:line="240" w:lineRule="auto"' : ''}/>`,
+  );
+  if (p.indent) look.push(`<w:ind w:left="${p.indent}"/>`);
   if (p.align !== 'left') look.push(`<w:jc w:val="${p.align}"/>`);
-  // Заголовку даём воздух сверху, чтобы он не липнул к тексту выше
-  look.push(`<w:spacing w:before="${p.heading ? 240 : 0}" w:after="${p.heading ? 120 : 120}"/>`);
 
   const font: string[] = [];
-  if (p.bold || p.heading) font.push('<w:b/>');
+  if (p.bold || (p.heading && !exact)) font.push('<w:b/>');
   if (p.italic) font.push('<w:i/>');
-  // Заголовок крупнее основного текста: 14 пунктов против 12
-  if (p.heading) font.push('<w:sz w:val="28"/>');
+  // Размер шрифта: как на бумаге, если он известен; иначе заголовок —
+  // 14 пунктов против 12
+  const half = p.size ? Math.round(p.size * 2) : p.heading ? 28 : 0;
+  if (half) font.push(`<w:sz w:val="${half}"/><w:szCs w:val="${half}"/>`);
 
   const rPr = font.length ? `<w:rPr>${font.join('')}</w:rPr>` : '';
 
-  return `<w:p><w:pPr>${look.join('')}</w:pPr><w:r>${rPr}<w:t xml:space="preserve">${esc(
-    p.text,
-  )}</w:t></w:r></w:p>`;
+  // Знак табуляции в тексте — настоящая табуляция Word
+  const runs = p.text
+    .split('\t')
+    .map(
+      (piece, i) =>
+        `${i ? `<w:r>${rPr}<w:tab/></w:r>` : ''}<w:r>${rPr}<w:t xml:space="preserve">${esc(piece)}</w:t></w:r>`,
+    )
+    .join('');
+
+  return `<w:p><w:pPr>${look.join('')}</w:pPr>${runs}</w:p>`;
 };
 
 // Подпись с номером листа: помельче и серым, как колонтитул
@@ -68,6 +90,10 @@ export type DocxPart = {
   // Таблица: строки, в каждой — ячейки. Если поле заполнено,
   // кусок ложится в Word настоящей таблицей, а не текстом
   table?: string[][];
+  size?: number;
+  indent?: number;
+  tabs?: { pos: number; right?: boolean }[];
+  before?: number;
 };
 
 // Ширина листа за вычетом полей — в тех единицах, которыми меряет Word.
@@ -104,10 +130,9 @@ const table = (rows: string[][]) => {
 
   // Опись столбцов обязательна: без неё Word считает таблицу
   // повреждённой и отказывается её показывать
-  const grid = `<w:tblGrid>${Array.from(
-    { length: cols },
-    () => `<w:gridCol w:w="${width}"/>`,
-  ).join('')}</w:tblGrid>`;
+  const grid = `<w:tblGrid>${Array.from({ length: cols }, () => `<w:gridCol w:w="${width}"/>`).join(
+    '',
+  )}</w:tblGrid>`;
 
   return `<w:tbl><w:tblPr><w:tblW w:w="${TABLE_WIDTH}" w:type="dxa"/>${borders}</w:tblPr>${grid}${body}</w:tbl><w:p/>`;
 };
@@ -161,5 +186,4 @@ export const buildDocx = (pages: DocxPage[], withMarks: boolean) => {
   ]);
 };
 
-export const DOCX_TYPE =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';

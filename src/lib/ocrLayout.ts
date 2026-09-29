@@ -1,236 +1,349 @@
-// Разбор разметки распознанного листа.
+// Разбор разметки распознанного листа — по образцу FineReader.
 //
-// Движок возвращает не только текст, но и то, как он расположен: где
-// абзац, где строка, каким размером набрано слово, жирное ли оно.
-// Раньше всё это выбрасывалось и в Word уходила сплошная лента строк.
-// Здесь из этих данных восстанавливается облик документа: заголовки
-// остаются заголовками, выравнивание по центру сохраняется,
-// а абзац не рассыпается на отдельные строки.
+// Движок возвращает каждое слово с его местом на листе и уверенностью.
+// Из этого восстанавливается облик документа:
+// - строки бланка остаются отдельными строками, а сплошной текст
+//   собирается в абзацы (строка, доходящая до правого края, продолжается);
+// - у каждой строки свой размер шрифта — мелкие подписи под полями
+//   бланка («наименование организации») остаются мелкими;
+// - сохраняются отступ слева и расстановка по строке: «Шарипов … 00294»
+//   ложится с табуляцией, как на бумаге;
+// - жирное определяется по толщине штриха на самой картинке;
+// - сохраняются просветы между частями документа;
+// - оттиски печатей и подписи, из которых движок вычитывает мусор,
+//   отбрасываются по низкой уверенности распознавания.
 
 import { buildRows, findTables, type Cell, type TableRow } from '@/lib/tables';
 
 // Кусок документа: абзац со своим видом
 export type OcrPart = {
   text: string;
-  // Заголовок набран крупнее основного текста
   heading: boolean;
   bold: boolean;
   italic: boolean;
   align: 'left' | 'center' | 'right';
-  // Заполнено, если кусок оказался таблицей: строки и ячейки.
-  // В Word такой кусок ложится настоящей таблицей с границами
+  // Заполнено, если кусок оказался таблицей
   table?: string[][];
+  // Размер шрифта в пунктах, как на бумаге
+  size?: number;
+  // Отступ слева от края текста, в двадцатых долях пункта (как в Word)
+  indent?: number;
+  // Позиции табуляции для строк вида «Фамилия …… 00294»
+  tabs?: { pos: number; right?: boolean }[];
+  // Просвет перед абзацем, в двадцатых долях пункта
+  before?: number;
 };
 
+type Bbox = { x0: number; y0: number; x1: number; y1: number };
 type Word = {
   text?: string;
-  font_size?: number;
+  confidence?: number;
   is_bold?: boolean;
   is_italic?: boolean;
-  confidence?: number;
   bbox?: Bbox;
 };
-
 type Line = { text?: string; words?: Word[]; bbox?: Bbox };
-type Bbox = { x0: number; y0: number; x1: number; y1: number };
 type Para = { text?: string; lines?: Line[]; bbox?: Bbox };
 type Block = { paragraphs?: Para[]; bbox?: Bbox };
+type PageData = { text?: string; blocks?: Block[] | null };
 
-type PageData = {
-  text?: string;
-  blocks?: Block[] | null;
+// Размер разобранной картинки и её разрешение. Разрешение нужно, чтобы
+// перевести точки картинки в пункты: так размеры шрифта и отступы
+// в Word совпадают с бумажными
+export type PageSize = {
+  width: number;
+  height: number;
+  dpi?: number;
+  image?: ImageData;
 };
 
-// Размер разобранного листа в точках. Нужен, чтобы перевести место
-// каждого слова в доли страницы. Раньше размер брался по краю текста —
-// но текст не доходит до краёв, и доли получались завышены в разы:
-// строки «росли», а разрывы между столбцами переставали распознаваться
-export type PageSize = { width: number; height: number };
+// Слово с местом на листе (в долях страницы) и приметами
+type W = Cell & { conf: number; stroke: number; px: Bbox };
 
-// Самый обычный размер шрифта на листе. Считаем по числу слов каждого
-// размера, а не средним: среднее задирают редкие крупные заголовки
-const bodySize = (paras: Para[]) => {
-  const count = new Map<number, number>();
+// Ширина текста в Word (лист А4 за вычетом полей), в двадцатых долях пункта
+const TEXT_WIDTH = 9355;
 
-  for (const p of paras)
-    for (const l of p.lines || [])
-      for (const w of l.words || []) {
-        const s = Math.round(w.font_size || 0);
-        if (s > 0) count.set(s, (count.get(s) || 0) + 1);
-      }
-
-  let best = 0;
-  let most = 0;
-  for (const [size, n] of count)
-    if (n > most) {
-      most = n;
-      best = size;
-    }
-  return best;
-};
-
-// Какая часть слов абзаца набрана с этим признаком — жирным или наклонным
-const shareOf = (p: Para, pick: (w: Word) => boolean) => {
-  let all = 0;
-  let hit = 0;
-  for (const l of p.lines || [])
-    for (const w of l.words || []) {
-      if (!(w.text || '').trim()) continue;
-      all++;
-      if (pick(w)) hit++;
-    }
-  return all ? hit / all : 0;
-};
-
-// Средний размер шрифта абзаца
-const sizeOf = (p: Para) => {
-  let sum = 0;
-  let n = 0;
-  for (const l of p.lines || [])
-    for (const w of l.words || []) {
-      const s = w.font_size || 0;
-      if (s > 0) {
-        sum += s;
-        n++;
+// Толщина штриха в слове: самые частые длины тёмных отрезков по строкам.
+// У жирного шрифта штрих толще при той же высоте букв
+const strokeOf = (img: ImageData | undefined, b: Bbox) => {
+  if (!img) return 0;
+  const { width, height, data } = img;
+  const x0 = Math.max(0, b.x0);
+  const x1 = Math.min(width - 1, b.x1);
+  const y0 = Math.max(0, b.y0);
+  const y1 = Math.min(height - 1, b.y1);
+  const runs: number[] = [];
+  for (let y = y0; y <= y1; y += 2) {
+    let run = 0;
+    for (let x = x0; x <= x1; x++) {
+      const dark = data[(y * width + x) * 4] < 128;
+      if (dark) run++;
+      else if (run) {
+        runs.push(run);
+        run = 0;
       }
     }
-  return n ? sum / n : 0;
-};
-
-// Как абзац стоит на листе. Смотрим на поля слева и справа: у текста по
-// центру они примерно равны и оба заметные, у прижатого вправо — левое
-// поле большое. Так восстанавливаются шапки документов и подписи
-const alignOf = (p: Para, left: number, right: number): OcrPart['align'] => {
-  const b = p.bbox;
-  if (!b || right <= left) return 'left';
-
-  const width = right - left;
-  const padLeft = (b.x0 - left) / width;
-  const padRight = (right - b.x1) / width;
-
-  // Узкий абзац с равными полями — по центру
-  if (padLeft > 0.12 && padRight > 0.12 && Math.abs(padLeft - padRight) < 0.12) return 'center';
-  // Прижат вправо
-  if (padLeft > 0.3 && padRight < 0.08) return 'right';
-  return 'left';
-};
-
-// Склейка строк абзаца в единый текст. Слово, разорванное переносом,
-// собирается обратно — иначе в Word остаются «раз-» и «рыв»
-const joinLines = (p: Para) => {
-  const lines = (p.lines || []).map((l) => (l.text || '').replace(/\s+$/g, '')).filter(Boolean);
-  if (!lines.length) return (p.text || '').trim();
-
-  let out = '';
-  for (const line of lines) {
-    if (!out) {
-      out = line;
-      continue;
-    }
-    // Перенос: строка кончается дефисом, а следующая начинается с буквы
-    if (/[-\u2010\u2011]$/.test(out) && /^[a-zа-яё]/i.test(line)) {
-      out = out.replace(/[-\u2010\u2011]$/, '') + line;
-    } else {
-      out += ' ' + line;
-    }
+    if (run) runs.push(run);
   }
-  return out.trim();
+  if (!runs.length) return 0;
+  runs.sort((a, b) => a - b);
+  return runs[Math.floor(runs.length / 2)];
 };
 
-// Слова с их местом на листе — в долях от размера страницы.
-// В таком виде поиск таблиц одинаково работает и со сканом, и с обычным
-// документом, где числа изначально в долях
-const wordCells = (paras: Para[], width: number, height: number): Cell[] => {
-  const out: Cell[] = [];
+// Мусор от печати, подписи или линий бланка: движок сам сообщает, что
+// почти не уверен в слове
+const junkWord = (w: W, rowConf: number) => {
+  const letters = w.str.replace(/[^0-9a-zа-яё]/gi, '').length;
+  if (!letters) return w.conf < 60;
+  if (rowConf < 60) return w.conf < 60;
+  if (w.conf < 40) return true;
+  return w.conf < 60 && letters <= 2;
+};
 
-  for (const p of paras)
-    for (const l of p.lines || [])
-      for (const w of l.words || []) {
-        const b = w.bbox;
-        const str = (w.text || '').trim();
-        if (!b || !str) continue;
+// Края рамок бланка движок принимает за скобки и черты: «[24», «00294|».
+// Непарную скобку или черту на краю слова убираем
+const trimFrame = (t: string) => {
+  let s = t;
+  const pairs: Record<string, string> = { '[': ']', '(': ')', '{': '}' };
+  for (;;) {
+    const f = s[0];
+    if (f === '|' || ((f === '[' || f === '{') && !s.includes(pairs[f]))) s = s.slice(1);
+    else break;
+  }
+  for (;;) {
+    const l = s[s.length - 1];
+    if (l === '|' || ((l === ']' || l === '}') && !s.includes(l === ']' ? '[' : '{')))
+      s = s.slice(0, -1);
+    else break;
+  }
+  return s.trim();
+};
 
-        out.push({
-          str,
-          x: b.x0 / width,
-          y: b.y0 / height,
-          w: (b.x1 - b.x0) / width,
-          h: (b.y1 - b.y0) / height,
-        });
-      }
-
+const wordsOf = (blocks: Block[], width: number, height: number, img?: ImageData): W[] => {
+  const out: W[] = [];
+  for (const b of blocks)
+    for (const p of b.paragraphs || [])
+      for (const l of p.lines || [])
+        for (const w of l.words || []) {
+          const bb = w.bbox;
+          const str = trimFrame((w.text || '').trim());
+          if (!bb || !str) continue;
+          out.push({
+            str,
+            x: bb.x0 / width,
+            y: bb.y0 / height,
+            w: (bb.x1 - bb.x0) / width,
+            h: (bb.y1 - bb.y0) / height,
+            conf: w.confidence ?? 100,
+            stroke: strokeOf(img, bb),
+            px: bb,
+          });
+        }
   return out;
 };
 
-// Сборка документа по строкам листа.
-//
-// Нужна там, где на листе нашлись таблицы: движок часто отдаёт весь лист
-// одним абзацем, и разделить таблицу с текстом по абзацам не выходит.
-// Строки же всегда на месте, и по ним документ собирается верно.
-const byRows = (
-  rows: TableRow[],
-  tables: ReturnType<typeof findTables>,
-  left: number,
-  right: number,
-  width: number,
-): OcrPart[] => {
-  // Какие строки заняты таблицами
+const median = (a: number[]) => {
+  if (!a.length) return 0;
+  const s = [...a].sort((x, y) => x - y);
+  return s[Math.floor(s.length / 2)];
+};
+
+// Строка листа, готовая к сборке: ячейки разнесены по местам
+type Row = {
+  y: number;
+  h: number;
+  x0: number;
+  x1: number;
+  cells: { text: string; x: number }[];
+  words: W[];
+};
+
+// Ячейки строки: слова рядом — одна ячейка, широкий просвет — следующая.
+// Так «Шарипов Эдуард Амурович» и «00294» остаются на своих местах
+const cellsOf = (r: TableRow) => {
+  const out: { text: string; x: number }[] = [];
+  let text = '';
+  let x = 0;
+  let prevEnd: number | null = null;
+  for (const c of r.cells) {
+    const gap = prevEnd === null ? 0 : c.x - prevEnd;
+    if (prevEnd !== null && gap > r.h * 2) {
+      out.push({ text: text.trim(), x });
+      text = '';
+    }
+    if (!text) x = c.x;
+    else text += ' ';
+    text += c.str;
+    prevEnd = c.x + c.w;
+  }
+  if (text.trim()) out.push({ text: text.trim(), x });
+  return out;
+};
+
+export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
+  const blocks = data.blocks;
+  const width = size?.width || 0;
+  const height = size?.height || 0;
+
+  if (!blocks || !blocks.length || !width || !height) {
+    return (data.text || '')
+      .split(/\n\s*\n/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((text) => ({
+        text,
+        heading: false,
+        bold: false,
+        italic: false,
+        align: 'left' as const,
+      }));
+  }
+
+  const dpi = size?.dpi || 300;
+  // Пунктов в одной доле ширины и высоты листа
+  const ptW = (width * 72) / dpi;
+  const ptH = (height * 72) / dpi;
+
+  // Строки листа и уборка мусора
+  const all = wordsOf(blocks, width, height, size?.image);
+  type WRow = { y: number; h: number; cells: W[] };
+  const rawRows = buildRows(all) as unknown as WRow[];
+  const cleanRows: WRow[] = [];
+  for (const r of rawRows) {
+    const rowConf = median(r.cells.map((c) => c.conf));
+    const kept = r.cells.filter((c) => !junkWord(c, rowConf));
+    // Строка из одних обрывков (оттиск печати) — целиком мусор
+    const letters = kept
+      .map((c) => c.str)
+      .join('')
+      .replace(/[^0-9a-zа-яё]/gi, '').length;
+    // Строка с низкой уверенностью и парой букв — обрывки герба или печати
+    const keptConf = median(kept.map((c) => c.conf));
+    if (!kept.length || letters < 2 || (keptConf < 70 && letters < 5)) continue;
+    cleanRows.push({
+      y: Math.min(...kept.map((c) => c.y)),
+      h: Math.max(...kept.map((c) => c.h)),
+      cells: kept,
+    });
+  }
+  if (!cleanRows.length) return [];
+
+  // Высоту строки считаем по середине слов: одна высокая скобка
+  // не должна делать строку крупнее
+  const rows: Row[] = cleanRows.map((r) => ({
+    y: r.y,
+    h: median(r.cells.map((c) => c.h)),
+    x0: Math.min(...r.cells.map((c) => c.x)),
+    x1: Math.max(...r.cells.map((c) => c.x + c.w)),
+    cells: cellsOf(r),
+    words: r.cells,
+  }));
+
+  // Края текста на листе
+  const left = Math.min(...rows.map((r) => r.x0));
+  const right = Math.max(...rows.map((r) => r.x1));
+  const span = right - left || 1;
+
+  // Если текст на бумаге шире, чем поле листа Word, всё сжимаем в меру
+  const spanPt = span * ptW;
+  const fit = Math.min(1, TEXT_WIDTH / 20 / spanPt);
+  const toTw = (frac: number) => Math.round(frac * ptW * 20 * fit);
+
+  // Размер шрифта по высоте букв. Высота рамки слова зависит от букв:
+  // у «унитарное» только строчные (≈0.46 кегля), у «Федеральное» есть
+  // заглавная и хвостик «д» (≈0.9). Учитываем это для каждого слова
+  const emOf = (w: W) => {
+    const t = w.str;
+    const up = /[A-ZА-ЯЁ0-9бdfhiklt()«»"'[\]{}/|!?№%йё]/.test(t);
+    const down = /[руфдзцщgjpqy(),;[\]{}/|]/.test(t);
+    const factor = (up ? 0.69 : 0.47) + (down ? 0.22 : 0);
+    return (w.h * ptH) / factor;
+  };
+  // Кегли на бумаге — из привычного ряда: 8, 9, 10, 11, 12, 14…
+  const SIZES = [7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24];
+  const snap = (pt: number) =>
+    SIZES.reduce((a, b) => (Math.abs(b - pt) < Math.abs(a - pt) ? b : a));
+  // Слова из одних строчных букв без хвостиков («составления») дают
+  // самую неточную оценку — если в строке есть другие слова, их не берём
+  const sizeOfRow = (r: Row) => {
+    // Слово, вписанное в рамку, движок меряет вместе с рамкой — его высота
+    // завышена. Берём слова обычной для строки высоты
+    const hs = median(r.words.map((w) => w.h));
+    const normal = r.words.filter((w) => w.h <= hs * 1.35);
+    const rich = normal.filter((w) => /[A-ZА-ЯЁ0-9бдруфзцщ()«»"]/.test(w.str));
+    const pick = rich.length ? rich : normal.length ? normal : r.words;
+    return snap(Math.min(...[median(pick.map(emOf)), 36]) * fit);
+  };
+
+  const bodyRaw = median(rows.map(sizeOfRow));
+  const bodyPt = bodyRaw;
+
+  // Толщина штриха относительно кегля. У обычного Times она около
+  // 0.08 кегля, у жирного — 0.13 и больше. Мерка не зависит от того,
+  // сколько на листе жирного: в бланках его бывает больше половины
+  const strokeShare = (w: W) => {
+    const em = (emOf(w) / ptH) * height;
+    return em > 0 && w.stroke > 0 ? w.stroke / em : 0;
+  };
+
+  const alignOfRow = (r: Row): OcrPart['align'] => {
+    const pl = (r.x0 - left) / span;
+    const pr = (right - r.x1) / span;
+    if (r.cells.length > 1) return 'left';
+    if (pl > 0.08 && pr > 0.08 && Math.abs(pl - pr) < 0.08) return 'center';
+    if (pl > 0.35 && pr < 0.05) return 'right';
+    return 'left';
+  };
+
+  const boldRow = (r: Row) => {
+    const shares = r.words
+      .filter((w) => w.str.length >= 3)
+      .map(strokeShare)
+      .filter((v) => v > 0);
+    return shares.length > 0 && median(shares) > 0.108;
+  };
+
+  // Таблицы — по тем же строкам
+  const tableRows: TableRow[] = cleanRows;
+  // На бланке рядом стоящие рамки («Дата» слева, «Номер» справа) похожи
+  // на таблицу, но ею не являются. Настоящая таблица в скане — ровная
+  // сетка: от трёх строк и одинаковое число ячеек в каждой
+  const tables = findTables(tableRows).filter(
+    (t) => t.rows.length >= 3 && t.rows.every((row) => row.length === t.rows[0].length),
+  );
   const owner = new Map<number, (typeof tables)[number]>();
   for (const t of tables) for (let k = t.from; k <= t.to; k++) owner.set(k, t);
 
-  // Обычный размер букв на листе — по нему узнаём заголовки
-  const heights = rows.map((r) => r.h).sort((a, b) => a - b);
-  const body = heights[Math.floor(heights.length / 2)] || 0;
-
-  // Границы текста в долях листа: по ним определяется выравнивание
-  const l = left / width;
-  const r = right / width;
-
   const parts: OcrPart[] = [];
-  let group: TableRow[] = [];
+  let cur: { rows: Row[]; part: OcrPart } | null = null;
+  let lastBottom: number | null = null;
 
   const flush = () => {
-    if (!group.length) return;
-
-    const text = group
-      .map((row) => row.cells.map((c) => c.str).join(' '))
+    if (!cur) return;
+    const text = cur.rows
+      .map((r) => r.cells.map((c) => c.text).join('\t'))
       .reduce((acc, line) => {
         if (!acc) return line;
-        if (/[-\u2010\u2011]$/.test(acc) && /^[a-zа-яё]/i.test(line))
+        if (/[-\u2010\u2011]$/.test(acc) && /^[a-zа-яё]/.test(line))
           return acc.replace(/[-\u2010\u2011]$/, '') + line;
         return acc + ' ' + line;
       }, '');
+    cur.part.text = text.trim();
+    if (cur.part.text) parts.push(cur.part);
+    cur = null;
+  };
 
-    if (text.trim()) {
-      const first = group[0];
-      const x0 = Math.min(...group.map((g) => Math.min(...g.cells.map((c) => c.x))));
-      const x1 = Math.max(...group.map((g) => Math.max(...g.cells.map((c) => c.x + c.w))));
-
-      const width2 = r - l;
-      const padLeft = width2 > 0 ? (x0 - l) / width2 : 0;
-      const padRight = width2 > 0 ? (r - x1) / width2 : 0;
-
-      const align: OcrPart['align'] =
-        padLeft > 0.12 && padRight > 0.12 && Math.abs(padLeft - padRight) < 0.12
-          ? 'center'
-          : padLeft > 0.3 && padRight < 0.08
-            ? 'right'
-            : 'left';
-
-      parts.push({
-        text: text.trim(),
-        heading: body > 0 && first.h >= body * 1.15 && text.length <= 120,
-        bold: false,
-        italic: false,
-        align,
-      });
-    }
-    group = [];
+  // Просвет перед строкой — в двадцатых долях пункта. Обычный межстрочный
+  // интервал вычитаем, чтобы не раздувать документ
+  const gapBefore = (r: Row, pt: number) => {
+    if (lastBottom === null) return 0;
+    const gapPt = (r.y - lastBottom) * ptH;
+    return Math.max(0, Math.min(1440, Math.round((gapPt - pt * 0.35) * 20)));
   };
 
   for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     const t = owner.get(i);
-
     if (t) {
       if (t.from === i) {
         flush();
@@ -241,92 +354,76 @@ const byRows = (
           italic: false,
           align: 'left',
           table: t.rows,
+          before: gapBefore(r, bodyPt),
         });
       }
+      lastBottom = r.y + r.h;
       continue;
     }
 
-    // Просвет между строками больше полутора высот — новый абзац
-    const prev = rows[i - 1];
-    if (prev && group.length) {
-      const gap = rows[i].y - (prev.y + prev.h);
-      if (gap > Math.max(rows[i].h, prev.h) * 1.5) flush();
-    }
+    // Кегль, близкий к основному, — это и есть основной: оценка по высоте
+    // букв на скане гуляет на пункт-другой, а на бумаге шрифт один
+    const est = sizeOfRow(r);
+    const pt = Math.abs(est - bodyPt) <= bodyPt * 0.15 ? bodyPt : est;
+    const align = alignOfRow(r);
+    const bold = boldRow(r);
 
-    group.push(rows[i]);
+    // Продолжение абзаца: обычный текст, прошлая строка дошла до правого
+    // края, просвет маленький, тот же размер и вид. Иначе — новая строка,
+    // как в бланке
+    const prev = cur?.rows[cur.rows.length - 1];
+    const joins =
+      cur &&
+      prev &&
+      align === 'left' &&
+      cur.part.align === 'left' &&
+      r.cells.length === 1 &&
+      prev.cells.length === 1 &&
+      prev.x1 > right - span * 0.06 &&
+      r.y - (prev.y + prev.h) < Math.max(r.h, prev.h) * 0.9 &&
+      Math.abs(pt - (cur.part.size || pt)) <= 1 &&
+      bold === cur.part.bold;
+
+    if (joins) {
+      cur!.rows.push(r);
+    } else {
+      flush();
+      const heading = pt >= bodyPt * 1.25 && r.cells.length === 1;
+      const indent = align === 'left' ? toTw(r.x0 - left) : 0;
+      // Позиции табуляции считаются от левого поля листа (так их меряет
+      // Word). Ячейка, прижатая к правому краю, ставится правой
+      // табуляцией: тогда длинное «222-км» не переносится на новую строку
+      const tabs =
+        r.cells.length > 1
+          ? r.cells.slice(1).map((c, k) => {
+              const cellEnd = k === r.cells.length - 2 ? r.x1 : r.cells[k + 2].x - span * 0.01;
+              const atRight = right - r.x1 < span * 0.04 && k === r.cells.length - 2;
+              return atRight
+                ? {
+                    pos: Math.min(TEXT_WIDTH, toTw(cellEnd - left)),
+                    right: true,
+                  }
+                : { pos: Math.min(TEXT_WIDTH - 200, toTw(c.x - left)) };
+            })
+          : undefined;
+      cur = {
+        rows: [r],
+        part: {
+          text: '',
+          heading,
+          bold,
+          italic: false,
+          align,
+          size: pt,
+          indent: indent > 60 ? indent : undefined,
+          tabs,
+          before: gapBefore(r, pt),
+        },
+      };
+    }
+    lastBottom = r.y + r.h;
   }
   flush();
-
-  return parts;
-};
-
-// Разбор листа на части с сохранением облика.
-// size — настоящий размер разобранной картинки в точках
-export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
-  const blocks = data.blocks;
-  if (!blocks || !blocks.length) {
-    // Разметки нет — отдаём текст как есть, по абзацам
-    return (data.text || '')
-      .split(/\n\s*\n/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((text) => ({ text, heading: false, bold: false, italic: false, align: 'left' as const }));
-  }
-
-  const paras: Para[] = [];
-  for (const b of blocks) for (const p of b.paragraphs || []) paras.push(p);
-  if (!paras.length) return [];
-
-  // Ищем таблицы по расположению слов на листе. Движок отдаёт место
-  // каждого слова в точках картинки — приводим к долям листа, чтобы
-  // разбор не зависел от разрешения
-  const width = size?.width || 0;
-  const height = size?.height || 0;
-
-  const rows = width && height ? buildRows(wordCells(paras, width, height)) : [];
-  const tables = rows.length ? findTables(rows) : [];
-
-  const body = bodySize(paras);
-
-  // Границы текста на листе — по самим абзацам, а не по краю картинки:
-  // поля у скана бывают разные, и от края считать нельзя
-  let left = Infinity;
-  let right = -Infinity;
-  for (const p of paras) {
-    if (!p.bbox) continue;
-    left = Math.min(left, p.bbox.x0);
-    right = Math.max(right, p.bbox.x1);
-  }
-
-  const parts: OcrPart[] = [];
-
-  // Если на листе есть таблицы, собираем документ по строкам, а не по
-  // абзацам: движок нередко сваливает весь лист в один абзац, и тогда
-  // таблицу внутри него не отделить
-  if (tables.length) return byRows(rows, tables, left, right, width);
-
-  for (const p of paras) {
-    const text = joinLines(p);
-    if (!text) continue;
-
-    const size = sizeOf(p);
-    const bold = shareOf(p, (w) => !!w.is_bold) > 0.6;
-    const italic = shareOf(p, (w) => !!w.is_italic) > 0.6;
-
-    // Заголовок: набран заметно крупнее основного текста и короткий.
-    // Длинный кусок крупным шрифтом — это просто крупный текст
-    const bigger = body > 0 && size >= body * 1.15;
-    const short = text.length <= 120;
-    const heading = bigger && short;
-
-    parts.push({
-      text,
-      heading,
-      bold,
-      italic,
-      align: alignOf(p, left, right),
-    });
-  }
 
   return parts;
 };

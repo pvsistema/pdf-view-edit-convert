@@ -13,6 +13,7 @@ import { buildDocx, DOCX_TYPE } from '@/lib/docx';
 import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
 import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
+import { readFrames, rereadWeak } from '@/lib/ocrReread';
 import {
   brokenFontsOf,
   cropBox,
@@ -479,14 +480,32 @@ const ToolsPanel = () => {
 
         searchable.push(data.pdf ? new Uint8Array(data.pdf) : null);
 
+        // Второй проход, как в FineReader: слова в рамках бланка, прочитанные
+        // с сомнением, вырезаются отдельно, линии рамки стираются, и слово
+        // читается заново
+        await rereadWeak(data.blocks, sheet, worker as never).catch(() => undefined);
+        // Досмотр рамок бланка: номер документа, код, числа в клетках
+        await readFrames(data.blocks, sheet, worker as never).catch(() => undefined);
+
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
+        const layout = readLayout(data, {
+          width: sheet.width,
+          height: sheet.height,
+          dpi: OCR_DPI,
+          image: sheet
+            .getContext('2d', { willReadFrequently: true })
+            ?.getImageData(0, 0, sheet.width, sheet.height),
+        });
+
         sheets.push({
           no: i + 1,
-          text: (data.text || '').trim(),
-          // Передаём настоящий размер листа: по нему места слов переводятся
-          // в доли страницы, и разбивка на столбцы считается верно
-          parts: readLayout(data, { width: sheet.width, height: sheet.height }),
+          // Текст для окна правки — тот же, что уйдёт в Word: без мусора
+          // от печатей и подписей
+          text: layout.length
+            ? layout.map((p) => p.text.replace(/\t/g, '    ')).join('\n')
+            : (data.text || '').trim(),
+          parts: layout,
         });
 
         // Ход считаем по выбранным листам, а не по всему документу
@@ -702,7 +721,7 @@ const ToolsPanel = () => {
               <span className="min-w-0">
                 <span className="block text-[0.82rem] font-bold">Улучшать скан</span>
                 <span className="mt-0.5 block text-[0.76rem] leading-snug text-muted-foreground">
-                  Выравнивает контраст и убирает пятна
+                  Выравнивает фон и контраст, сохраняя форму букв
                 </span>
               </span>
             </label>

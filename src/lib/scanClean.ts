@@ -1,143 +1,69 @@
 // Подготовка скана к распознаванию.
 //
-// Бледные копии, серый фон от лампы сканера, крапины от пыли — всё это
-// сбивает разбор текста. Здесь лист приводится к виду, удобному движку:
-// убирается цвет, выравнивается освещённость, гасится мелкий мусор,
-// а текст отделяется от фона по месту, а не по всему листу сразу.
-// Так же поступают промышленные программы распознавания.
+// Раньше лист переводился в чисто чёрно-белый вид. На бледных бланках
+// с тонким шрифтом это губило текст: буквы рассыпались на обрывки
+// штрихов, и движок выдавал бессмыслицу вместо слов. Промышленные
+// программы (FineReader) поступают бережнее — так делаем и мы:
+// лист остаётся в оттенках серого, выравнивается только фон.
+//
+// 1. Находим фон листа: уменьшенную копию «раздуваем» по светлому, чтобы
+//    буквы исчезли, и размываем. Остаётся картина освещения — тень
+//    у переплёта, серая лампа сканера, желтизна бумаги.
+// 2. Делим лист на этот фон: бумага везде становится белой, а буквы
+//    сохраняют свою форму и толщину.
+// 3. Растягиваем яркость: бледная копия читается как свежая.
 
-// Яркость точки. Глаз сильнее всего чувствует зелёный, поэтому веса разные
 const grayOf = (r: number, g: number, b: number) => (r * 299 + g * 587 + b * 114) / 1000;
 
-// Суммы по прямоугольнику: позволяют мгновенно узнать среднее и разброс
-// яркости в любом окне, не пересчитывая точки заново. Без этого обработка
-// большого листа заняла бы десятки секунд
-const buildSums = (gray: Float64Array, w: number, h: number) => {
-  const sum = new Float64Array((w + 1) * (h + 1));
-  const sq = new Float64Array((w + 1) * (h + 1));
-
-  for (let y = 0; y < h; y++) {
-    let rowSum = 0;
-    let rowSq = 0;
+// Самое светлое значение в окне — по строкам, потом по столбцам.
+// Так буквы (тёмные) пропадают, и остаётся только бумага
+const maxFilter = (src: Float32Array, w: number, h: number, r: number) => {
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const v = gray[y * w + x];
-      rowSum += v;
-      rowSq += v * v;
-      const i = (y + 1) * (w + 1) + (x + 1);
-      sum[i] = sum[i - (w + 1)] + rowSum;
-      sq[i] = sq[i - (w + 1)] + rowSq;
+      let m = 0;
+      for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r); k++)
+        m = Math.max(m, src[y * w + k]);
+      tmp[y * w + x] = m;
     }
-  }
-  return { sum, sq };
-};
-
-const areaOf = (t: Float64Array, w: number, x0: number, y0: number, x1: number, y1: number) => {
-  const W = w + 1;
-  return t[y1 * W + x1] - t[y0 * W + x1] - t[y1 * W + x0] + t[y0 * W + x0];
-};
-
-// Порог яркости, ниже которого точка считается краской.
-// Считается для каждой точки по её окрестности, поэтому тень в углу
-// страницы или затемнение у переплёта не съедают текст
-const sauvola = (
-  gray: Float64Array,
-  w: number,
-  h: number,
-  radius: number,
-  k: number,
-  out: Uint8ClampedArray,
-) => {
-  const { sum, sq } = buildSums(gray, w, h);
-  const R = 128; // половина шкалы яркости
-
-  for (let y = 0; y < h; y++) {
-    const y0 = Math.max(0, y - radius);
-    const y1 = Math.min(h, y + radius + 1);
-
+  for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const x0 = Math.max(0, x - radius);
-      const x1 = Math.min(w, x + radius + 1);
-      const n = (x1 - x0) * (y1 - y0);
-
-      const s = areaOf(sum, w, x0, y0, x1, y1);
-      const s2 = areaOf(sq, w, x0, y0, x1, y1);
-      const mean = s / n;
-      const variance = Math.max(0, s2 / n - mean * mean);
-      const dev = Math.sqrt(variance);
-
-      const threshold = mean * (1 + k * (dev / R - 1));
-      out[y * w + x] = gray[y * w + x] > threshold ? 255 : 0;
+      let m = 0;
+      for (let k = Math.max(0, y - r); k <= Math.min(h - 1, y + r); k++)
+        m = Math.max(m, tmp[k * w + x]);
+      out[y * w + x] = m;
     }
-  }
-};
-
-// Уборка крапин. Пыль и точки от грязного стекла сканера образуют
-// крошечные пятнышки, буквы — пятна заметно крупнее. Поэтому считаем
-// размер каждого связного пятна и убираем те, что мельче порога.
-// Проверка соседей тут не годится: пятнышко даже в две точки её проходит
-const despeckle = (bin: Uint8ClampedArray, w: number, h: number, minArea: number) => {
-  const out = new Uint8ClampedArray(bin);
-  const seen = new Uint8Array(w * h);
-  const stack = new Int32Array(w * h);
-  const blob = new Int32Array(1024);
-
-  for (let start = 0; start < w * h; start++) {
-    if (bin[start] !== 0 || seen[start]) continue;
-
-    let top = 0;
-    let size = 0;
-    stack[top++] = start;
-    seen[start] = 1;
-    let tooBig = false;
-
-    while (top > 0) {
-      const i = stack[--top];
-      if (size < blob.length) blob[size] = i;
-      size++;
-
-      // Крупное пятно — это буква, дальше считать незачем
-      if (size > minArea) {
-        tooBig = true;
-        break;
-      }
-
-      const x = i % w;
-      const y = (i / w) | 0;
-
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (dx === 0 && dy === 0) continue;
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-          const j = ny * w + nx;
-          if (bin[j] === 0 && !seen[j]) {
-            seen[j] = 1;
-            stack[top++] = j;
-          }
-        }
-      }
-    }
-
-    // Мелкое пятно возвращаем фону
-    if (!tooBig && size <= minArea) {
-      for (let k = 0; k < size && k < blob.length; k++) out[blob[k]] = 255;
-    }
-  }
-
   return out;
 };
 
-// Доля краски на листе. Нужна, чтобы отличить документ от фотографии:
-// на фотографии «краской» оказывается половина листа, и чистить её нельзя
-const inkShare = (bin: Uint8ClampedArray) => {
-  let dark = 0;
-  for (let i = 0; i < bin.length; i++) if (bin[i] === 0) dark++;
-  return dark / bin.length;
+// Сглаживание картины освещения, чтобы на ней не было ступенек
+const boxBlur = (src: Float32Array, w: number, h: number, r: number) => {
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      let n = 0;
+      for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r); k++) {
+        s += src[y * w + k];
+        n++;
+      }
+      tmp[y * w + x] = s / n;
+    }
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      let n = 0;
+      for (let k = Math.max(0, y - r); k <= Math.min(h - 1, y + r); k++) {
+        s += tmp[k * w + x];
+        n++;
+      }
+      out[y * w + x] = s / n;
+    }
+  return out;
 };
 
-// Главная обработка. Возвращает подготовленный лист либо исходный,
-// если снимок не похож на документ и чистка сделала бы хуже
 export const cleanScan = (src: HTMLCanvasElement): HTMLCanvasElement => {
   const w = src.width;
   const h = src.height;
@@ -146,24 +72,64 @@ export const cleanScan = (src: HTMLCanvasElement): HTMLCanvasElement => {
   const ctx = src.getContext('2d', { willReadFrequently: true });
   if (!ctx) return src;
 
+  // Картина освещения считается на уменьшенной копии: фон меняется
+  // плавно, и полный размер для него не нужен — так в десятки раз быстрее
+  const STEP = 8;
+  const sw = Math.max(1, Math.round(w / STEP));
+  const sh = Math.max(1, Math.round(h / STEP));
+  const small = document.createElement('canvas');
+  small.width = sw;
+  small.height = sh;
+  const sctx = small.getContext('2d', { willReadFrequently: true });
+  if (!sctx) return src;
+  sctx.imageSmoothingEnabled = true;
+  sctx.drawImage(src, 0, 0, sw, sh);
+
+  const sp = sctx.getImageData(0, 0, sw, sh).data;
+  const sg = new Float32Array(sw * sh);
+  for (let i = 0; i < sw * sh; i++) sg[i] = grayOf(sp[i * 4], sp[i * 4 + 1], sp[i * 4 + 2]);
+
+  const bgSmall = boxBlur(maxFilter(sg, sw, sh, 3), sw, sh, 4);
+
+  // Возвращаем картину освещения к полному размеру — браузер делает
+  // это плавно, без ступенек
+  const bgImg = sctx.createImageData(sw, sh);
+  for (let i = 0; i < sw * sh; i++) {
+    const v = bgSmall[i];
+    bgImg.data[i * 4] = v;
+    bgImg.data[i * 4 + 1] = v;
+    bgImg.data[i * 4 + 2] = v;
+    bgImg.data[i * 4 + 3] = 255;
+  }
+  sctx.putImageData(bgImg, 0, 0);
+
+  const bgFull = document.createElement('canvas');
+  bgFull.width = w;
+  bgFull.height = h;
+  const bctx = bgFull.getContext('2d', { willReadFrequently: true });
+  if (!bctx) return src;
+  bctx.imageSmoothingEnabled = true;
+  bctx.drawImage(small, 0, 0, w, h);
+  const bp = bctx.getImageData(0, 0, w, h).data;
+
   const img = ctx.getImageData(0, 0, w, h);
   const px = img.data;
   const n = w * h;
 
-  const gray = new Float64Array(n);
+  // Лист, делённый на фон: бумага белая, буквы — своей формы
+  const norm = new Float32Array(n);
+  const hist = new Uint32Array(256);
   for (let i = 0; i < n; i++) {
     const p = i * 4;
-    gray[i] = grayOf(px[p], px[p + 1], px[p + 2]);
+    const g = grayOf(px[p], px[p + 1], px[p + 2]);
+    const v = Math.min(255, (g / Math.max(bp[p], 1)) * 255);
+    norm[i] = v;
+    hist[v | 0]++;
   }
 
-  // Растяжка яркости: самые светлые места делаем белыми, самые тёмные —
-  // чёрными. Бледная копия после этого читается как свежая
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < n; i++) hist[gray[i] | 0]++;
-
+  // Растяжка яркости: самые тёмные полпроцента точек — чёрные
   const cut = Math.max(1, Math.round(n * 0.005));
   let lo = 0;
-  let hi = 255;
   for (let acc = 0, v = 0; v < 256; v++) {
     acc += hist[v];
     if (acc > cut) {
@@ -171,45 +137,18 @@ export const cleanScan = (src: HTMLCanvasElement): HTMLCanvasElement => {
       break;
     }
   }
-  for (let acc = 0, v = 255; v >= 0; v--) {
-    acc += hist[v];
-    if (acc > cut) {
-      hi = v;
-      break;
-    }
-  }
-
-  if (hi - lo > 10) {
-    const scale = 255 / (hi - lo);
-    for (let i = 0; i < n; i++) gray[i] = Math.min(255, Math.max(0, (gray[i] - lo) * scale));
-  }
-
-  // Окно подбираем от размера листа: примерно с высоту строки текста
-  const radius = Math.max(8, Math.round(Math.min(w, h) / 90));
-
-  const bin = new Uint8ClampedArray(n);
-  sauvola(gray, w, h, radius, 0.25, bin);
-
-  // Снимок с большой долей тёмного — это фотография или чертёж с заливкой.
-  // Чистка такого листа только навредит, поэтому отдаём как есть
-  const share = inkShare(bin);
-  if (share > 0.45 || share < 0.0003) return src;
-
-  // Порог мусора зависит от размера листа: на плотной отрисовке точка
-  // пыли крупнее в пикселях, но относительно листа такая же мелкая
-  const minArea = Math.max(4, Math.round((w * h) / 120000));
-  const clean = despeckle(bin, w, h, minArea);
+  const hi = 250;
+  const scale = hi - lo > 10 ? 255 / (hi - lo) : 1;
 
   const out = document.createElement('canvas');
   out.width = w;
   out.height = h;
   const octx = out.getContext('2d', { alpha: false });
   if (!octx) return src;
-
   const dst = octx.createImageData(w, h);
   const dp = dst.data;
   for (let i = 0; i < n; i++) {
-    const v = clean[i];
+    const v = Math.min(255, Math.max(0, (norm[i] - lo) * scale));
     const p = i * 4;
     dp[p] = v;
     dp[p + 1] = v;
