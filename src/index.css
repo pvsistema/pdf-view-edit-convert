@@ -190,3 +190,15 @@
     transition: none !important;
   }
 }
+
+/* Рука: курсор над всей лентой, включая листы и текст на них */
+.pvs-grab,
+.pvs-grab * {
+  cursor: grab !important;
+  user-select: none;
+}
+.pvs-grabbing,
+.pvs-grabbing * {
+  cursor: grabbing !important;
+  user-select: none;
+}

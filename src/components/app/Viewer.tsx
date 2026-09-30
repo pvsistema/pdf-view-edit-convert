@@ -11,7 +11,7 @@ import { toast } from '@/hooks/use-toast';
 import { readNotes, saveNotes, makeNote, readAuthor, saveAuthor } from '@/lib/notes';
 import { notesChanged, onNotesChanged, openNotes } from '@/lib/noteBus';
 
-export type Tool = 'hand' | 'text' | 'block' | 'note' | 'arrow' | 'line' | 'rect' | 'oval';
+export type Tool = 'hand' | 'pan' | 'text' | 'block' | 'note' | 'arrow' | 'line' | 'rect' | 'oval';
 
 // Цвета рецензирования: жёлтый маркер и красная линия — привычные
 // по бумажным документам
@@ -513,6 +513,100 @@ const Viewer = ({ tool, setTool }: Props) => {
     return () => window.removeEventListener('keydown', onKey);
   }, [go, pages.length, setActive, onScreen, scrollTo]);
 
+  // Прокрутка перетаскиванием — «рука», как в Acrobat.
+  // Работает: с инструментом «Рука»; с любым инструментом, пока зажат
+  // пробел; и всегда — средней кнопкой (колесом) мыши
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const handOn = tool === 'pan' || spaceHeld;
+
+  useEffect(() => {
+    if (!onScreen) return;
+    const typing = () => {
+      const el = document.activeElement as HTMLElement | null;
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || typing()) return;
+      // Иначе пробел прокручивал бы ленту на экран вниз
+      e.preventDefault();
+      if (!e.repeat) setSpaceHeld(true);
+    };
+    const up = (e: KeyboardEvent) => e.code === 'Space' && setSpaceHeld(false);
+    const lost = () => setSpaceHeld(false);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', lost);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', lost);
+    };
+  }, [onScreen]);
+
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+
+    let drag: { x: number; y: number; left: number; top: number; id: number } | null = null;
+
+    const start = (e: PointerEvent) => {
+      const middle = e.button === 1;
+      if (!middle && !(e.button === 0 && handOn)) return;
+      // Полосы прокрутки не трогаем: их тянут как обычно
+      const r = box.getBoundingClientRect();
+      if (e.clientX - r.left > box.clientWidth || e.clientY - r.top > box.clientHeight) return;
+      e.preventDefault();
+      e.stopPropagation();
+      drag = { x: e.clientX, y: e.clientY, left: box.scrollLeft, top: box.scrollTop, id: e.pointerId };
+      setPanning(true);
+    };
+    const move = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      box.scrollLeft = drag.left - (e.clientX - drag.x);
+      box.scrollTop = drag.top - (e.clientY - drag.y);
+    };
+    const stop = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      setPanning(false);
+    };
+    // Средняя кнопка в браузере включает автопрокрутку — гасим её.
+    // В режиме руки щелчок и нажатие не доходят до листа: иначе рука
+    // ставила бы надписи, выделяла текст или рисовала рамку
+    const noAuto = (e: MouseEvent) => {
+      if (e.button === 1 || (e.button === 0 && handOn)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    const noClick = (e: MouseEvent) => {
+      if (handOn) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    box.addEventListener('pointerdown', start, { capture: true });
+    // Движение и отпускание слушаем на всём окне: лист тянется, даже
+    // если мышь в запале вышла за край ленты
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    box.addEventListener('mousedown', noAuto, { capture: true });
+    box.addEventListener('click', noClick, { capture: true });
+    box.addEventListener('auxclick', noAuto, { capture: true });
+    return () => {
+      box.removeEventListener('pointerdown', start, { capture: true });
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      box.removeEventListener('mousedown', noAuto, { capture: true });
+      box.removeEventListener('click', noClick, { capture: true });
+      box.removeEventListener('auxclick', noAuto, { capture: true });
+    };
+  }, [handOn]);
+
   // Колесо мыши с Ctrl меняет масштаб. Обычная прокрутка идёт
   // непрерывно через все листы, как в привычных читалках PDF
   useEffect(() => {
@@ -987,7 +1081,8 @@ const Viewer = ({ tool, setTool }: Props) => {
         </div>
 
         <div className="flex shrink-0 items-center border border-border bg-background">
-          {toolBtn('hand', 'MousePointer2', 'Просмотр')}
+          {toolBtn('hand', 'MousePointer2', 'Выделение текста')}
+          {toolBtn('pan', 'Hand', 'Рука: двигайте лист мышью (или держите пробел)')}
           {toolBtn('text', 'Type', 'Добавить надпись')}
           {toolBtn('block', 'Square', 'Закрасить данные: обведите область мышью')}
           {toolBtn('note', 'MessageSquarePlus', 'Заметка: щёлкните по странице')}
@@ -1107,7 +1202,9 @@ const Viewer = ({ tool, setTool }: Props) => {
 
       <div
         ref={scroller}
-        className="relative flex-1 overflow-auto overscroll-contain bg-desk"
+        className={`relative flex-1 overflow-auto overscroll-contain bg-desk ${
+          panning ? 'pvs-grabbing' : handOn ? 'pvs-grab' : ''
+        }`}
         style={{ scrollBehavior: 'auto' }}
       >
         {busy && (
