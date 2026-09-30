@@ -9,7 +9,7 @@
 // Сборка архива общая с книгой Excel — она лежит отдельно.
 
 import { zip } from '@/lib/zip';
-import type { PartImage, Seg } from '@/lib/ocrLayout';
+import type { FloatImage, PartImage, Seg } from '@/lib/ocrLayout';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -42,6 +42,21 @@ const drawing = (img: PartImage, media: Media[]) => {
   const cx = Math.max(1, Math.round(img.w * 12700));
   const cy = Math.max(1, Math.round(img.h * 12700));
   return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Рисунок ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+};
+
+// Печать или подпись поверх текста. Картинка «плавает»: не сдвигает
+// строки и лежит над ними на том же месте, что на бумаге. По горизонтали
+// место считается от левого поля, по вертикали — от строки абзаца,
+// к которому она привязана. Фон у картинки прозрачный, поэтому текст
+// под печатью виден, как на настоящем документе
+const floating = (img: FloatImage, media: Media[]) => {
+  const n = media.length + 1;
+  const id = `rIdImg${n}`;
+  media.push({ name: `image${n}.png`, png: img.png, id });
+  const emu = (pt: number) => Math.round(pt * 12700);
+  const cx = Math.max(1, emu(img.w));
+  const cy = Math.max(1, emu(img.h));
+  return `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${251658240 + n}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="margin"><wp:posOffset>${emu(img.dx)}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="line"><wp:posOffset>${emu(img.dy)}</wp:posOffset></wp:positionV><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="${n}" name="Печать ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
 };
 
 // Черта под абзацем — граница абзаца снизу, как её рисует сам Word
@@ -128,7 +143,10 @@ const richPara = (p: DocxPart, media: Media[]) => {
     runs = p.segs.map((sg) => ('img' in sg ? drawing(sg.img, media) : textRuns(sg.t, sg.u))).join('');
   } else runs = textRuns(p.text);
 
-  return `<w:p><w:pPr>${look.join('')}</w:pPr>${runs}</w:p>`;
+  // Печати и подписи этого абзаца — в начале, поверх текста
+  const floats = (p.floats || []).map((f) => floating(f, media)).join('');
+
+  return `<w:p><w:pPr>${look.join('')}</w:pPr>${floats}${runs}</w:p>`;
 };
 
 // Подпись с номером листа: помельче и серым, как колонтитул
@@ -150,6 +168,7 @@ export type DocxPart = {
   rule?: boolean;
   spaced?: boolean;
   image?: PartImage;
+  floats?: FloatImage[];
   // Таблица: строки, в каждой — ячейки. Если поле заполнено,
   // кусок ложится в Word настоящей таблицей, а не текстом
   table?: string[][];

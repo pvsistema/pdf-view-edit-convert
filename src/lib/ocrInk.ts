@@ -66,7 +66,14 @@ const median8 = (a: Float32Array) => {
   return s[Math.floor(s.length / 2)] ?? 255;
 };
 
-export const analyzeInk = (img: ImageData, words: Box[], lineH: number): Ink => {
+export const analyzeInk = (
+  img: ImageData,
+  words: Box[],
+  lineH: number,
+  // Искать и мелкие пятна — с одну букву («м» в ячейке таблицы). Нужно
+  // для дочитывания; как рисунки такие пятна в документ не ставятся
+  small = false,
+): Ink => {
   const empty: Ink = { rules: [], under: new Set(), cut: new Map(), figures: [] };
   if (!img || lineH <= 0) return empty;
 
@@ -215,6 +222,26 @@ export const analyzeInk = (img: ImageData, words: Box[], lineH: number): Ink => 
     for (const l of thin) {
       const over = Math.min(w.x1, l.x1) - Math.max(w.x0, l.x0);
       if (over < ww * 0.6) continue;
+      // Штрих самой буквы («Д», «2», «Ж» внизу) короче слова. Подчёркивание
+      // идёт почти под всем словом — у коротких «Ед.», «120» только так
+      // их и отличить
+      if (l.x1 - l.x0 < ww * 0.85) continue;
+      // Над подчёркиванием — просвет: линия проходит под буквами, не
+      // касаясь их по всей длине. Низ букв («Е», «д» в «Ед.») касается
+      // «линии» почти везде — это сами буквы
+      let touch = 0;
+      let span = 0;
+      const ry = l.y0 - 1;
+      if (ry >= 0)
+        for (let x = Math.max(l.x0, w.x0); x < Math.min(l.x1, w.x1); x++) {
+          span++;
+          if (dark[ry * W + x]) touch++;
+        }
+      if (span && touch > span * 0.4) continue;
+      // Нижний штрих короткого слова («Ед.») сам по себе уже полторы
+      // строки длиной. Подчёркивание выходит за края букв — под короткими
+      // словами обычно заметно шире их
+      if (ww < lh * 2.5 && l.x1 - l.x0 < ww + lh * 0.3) continue;
       // Линия ниже середины слова и не дальше полстроки под ним. Выше —
       // это зачёркивание или линия рамки, ниже — уже следующая строка
       if (l.y0 < w.y0 + h * 0.6 || l.y0 > w.y1 + h * 0.6) continue;
@@ -350,7 +377,9 @@ export const analyzeInk = (img: ImageData, words: Box[], lineH: number): Ink => 
     if (sd < 22) continue;
     // Мелочь — крошки, точки, пыль. И обрывки линий: узкий штрих без
     // ширины — это кусок рамки, а не рисунок
-    if (Math.max(fw, fh) < lh * 1.1 || Math.min(fw, fh) < lh * 0.4 || ink < lh * lh * 0.12) continue;
+    const minSide = small ? lh * 0.45 : lh * 1.1;
+    if (Math.max(fw, fh) < minSide || Math.min(fw, fh) < lh * (small ? 0.3 : 0.4) || ink < lh * lh * (small ? 0.04 : 0.12))
+      continue;
 
     figures.push({ x0: bx0 * S, y0: by0 * S, x1: (bx1 + 1) * S, y1: (by1 + 1) * S, blank });
   }
@@ -405,10 +434,12 @@ export const cropPng = (img: ImageData, b: Box, pad: number): Uint8Array | null 
 // на дочитывание. Берём рисунки, похожие на строку текста: невысокие
 // и вытянутые. Герб, печать и подпись сюда не попадают
 export const missedSpots = (img: ImageData, words: Box[], lineH: number): Box[] => {
-  const spots = analyzeInk(img, words, lineH).figures.filter((f) => {
+  const spots = analyzeInk(img, words, lineH, true).figures.filter((f) => {
     const w = f.x1 - f.x0;
     const h = f.y1 - f.y0;
-    return !f.blank && h < lineH * 2.6 && w > h * 2;
+    // Строка или короткая ячейка таблицы («м», «шт», «120») — не выше
+    // двух с половиной строк. Герб и печать выше и сюда не попадают
+    return !f.blank && h < lineH * 2.6 && w < lineH * 60;
   });
   // Куски одной строки склеиваем: строка, прочитанная целиком, выходит
   // точнее, чем её обрывки по отдельности

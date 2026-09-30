@@ -256,8 +256,18 @@ export const readFrames = async (
             );
             if (onSure) continue;
             // Сомнительные слова на этом месте заменяем прочитанным
+            // Сомнительные слова заменяем прочитанным, только если они
+            // лежат там же, где прочитанное, а не просто в той же строке.
+            // Раньше «12026» из соседней рамки стирало стоящее рядом «2026»
             for (const k of known)
-              if (isWeak(k) && k.bbox && k.bbox.y0 < box.y1 && k.bbox.y1 > box.y0) k.text = '';
+              if (
+                isWeak(k) &&
+                k.bbox &&
+                k.bbox.y0 < box.y1 &&
+                k.bbox.y1 > box.y0 &&
+                Math.min(k.bbox.x1, box.x1) - Math.max(k.bbox.x0, box.x0) > (k.bbox.x1 - k.bbox.x0) * 0.5
+              )
+                k.text = '';
             lines.push({
               text,
               bbox: box,
@@ -356,8 +366,22 @@ export const rereadWeak = async (
         if (!match.length) {
           // Место уже занято новым прочтением соседнего слова — это слово
           // в нём уже учтено
-          if (fresh.some((f) => used.has(f) && overlap(f.bbox, w.bbox!) > 0.5)) {
-            w.text = '';
+          const took = fresh.find((f) => used.has(f) && overlap(f.bbox, w.bbox!) > 0.5);
+          if (took) {
+            // Прочтение соседа захватило и это слово — убираем его, только
+            // если оно там действительно есть. Иначе «сентября» съедало
+            // стоящее рядом «2026»
+            const key = (x: string) => x.toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
+            if (key(took.text).includes(key(w.text || '')) && key(w.text || '')) w.text = '';
+            else {
+              const add = took.text.split(/\s+/).find((x) => /\d/.test(x) && /\d/.test(w.text || ''));
+              // Сосед прочитал это место цифрами — берём их
+              if (add && key(took.text).length > key(add).length) {
+                w.text = add;
+                took.text = took.text.replace(add, '').trim();
+                w.confidence = took.confidence;
+              }
+            }
             continue;
           }
           // Сомнительного слова при повторном чтении нет — это линия
@@ -366,7 +390,10 @@ export const rereadWeak = async (
           // последнему слову строки, прочитав его верно («ЧАСТЬ»)
           const t = w.text || '';
           const wordLike = /^[«"(]?[А-ЯЁа-яёA-Za-z]{3,}[»")]?[.,:;]?$/.test(t);
-          if (!wordLike && ((w.confidence ?? 0) < 35 || (lettersOf(t) < 3 && !/\d/.test(t))))
+          // Число («2026», «15.09») оставляем: движок иногда помечает его
+          // низкой уверенностью из-за линии рядом, прочитав верно
+          const numLike = /^\d[\d.,:/-]*$/.test(t) && t.length >= 2;
+          if (!wordLike && !numLike && ((w.confidence ?? 0) < 35 || (lettersOf(t) < 3 && !/\d/.test(t))))
             w.text = '';
           continue;
         }
@@ -508,12 +535,16 @@ export const readMissed = async (
   page: HTMLCanvasElement,
   reader: Reader,
   spots: { x0: number; y0: number; x1: number; y1: number }[],
+  // Обычная высота строки на листе, в точках
+  lineH = 40,
 ) => {
   if (!blocks || !spots.length) return 0;
   let added = 0;
-  await reader.setParameters({ tessedit_pageseg_mode: '6' });
   try {
-    for (const b of spots.slice(0, 20)) {
+    for (const b of spots.slice(0, 30)) {
+      // Кусок в одну строку читаем как строку: так движок не ищет в нём
+      // абзацы и не теряет одиночное слово
+      await reader.setParameters({ tessedit_pageseg_mode: b.y1 - b.y0 < lineH * 1.6 ? '7' : '6' });
       const h = b.y1 - b.y0;
       const pad = Math.round(Math.max(10, h * 0.4));
       const x0 = Math.max(0, b.x0 - pad);
@@ -577,8 +608,12 @@ export const readMissed = async (
               },
             });
           }
-      // Хотя бы одно уверенное слово из трёх букв — это текст, а не рисунок
-      if (!lines.some((l) => (l.words || []).some((w) => lettersOf(w.text || '') >= 3))) continue;
+      // Текст, а не рисунок: слово из трёх букв, или короткое, но прочитанное
+      // уверенно («м», «шт», «120» в ячейке таблицы). Почерк и каракули
+      // уверенно не читаются — они останутся рисунком
+      const real = (w: Word) =>
+        lettersOf(w.text || '') >= 3 ? true : (w.confidence ?? 0) >= 85 && /^[А-ЯЁа-яёA-Za-z0-9.,%-]+$/.test((w.text || '').trim());
+      if (!lines.some((l) => (l.words || []).some(real))) continue;
       // Вырезка захватила и уже прочитанные слова рядом («2026 г.» возле
       // рукописной даты) — их второй раз не добавляем
       const old: Bbox[] = [];
@@ -593,7 +628,7 @@ export const readMissed = async (
           return ox > 0 && oy > 0 && ox * oy > (q.x1 - q.x0) * (q.y1 - q.y0) * 0.15;
         });
       for (const l of lines) l.words = (l.words || []).filter((w) => !known(w.bbox!));
-      const fresh = lines.filter((l) => (l.words || []).some((w) => lettersOf(w.text || '') >= 3));
+      const fresh = lines.filter((l) => (l.words || []).some(real));
       if (!fresh.length) continue;
       blocks.push({ paragraphs: [{ lines: fresh }] });
       added++;

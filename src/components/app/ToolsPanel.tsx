@@ -15,6 +15,7 @@ import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
 import { readFrames, readMarks, readMissed, rereadWeak } from '@/lib/ocrReread';
 import { missedSpots } from '@/lib/ocrInk';
+import { canvasJpeg, findStamps, withoutInk } from '@/lib/ocrStamps';
 import { detectSkew, detectTurn, straighten, turnCanvas } from '@/lib/ocrOrient';
 import { fixWords, type SpellFix } from '@/lib/spell/fixWords';
 import OcrTextBox from '@/components/app/OcrTextBox';
@@ -509,7 +510,19 @@ const ToolsPanel = () => {
         const turned = turnCanvas(drawn, turn);
         // Лёгкий перекос выправляем сами: тогда линии, подчёркивания и
         // рисунки ищутся на той же картинке, что и текст
-        const canvas = straighten(turned, detectSkew(turned));
+        const straight = straighten(turned, detectSkew(turned));
+
+        // Печати и подписи цветными чернилами снимаем с листа до чтения:
+        // так текст под печатью читается, а сами они потом встают в Word
+        // картинками поверх текста, на своё место
+        const stamps = (() => {
+          try {
+            return findStamps(straight, OCR_DPI);
+          } catch {
+            return [];
+          }
+        })();
+        const canvas = withoutInk(straight, stamps);
 
         // Чистку применяем только к настоящим сканам — бледным, серым,
         // с пылью. Чёткую страницу она портит: буквы огрубляются и текст
@@ -523,13 +536,21 @@ const ToolsPanel = () => {
         // потом собирается в Word похожим на исходник
         // Заодно просим готовую страницу PDF с невидимым текстовым слоем:
         // выглядит как скан, но по ней работает поиск — как в FineReader
+        // На листе с печатью просим у движка только текстовый слой:
+        // картинку под ним подложим исходную, с печатью
         const { data } = await worker.recognize(
           sheet,
-          { rotateAuto: true },
+          { rotateAuto: true, ...(stamps.length ? { pdfTextOnly: true } : {}) },
           { blocks: true, pdf: true },
         );
 
-        searchable.push(data.pdf ? new Uint8Array(data.pdf) : null);
+        let pagePdf: Uint8Array | null = data.pdf ? new Uint8Array(data.pdf) : null;
+        if (pagePdf && stamps.length) {
+          const { underlayScan } = await import('@/lib/searchablePdf');
+          const jpeg = await canvasJpeg(straight);
+          pagePdf = jpeg ? await underlayScan(pagePdf, jpeg).catch(() => pagePdf) : pagePdf;
+        }
+        searchable.push(pagePdf);
 
         // Второй проход, как в FineReader: слова в рамках бланка, прочитанные
         // с сомнением, вырезаются отдельно, линии рамки стираются, и слово
@@ -548,7 +569,7 @@ const ToolsPanel = () => {
           );
           const hs = boxes.map((b) => b.y1 - b.y0).sort((a, b) => a - b);
           const spots = missedSpots(ctx.getImageData(0, 0, sheet.width, sheet.height), boxes, hs[hs.length >> 1] || 40);
-          await readMissed(data.blocks, sheet, worker as never, spots);
+          await readMissed(data.blocks, sheet, worker as never, spots, hs[hs.length >> 1] || 40);
         })().catch(() => undefined);
 
         // Ошибки распознавания — «оргаиизация», «выработкн» — правим
@@ -564,6 +585,7 @@ const ToolsPanel = () => {
           image: sheet
             .getContext('2d', { willReadFrequently: true })
             ?.getImageData(0, 0, sheet.width, sheet.height),
+          stamps,
         });
 
         sheets.push({

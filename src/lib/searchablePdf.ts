@@ -54,3 +54,19 @@ export const mergeSearchable = async (
   if (!added) return null;
   return out.save();
 };
+// Лист с печатью: текстовый слой строился по листу, с которого печать
+// снята (иначе текст под ней не читается). А человеку в PDF нужно видеть
+// исходный скан — с печатью и подписью. Поэтому берём от движка только
+// невидимый текст и подкладываем под него исходную картинку листа
+export const underlayScan = async (textOnly: Uint8Array, jpeg: Uint8Array): Promise<Uint8Array> => {
+  const src = await PDFDocument.load(textOnly);
+  const out = await PDFDocument.create();
+  const [page] = src.getPages();
+  const { width, height } = page.getSize();
+  const sheet = out.addPage([width, height]);
+  const img = await out.embedJpg(jpeg);
+  sheet.drawImage(img, { x: 0, y: 0, width, height });
+  const [text] = await out.embedPdf(src, [0]);
+  sheet.drawPage(text, { x: 0, y: 0, width, height });
+  return out.save();
+};

@@ -18,6 +18,9 @@ import { analyzeInk, cropPng } from '@/lib/ocrInk';
 
 // Картинка из скана: размер в пунктах, как на бумаге; x — отступ слева
 export type PartImage = { png: Uint8Array; w: number; h: number; x: number };
+// Картинка поверх текста — печать или подпись. Стоит там же, где на
+// бумаге: dx — от левого поля, dy — от верха первой строки абзаца, в пунктах
+export type FloatImage = { png: Uint8Array; w: number; h: number; dx: number; dy: number };
 // Кусок строки: текст (\t внутри — табуляция) или картинка
 export type Seg = { t: string; u?: boolean } | { img: PartImage };
 
@@ -47,6 +50,8 @@ export type OcrPart = {
   spaced?: boolean;
   // Картинка из скана: герб, рукопись, подпись, печать
   image?: PartImage;
+  // Печати и подписи, лежащие на этом абзаце поверх текста
+  floats?: FloatImage[];
   // Заполнено, если кусок оказался таблицей
   table?: string[][];
   // Размер шрифта в пунктах, как на бумаге
@@ -80,6 +85,8 @@ export type PageSize = {
   height: number;
   dpi?: number;
   image?: ImageData;
+  // Печати и подписи цветными чернилами, снятые с листа до распознавания
+  stamps?: { x0: number; y0: number; x1: number; y1: number; png: Uint8Array | null }[];
 };
 
 // Слово с местом на листе (в долях страницы) и приметами
@@ -388,6 +395,13 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   // Текстом считаем только уверенно прочитанные слова обычного размера.
   // Герб движок иногда принимает за огромную букву «О» — такое «слово»
   // не должно прятать рисунок
+  // Число с низкой уверенностью («2026» рядом с подчёркнутым полем) —
+  // почти всегда прочитано верно: цифры движок путает редко, а сомнение
+  // даёт линия рядом. Считаем его текстом
+  for (const w of all) if (/^\d{2,}([.,]\d+)*$/.test(w.str) && w.conf < 80) w.conf = 80;
+  // Знак номера и параграфа — тоже: движок редко ошибается в них
+  for (const w of all) if (/^[№§]$/.test(w.str) && w.conf >= 50 && w.conf < 80) w.conf = 80;
+
   // Короткий «текст» с сомнением («(AS» поверх рукописной даты) — это
   // движок пытался прочитать почерк. Такое место считаем рисунком
   const solid = all.filter((w) => {
@@ -395,9 +409,12 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
     // Настоящее слово из букв («ЧАСТЬ»») движок иногда помечает почти
     // нулевой уверенностью — по виду слова оставляем его текстом
     const wordLike = /^[«"(]?([А-ЯЁ]{4,}|[А-ЯЁа-яё][а-яё]{3,})[»")]?[.,:;]?$/.test(w.str);
+    // Короткое слово из одних букв («шт», «м») с уверенностью от 70 —
+    // текст: почерк так уверенно не читается
+    const shortWord = /^[А-ЯЁа-яё]{1,3}\.?$/.test(w.str) && w.conf >= 70;
     return (
       w.px.y1 - w.px.y0 < typicalH * 2.2 &&
-      (w.conf >= 80 || (letters >= 3 && w.conf >= 60) || /^\d{1,4}$/.test(w.str) || wordLike)
+      (w.conf >= 80 || (letters >= 3 && w.conf >= 60) || /^\d{1,4}$/.test(w.str) || wordLike || shortWord)
     );
   });
   const ink = size?.image ? analyzeInk(size.image, solid.map(pxOf), typicalH) : null;
@@ -482,8 +499,11 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   const emOf = (w: W) => {
     const t = w.str;
     const up = /[A-ZА-ЯЁ0-9бdfhiklt()«»"'[\]{}/|!?№%йё]/.test(t);
-    const down = /[руфдзцщgjpqy(),;[\]{}/|ДЦЩ]/.test(t);
-    const factor = (up ? 0.69 : 0.47) + (down ? 0.22 : 0);
+    // «з» ниже строки не опускается — раньше она числилась здесь, и слова
+    // «за», «возложить» давали кегль на треть меньше настоящего
+    const down = /[руфдцщgjpqy(),;[\]{}/|ДЦЩ]/.test(t);
+    // «ф» выходит за строку и вверх, и вниз — выше заглавной
+    const factor = /ф/.test(t) ? 0.95 : (up ? 0.69 : 0.47) + (down ? 0.22 : 0);
     return (w.h * ptH) / factor;
   };
   // Кегли на бумаге — из привычного ряда: 8, 9, 10, 11, 12, 14…
@@ -511,7 +531,7 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
     // строку или линию), но не ниже — берём самое низкое слово
     if (plainCaps.length)
       return snap(Math.min(Math.min(...plainCaps.map((w) => (w.h * ptH) / 0.69)), 36) * fit);
-    const rich = normal.filter((w) => /[A-ZА-ЯЁ0-9бдруфзцщ()«»"]/.test(w.str));
+    const rich = normal.filter((w) => /[A-ZА-ЯЁ0-9бдруфцщ()«»"]/.test(w.str));
     const pick = rich.length ? rich : normal.length ? normal : r.words;
     return snap(Math.min(...[median(pick.map(emOf)), 36]) * fit);
   };
@@ -651,6 +671,7 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   inRow.forEach((v, k) => picsOf.set(rows[k], v));
 
   const parts: OcrPart[] = [];
+  const partRows = new Map<OcrPart, Row[]>();
   let cur: { rows: Row[]; part: OcrPart } | null = null;
   let lastBottom: number | null = null;
 
@@ -766,6 +787,7 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
       }
     }
 
+    partRows.set(c.part, c.rows);
     if (spaced) c.part.spaced = true;
     c.part.text = text.replace(/\t+/g, '\t').trim();
 
@@ -869,7 +891,13 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
 
     // Кегль, близкий к основному, — это и есть основной: оценка по высоте
     // букв на скане гуляет на пункт-другой, а на бумаге шрифт один
-    const est = sizeOfRow(r);
+    let est = sizeOfRow(r);
+    // В строке из одних строчных букв («заместителя начальника филиала.»)
+    // размер по высоте букв зависит от шрифта и гуляет на 2–3 пункта.
+    // Такой строке верим меньше: если она идёт следом за абзацем, берём
+    // его размер — иначе конец абзаца отрывался и выходил крупнее
+    const sure = r.words.filter((w) => /[A-ZА-ЯЁ0-9бдруцщ()«»"]/.test(w.str)).length >= 2;
+    if (!sure && cur?.part.size && Math.abs(est - cur.part.size) <= 4) est = cur.part.size;
     const pt = Math.abs(est - bodyPt) <= Math.max(1, bodyPt * 0.15) ? bodyPt : est;
     const align = alignOfRow(r);
     const bold = boldRow(r);
@@ -962,6 +990,47 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   }
   flush();
   putExtras(2);
+
+  // Печати и подписи — поверх текста, на своё место. Привязываем каждую
+  // к абзацу, рядом с которым она стоит на листе: тогда при правке текста
+  // печать едет вместе со своей строкой, как в документе с настоящей печатью
+  const stamps = (size?.stamps || []).filter((st) => st.png);
+  if (stamps.length) {
+    const anchors = parts
+      .filter((pt) => partRows.has(pt))
+      .map((pt) => ({ part: pt, row: partRows.get(pt)![0], last: partRows.get(pt)!.slice(-1)[0] }));
+    const pxToPt = (px: number) => (px * 72 * fit) / dpi;
+    for (const st of stamps) {
+      const top = st.y0 / height;
+      const bot = st.y1 / height;
+      const mid = (top + bot) / 2;
+      if (!anchors.length) {
+        // На листе нет текста — печать ставим отдельной картинкой
+        parts.push({
+          text: '',
+          heading: false,
+          bold: false,
+          italic: false,
+          align: 'left',
+          image: { png: st.png!, w: pxToPt(st.x1 - st.x0), h: pxToPt(st.y1 - st.y0), x: toTw(Math.max(0, st.x0 / width - left)) },
+        });
+        continue;
+      }
+      // Абзац, на который печать приходится серединой. Если середина между
+      // абзацами — ближайший по высоте: обычно это строка подписи
+      // («Начальник филиала … А.В. Смирнов»), к ней печать и относится
+      const dist = (a: (typeof anchors)[number]) =>
+        mid < a.row.y ? a.row.y - mid : mid > a.last.y + a.last.h ? mid - (a.last.y + a.last.h) : 0;
+      const hit = anchors.reduce((best, a) => (dist(a) < dist(best) ? a : best));
+      (hit.part.floats ||= []).push({
+        png: st.png!,
+        w: pxToPt(st.x1 - st.x0),
+        h: pxToPt(st.y1 - st.y0),
+        dx: pxToPt(st.x0 - left * width),
+        dy: pxToPt(st.y0 - hit.row.y * height),
+      });
+    }
+  }
 
   return parts;
 };
