@@ -91,3 +91,86 @@ export const detectTurn = async (page: HTMLCanvasElement, reader: Reader, dpi: n
     await reader.setParameters({ user_defined_dpi: String(dpi) });
   }
 };
+// Лёгкий перекос листа (доли градуса — лист лёг в сканер неровно).
+//
+// Движок распознавания сам выравнивает такой лист у себя внутри, но места
+// слов отдаёт уже на выровненной картинке. А линии, подчёркивания и
+// рисунки программа ищет на своей картинке — невыровненной. Места не
+// совпадали: края букв торчали из рамок слов и принимались за рисунки.
+// Поэтому лист выравниваем сами, до распознавания, — тогда картинка
+// у движка и у программы одна и та же.
+//
+// Угол ищем по строкам: поворачиваем уменьшенную копию на пробные углы
+// и считаем, насколько резко чередуются тёмные строки и светлые
+// просветы. У ровного листа разница самая большая
+export const detectSkew = (src: HTMLCanvasElement) => {
+  const scale = Math.min(1, 900 / Math.max(src.width, src.height));
+  const w = Math.round(src.width * scale);
+  const h = Math.round(src.height * scale);
+  const small = document.createElement('canvas');
+  small.width = w;
+  small.height = h;
+  const sctx = small.getContext('2d', { willReadFrequently: true })!;
+  sctx.fillStyle = '#fff';
+  sctx.fillRect(0, 0, w, h);
+  sctx.drawImage(src, 0, 0, w, h);
+  const px = sctx.getImageData(0, 0, w, h).data;
+  const ink: { x: number; y: number }[] = [];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11 < 128) ink.push({ x, y });
+    }
+  if (ink.length < 200) return 0;
+
+  const score = (deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    const sin = Math.sin(a);
+    const cos = Math.cos(a);
+    const bins = new Float32Array(h + w);
+    for (const p of ink) {
+      const y = Math.round(p.y * cos - p.x * sin + w);
+      if (y >= 0 && y < bins.length) bins[y]++;
+    }
+    let sum = 0;
+    for (let k = 1; k < bins.length; k++) sum += (bins[k] - bins[k - 1]) ** 2;
+    return sum;
+  };
+
+  let best = 0;
+  let bestScore = score(0);
+  for (let d = -3; d <= 3.001; d += 0.25) {
+    const sc = score(d);
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = d;
+    }
+  }
+  // Уточняем шагом в двадцатую долю градуса
+  const coarse = best;
+  for (let d = coarse - 0.25; d <= coarse + 0.25; d += 0.05) {
+    const sc = score(d);
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = d;
+    }
+  }
+  return Math.abs(best) < 0.1 ? 0 : best;
+};
+
+// Поворот листа на небольшой угол. Углы, открывшиеся при повороте,
+// заливаем цветом бумаги, а не чёрным — иначе они стали бы «рисунками»
+export const straighten = (src: HTMLCanvasElement, deg: number) => {
+  if (!deg) return src;
+  const out = document.createElement('canvas');
+  out.width = src.width;
+  out.height = src.height;
+  const ctx = out.getContext('2d')!;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((-deg * Math.PI) / 180);
+  ctx.drawImage(src, -src.width / 2, -src.height / 2);
+  return out;
+};

@@ -13,8 +13,9 @@ import { buildDocx, DOCX_TYPE } from '@/lib/docx';
 import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
 import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
-import { readFrames, rereadWeak } from '@/lib/ocrReread';
-import { detectTurn, turnCanvas } from '@/lib/ocrOrient';
+import { readFrames, readMarks, readMissed, rereadWeak } from '@/lib/ocrReread';
+import { missedSpots } from '@/lib/ocrInk';
+import { detectSkew, detectTurn, straighten, turnCanvas } from '@/lib/ocrOrient';
 import { fixWords, type SpellFix } from '@/lib/spell/fixWords';
 import OcrTextBox from '@/components/app/OcrTextBox';
 import { checkWords, warmSpeller } from '@/lib/spell/speller';
@@ -505,7 +506,10 @@ const ToolsPanel = () => {
         // ставим как надо — иначе движок читает его как мусор
         const turn = await detectTurn(drawn, worker as never, OCR_DPI).catch(() => 0 as const);
         await worker.setParameters({ tessedit_pageseg_mode: PAGE_MODE as never });
-        const canvas = turnCanvas(drawn, turn);
+        const turned = turnCanvas(drawn, turn);
+        // Лёгкий перекос выправляем сами: тогда линии, подчёркивания и
+        // рисунки ищутся на той же картинке, что и текст
+        const canvas = straighten(turned, detectSkew(turned));
 
         // Чистку применяем только к настоящим сканам — бледным, серым,
         // с пылью. Чёткую страницу она портит: буквы огрубляются и текст
@@ -533,6 +537,19 @@ const ToolsPanel = () => {
         await rereadWeak(data.blocks, sheet, worker as never).catch(() => undefined);
         // Досмотр рамок бланка: номер документа, код, числа в клетках
         await readFrames(data.blocks, sheet, worker as never).catch(() => undefined);
+        // Номера пунктов «1.», «2.» — вместе с первым словом строки
+        await readMarks(data.blocks, sheet, worker as never).catch(() => undefined);
+        // Строки, которые движок пропустил целиком (бледные, на плашке)
+        await (async () => {
+          const ctx = sheet.getContext('2d', { willReadFrequently: true });
+          if (!ctx || !data.blocks) return;
+          const boxes = data.blocks.flatMap((b) =>
+            b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words.filter((w) => w.text.trim()).map((w) => w.bbox))),
+          );
+          const hs = boxes.map((b) => b.y1 - b.y0).sort((a, b) => a - b);
+          const spots = missedSpots(ctx.getImageData(0, 0, sheet.width, sheet.height), boxes, hs[hs.length >> 1] || 40);
+          await readMissed(data.blocks, sheet, worker as never, spots);
+        })().catch(() => undefined);
 
         // Ошибки распознавания — «оргаиизация», «выработкн» — правим
         // по словарю. Только слова, в которых сам движок сомневался

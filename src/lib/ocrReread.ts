@@ -243,6 +243,18 @@ export const readFrames = async (
             // Уже есть такое слово в тексте — не повторяем
             const same = known.find((k) => (k.text || '').replace(/[|[\]]/g, '').trim() === text);
             if (same) continue;
+            // «Рамкой» оказались стенки одной буквы («А» в «АНАЛИЗ»), и
+            // внутри вычитался её кусок. Прочитанное лежит поверх
+            // уверенного слова — это не новый текст
+            const onSure = lines.some((l) =>
+              (l.words || []).some((k) => {
+                if (!k.bbox || isWeak(k) || !(k.text || '').trim()) return false;
+                const ox = Math.min(k.bbox.x1, box.x1) - Math.max(k.bbox.x0, box.x0);
+                const oy = Math.min(k.bbox.y1, box.y1) - Math.max(k.bbox.y0, box.y0);
+                return ox > 0 && oy > 0 && ox * oy > (box.x1 - box.x0) * (box.y1 - box.y0) * 0.5;
+              }),
+            );
+            if (onSure) continue;
             // Сомнительные слова на этом месте заменяем прочитанным
             for (const k of known)
               if (isWeak(k) && k.bbox && k.bbox.y0 < box.y1 && k.bbox.y1 > box.y0) k.text = '';
@@ -337,11 +349,24 @@ export const rereadWeak = async (
       const used = new Set<RWord>();
       for (const w of words) {
         if (!w.bbox || !isWeak(w)) continue;
-        const match = fresh.filter((f) => overlap(f.bbox, w.bbox!) > 0.5);
+        // Каждое новое прочтение заменяет только одно слово. Раньше одно
+        // прочтение «сентября 2026» подставлялось в оба слова, и в тексте
+        // выходило «сентября 2026 сентября 2026»
+        const match = fresh.filter((f) => !used.has(f) && overlap(f.bbox, w.bbox!) > 0.5);
         if (!match.length) {
+          // Место уже занято новым прочтением соседнего слова — это слово
+          // в нём уже учтено
+          if (fresh.some((f) => used.has(f) && overlap(f.bbox, w.bbox!) > 0.5)) {
+            w.text = '';
+            continue;
+          }
           // Сомнительного слова при повторном чтении нет — это линия
-          // рамки, прочитанная как буквы
-          if ((w.confidence ?? 0) < 35 || (lettersOf(w.text || '') < 3 && !/\d/.test(w.text || '')))
+          // рамки, прочитанная как буквы. Но настоящее слово из трёх и
+          // больше букв не выбрасываем: движок иногда ставит уверенность 0
+          // последнему слову строки, прочитав его верно («ЧАСТЬ»)
+          const t = w.text || '';
+          const wordLike = /^[«"(]?[А-ЯЁа-яёA-Za-z]{3,}[»")]?[.,:;]?$/.test(t);
+          if (!wordLike && ((w.confidence ?? 0) < 35 || (lettersOf(t) < 3 && !/\d/.test(t))))
             w.text = '';
           continue;
         }
@@ -353,10 +378,15 @@ export const rereadWeak = async (
         match.forEach((m) => used.add(m));
       }
 
-      // Слова, которые на целом листе потерялись совсем («222-км»)
+      // Слова, которые на целом листе потерялись совсем («222-км»).
+      // То, что уже есть в строке, второй раз не добавляем: иначе
+      // выходило «Работникам про‹ Работникам»
+      const norm = (t: string) => t.toLowerCase().replace(/[^0-9a-zа-яё]/g, '');
+      const have = new Set(words.map((w) => norm(w.text || '')).filter(Boolean));
       for (const f of fresh) {
         if (used.has(f)) continue;
         if (words.some((w) => w.bbox && overlap(f.bbox, w.bbox) > 0.3)) continue;
+        if (f.text.split(/\s+/).every((t) => have.has(norm(t)))) continue;
         words.push({ text: f.text, confidence: f.confidence, bbox: f.bbox });
       }
       words.sort((a, c) => (a.bbox?.x0 ?? 0) - (c.bbox?.x0 ?? 0));
@@ -366,4 +396,210 @@ export const rereadWeak = async (
     // Возвращаем обычный режим движка: разбор листа с поиском колонок
     await reader.setParameters({ tessedit_pageseg_mode: '3' });
   }
+};
+
+// Номера пунктов «1.», «2.», «3.» в начале строки.
+//
+// Одинокую цифру с точкой движок на целом листе читает хуже всего:
+// «1.» превращалась в «5 2» с низкой уверенностью и выбрасывалась как
+// мусор, а у «3.» терялась точка. Отдельно вырезанный номер движок тоже
+// не читает — ему не за что зацепиться. Поэтому вырезаем начало строки
+// вместе с первым словом («1. Заместителю») и читаем как одну строку:
+// так номер узнаётся уверенно, и берём из прочитанного только его
+export const readMarks = async (
+  blocks: Block[] | null | undefined,
+  page: HTMLCanvasElement,
+  reader: Reader,
+) => {
+  if (!blocks) return;
+  type Target = { lead: Word[]; next: Word };
+  const targets: Target[] = [];
+  for (const b of blocks)
+    for (const p of b.paragraphs || [])
+      for (const line of p.lines || []) {
+        const ws = (line.words || []).filter((w) => w.bbox && (w.text || '').trim());
+        if (ws.length < 2) continue;
+        const lh = median(ws.map((w) => w.bbox!.y1 - w.bbox!.y0));
+        // Ведущие короткие кусочки перед первым настоящим словом
+        let k = 0;
+        while (k < ws.length - 1 && k < 3 && (ws[k].text || '').trim().length <= 3) k++;
+        if (!k) continue;
+        const lead = ws.slice(0, k);
+        const next = ws[k];
+        const gap = next.bbox!.x0 - lead[lead.length - 1].bbox!.x1;
+        const t0 = (lead[0].text || '').trim();
+        const sure = lead.length === 1 && /^\d{1,2}[.)]$/.test(t0) && (lead[0].confidence ?? 0) >= 85;
+        // Номер отделён от текста широким просветом — как в списке
+        if (sure || gap < lh * 0.8) continue;
+        // Кусочки похожи на номер: цифры или обрывки с низкой уверенностью
+        const looksMark = lead.every(
+          (w) => /^[\d.,)|:;]+$/.test((w.text || '').trim()) || (w.confidence ?? 0) < 70,
+        );
+        if (!looksMark) continue;
+        targets.push({ lead, next });
+      }
+  if (!targets.length || targets.length > 60) return;
+
+  await reader.setParameters({ tessedit_pageseg_mode: '7' });
+  try {
+    for (const t of targets) {
+      const lh = t.next.bbox!.y1 - t.next.bbox!.y0;
+      const x0 = Math.max(0, Math.min(...t.lead.map((w) => w.bbox!.x0)) - Math.round(lh * 0.5));
+      const x1 = Math.min(page.width, t.next.bbox!.x1 + Math.round(lh * 0.2));
+      const y0 = Math.max(0, Math.min(...t.lead.map((w) => w.bbox!.y0), t.next.bbox!.y0) - Math.round(lh * 0.3));
+      const y1 = Math.min(page.height, Math.max(...t.lead.map((w) => w.bbox!.y1), t.next.bbox!.y1) + Math.round(lh * 0.3));
+      if (x1 - x0 < 4 || y1 - y0 < 4) continue;
+      const pad = Math.round(lh * 0.8);
+      const cut = document.createElement('canvas');
+      cut.width = x1 - x0 + pad * 2;
+      cut.height = y1 - y0 + pad * 2;
+      const ctx = cut.getContext('2d', { alpha: false })!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, cut.width, cut.height);
+      ctx.drawImage(page, x0, y0, x1 - x0, y1 - y0, pad, pad, x1 - x0, y1 - y0);
+      const { data } = await reader.recognize(cut, {}, { blocks: true });
+      const got: RWord[] = [];
+      for (const bb of data.blocks || [])
+        for (const p of bb.paragraphs || [])
+          for (const l of p.lines || []) for (const w of l.words || []) got.push(w);
+      if (got.length < 2) continue;
+      // Двоеточие или запятая вместо точки после цифры — та же точка,
+      // которую движок разглядел хуже
+      const mark = (got[0].text || '').trim().replace(/^(\d{1,2})[:,;]$/, '$1.');
+      // Первое слово строки прочитано то же — значит, и номер перед ним
+      // прочитан из того же места. Черту между ними («2. — Заместителю»)
+      // движок иногда добавляет из просвета — её пропускаем
+      const key = (x: string) => x.replace(/[^а-яёa-z]/gi, '').toLowerCase();
+      const word = got.slice(1).find((g) => key(g.text || ''));
+      const same = !!word && key(word.text || '') === key(t.next.text || '');
+      if (!/^\d{1,2}[.)]$/.test(mark) || got[0].confidence < 55 || !same) continue;
+      // Ведущие кусочки заменяем одним словом-номером
+      const first = t.lead[0];
+      first.text = mark;
+      first.confidence = Math.max(got[0].confidence, 90);
+      first.bbox = {
+        x0: Math.min(...t.lead.map((w) => w.bbox!.x0)),
+        y0: Math.min(...t.lead.map((w) => w.bbox!.y0)),
+        x1: Math.max(...t.lead.map((w) => w.bbox!.x1)),
+        y1: t.next.bbox!.y1,
+      };
+      for (const w of t.lead.slice(1)) w.text = '';
+    }
+  } finally {
+    await reader.setParameters({ tessedit_pageseg_mode: '3' });
+  }
+};
+
+const median = (a: number[]) => {
+  if (!a.length) return 0;
+  const s = [...a].sort((x, y) => x - y);
+  return s[Math.floor(s.length / 2)];
+};
+
+// Дочитывание того, что движок на листе пропустил.
+//
+// Строка на серой плашке или бледная строка в конце страницы порой не
+// попадает в текст совсем. Раньше такой кусок уходил в Word картинкой
+// («проветривания.» вставлялось рисунком). Здесь каждое такое место
+// вырезается и читается отдельно; если прочитались уверенные слова,
+// они добавляются в текст листа. Что не прочиталось — остаётся рисунком
+export const readMissed = async (
+  blocks: Block[] | null | undefined,
+  page: HTMLCanvasElement,
+  reader: Reader,
+  spots: { x0: number; y0: number; x1: number; y1: number }[],
+) => {
+  if (!blocks || !spots.length) return 0;
+  let added = 0;
+  await reader.setParameters({ tessedit_pageseg_mode: '6' });
+  try {
+    for (const b of spots.slice(0, 20)) {
+      const h = b.y1 - b.y0;
+      const pad = Math.round(Math.max(10, h * 0.4));
+      const x0 = Math.max(0, b.x0 - pad);
+      const y0 = Math.max(0, b.y0 - pad);
+      const x1 = Math.min(page.width, b.x1 + pad);
+      const y1 = Math.min(page.height, b.y1 + pad);
+      if (x1 - x0 < 8 || y1 - y0 < 8) continue;
+      const cut = document.createElement('canvas');
+      cut.width = x1 - x0 + pad * 2;
+      cut.height = y1 - y0 + pad * 2;
+      const ctx = cut.getContext('2d', { alpha: false })!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, cut.width, cut.height);
+      ctx.drawImage(page, x0, y0, x1 - x0, y1 - y0, pad, pad, x1 - x0, y1 - y0);
+      // Кусок на серой плашке: буквы чуть темнее фона. Растягиваем
+      // яркость куска — фон становится белым, буквы чёрными. Поле вокруг
+      // куска остаётся белым и растяжку не сбивает
+      const im = ctx.getImageData(pad, pad, x1 - x0, y1 - y0);
+      const hist = new Uint32Array(256);
+      for (let i = 0; i < im.data.length; i += 4)
+        hist[(im.data[i] * 0.3 + im.data[i + 1] * 0.59 + im.data[i + 2] * 0.11) | 0]++;
+      const total = im.data.length / 4;
+      let lo = 0;
+      let hi = 255;
+      for (let acc = 0; lo < 255 && (acc += hist[lo]) < total * 0.02; lo++);
+      for (let acc = 0; hi > 0 && (acc += hist[hi]) < total * 0.4; hi--);
+      if (hi - lo > 10) {
+        for (let i = 0; i < im.data.length; i += 4) {
+          const v = im.data[i] * 0.3 + im.data[i + 1] * 0.59 + im.data[i + 2] * 0.11;
+          const o = Math.max(0, Math.min(255, ((v - lo) / (hi - lo)) * 255));
+          im.data[i] = im.data[i + 1] = im.data[i + 2] = o;
+        }
+        ctx.putImageData(im, pad, pad);
+      }
+      const { data } = await reader.recognize(cut, {}, { blocks: true });
+      const lines: Line[] = [];
+      for (const bb of data.blocks || [])
+        for (const p of bb.paragraphs || [])
+          for (const l of p.lines || []) {
+            const ws = (l.words || [])
+              .filter((w) => (w.text || '').trim() && w.confidence >= 60 && lettersOf(w.text) >= 1)
+              .map((w) => ({
+                text: w.text.trim(),
+                confidence: w.confidence,
+                bbox: {
+                  x0: w.bbox.x0 - pad + x0,
+                  y0: w.bbox.y0 - pad + y0,
+                  x1: w.bbox.x1 - pad + x0,
+                  y1: w.bbox.y1 - pad + y0,
+                },
+              }));
+            if (!ws.length) continue;
+            lines.push({
+              text: ws.map((w) => w.text).join(' '),
+              words: ws,
+              bbox: {
+                x0: Math.min(...ws.map((w) => w.bbox.x0)),
+                y0: Math.min(...ws.map((w) => w.bbox.y0)),
+                x1: Math.max(...ws.map((w) => w.bbox.x1)),
+                y1: Math.max(...ws.map((w) => w.bbox.y1)),
+              },
+            });
+          }
+      // Хотя бы одно уверенное слово из трёх букв — это текст, а не рисунок
+      if (!lines.some((l) => (l.words || []).some((w) => lettersOf(w.text || '') >= 3))) continue;
+      // Вырезка захватила и уже прочитанные слова рядом («2026 г.» возле
+      // рукописной даты) — их второй раз не добавляем
+      const old: Bbox[] = [];
+      for (const bb of blocks)
+        for (const p of bb.paragraphs || [])
+          for (const l of p.lines || [])
+            for (const w of l.words || []) if (w.bbox && (w.text || '').trim()) old.push(w.bbox);
+      const known = (q: Bbox) =>
+        old.some((o) => {
+          const ox = Math.min(o.x1, q.x1) - Math.max(o.x0, q.x0);
+          const oy = Math.min(o.y1, q.y1) - Math.max(o.y0, q.y0);
+          return ox > 0 && oy > 0 && ox * oy > (q.x1 - q.x0) * (q.y1 - q.y0) * 0.15;
+        });
+      for (const l of lines) l.words = (l.words || []).filter((w) => !known(w.bbox!));
+      const fresh = lines.filter((l) => (l.words || []).some((w) => lettersOf(w.text || '') >= 3));
+      if (!fresh.length) continue;
+      blocks.push({ paragraphs: [{ lines: fresh }] });
+      added++;
+    }
+  } finally {
+    await reader.setParameters({ tessedit_pageseg_mode: '3' });
+  }
+  return added;
 };
