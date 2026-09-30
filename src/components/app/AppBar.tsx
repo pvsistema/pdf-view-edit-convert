@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { LOGO_URL, APP_NAME } from '@/lib/brand';
 import { useDoc } from '@/context/DocContext';
 import { downloadBlob, formatSize } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
@@ -36,8 +35,6 @@ const AppBar = () => {
   return (
     <header className="sticky top-0 z-50 shrink-0 border-b border-foreground bg-background">
       <div className="flex h-14 items-center gap-1.5 px-2 md:gap-3 md:px-4">
-        {/* Значок программы — слева, как у привычных программ Windows */}
-        <img src={LOGO_URL} alt={APP_NAME} className="hidden h-7 w-auto sm:block" />
         <MenuBar />
 
         {name && (
