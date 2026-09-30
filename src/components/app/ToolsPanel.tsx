@@ -9,13 +9,14 @@ import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { parseRange } from '@/components/app/PrintDialog';
 import { cleanScan } from '@/lib/scanClean';
-import { buildDocx, DOCX_TYPE } from '@/lib/docx';
+import { buildDocx, buildRichDocx, DOCX_TYPE } from '@/lib/docx';
 import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
 import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
 import { readFrames, readMarks, readMissed, rereadWeak } from '@/lib/ocrReread';
 import { missedSpots } from '@/lib/ocrInk';
 import { canvasJpeg, findStamps, withoutInk } from '@/lib/ocrStamps';
+import type { RichPage } from '@/lib/pdfToDocx';
 import { detectSkew, detectTurn, straighten, turnCanvas } from '@/lib/ocrOrient';
 import { fixWords, type SpellFix } from '@/lib/spell/fixWords';
 import OcrTextBox from '@/components/app/OcrTextBox';
@@ -73,7 +74,9 @@ const PAGE_MODE = '3';
 
 // Распознанный лист: номер страницы, её текст и разметка —
 // где заголовки, где абзацы, что набрано жирным
-export type OcrSheet = { no: number; text: string; parts?: OcrPart[] };
+// rich — точный облик страницы, если она из документа с текстом (PDF,
+// сохранённый из Word): шрифты, таблицы, картинки, поля
+export type OcrSheet = { no: number; text: string; parts?: OcrPart[]; rich?: RichPage };
 
 // Готовый текст страницы, если он в ней уже записан.
 //
@@ -491,7 +494,13 @@ const ToolsPanel = () => {
 
         const ready = await readyText(doc, pg.src, readBox);
         if (ready) {
-          sheets.push({ no: i + 1, text: ready.text, parts: ready.parts });
+          // Страница с настоящим текстом: заодно снимаем её точный облик,
+          // чтобы в Word она вышла как оригинал, а не лентой текста
+          const rich = await (async () => {
+            const { richPages } = await import('@/lib/convert/fromPdf');
+            return (await richPages(doc, [pg.src]))[0];
+          })().catch(() => undefined);
+          sheets.push({ no: i + 1, text: ready.text, parts: ready.parts, rich });
           // По такой странице поиск и так работает — берём её как есть
           searchable.push(null);
           setProgress(Math.round(((n + 1) / picked.length) * 100));
@@ -657,7 +666,12 @@ const ToolsPanel = () => {
         ? [{ no: ocrPages[0]?.no ?? 1, text: ocrText, parts: ocrPages[0]?.parts }]
         : ocrPages;
 
-    const bytes = buildDocx(sheets, !edited && ocrPages.length > 1);
+    // Все страницы из документа с текстом и текст не правили — собираем
+    // Word по точному облику исходника
+    const bytes =
+      !edited && ocrPages.length && ocrPages.every((p) => p.rich)
+        ? buildRichDocx(ocrPages.map((p) => p.rich!))
+        : buildDocx(sheets, !edited && ocrPages.length > 1);
 
     downloadBlob(new Blob([bytes as BlobPart], { type: DOCX_TYPE }), `${baseName(name)}-распознано.docx`);
     if (!desktop) toast({ title: 'Готов файл Word', description: 'Распознанный текст' });

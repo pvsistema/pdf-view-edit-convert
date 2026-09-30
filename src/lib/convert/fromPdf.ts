@@ -104,3 +104,46 @@ export const pagesToImages = async (
   }
   return out;
 };
+
+// Документ Word, похожий на исходник. Для страниц, где текст записан
+// как текст (PDF, сохранённый из Word), страница собирается заново:
+// шрифты, размеры, жирный и курсив, таблицы, картинки, поля листа.
+// Страница-скан без текста идёт в документ картинкой во весь лист —
+// чтобы ничего не потерялось. Для распознавания сканов есть отдельный
+// инструмент
+export const richPages = async (doc: any, indexes: number[], onStep?: StepFn) => {
+  const { pageRich } = await import('@/lib/pdf');
+  const { buildRichPage } = await import('@/lib/pdfToDocx');
+  const out: import('@/lib/pdfToDocx').RichPage[] = [];
+  let k = 0;
+  for (const i of indexes) {
+    const { pieces, decor } = await pageRich(doc, i);
+    const letters = pieces.map((p) => p.str).join('').replace(/\s/g, '').length;
+    if (letters < 20) {
+      // Текста почти нет — скан. Кладём страницу картинкой на весь лист
+      const canvas = await renderPageOnce(doc, i, 2);
+      const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
+      const png = blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+      decor.images = png ? [{ x0: 0, y0: 0, x1: decor.W, y1: decor.H, png }] : [];
+    }
+    out.push(buildRichPage(pieces, decor));
+    onStep?.(++k, indexes.length);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  return out;
+};
+
+export const pdfToRichDocx = async (file: File, onStep?: StepFn) => {
+  const { buildRichDocx } = await import('@/lib/docx');
+  const doc = await loadDocFromBytes(await file.arrayBuffer());
+  try {
+    const pages = await richPages(
+      doc,
+      Array.from({ length: doc.numPages }, (_, i) => i),
+      onStep,
+    );
+    return buildRichDocx(pages);
+  } finally {
+    closeDoc(doc);
+  }
+};

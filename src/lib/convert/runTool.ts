@@ -19,6 +19,7 @@ import {
 } from '@/lib/convert/pdfOps';
 import {
   pagesToImages,
+  pdfToRichDocx,
   readAllText,
   toExcelHtml,
   toHtmlPage,
@@ -123,13 +124,15 @@ export const runTool = async (
     }
 
     case 'to-word': {
-      const pages = await readAllText(first, onStep);
-      // Настоящий .docx, а не веб-страница с подменённым расширением:
-      // на такую подделку Word ругается «файл повреждён»
-      const doc = buildDocx(
-        pages.map((t, i) => ({ no: i + 1, text: t })),
-        pages.length > 1,
-      );
+      // Документ собирается по облику исходника: шрифты, таблицы,
+      // картинки, поля. Если что-то пошло не так — хотя бы текстом
+      const doc = await pdfToRichDocx(first, onStep).catch(async () => {
+        const pages = await readAllText(first, onStep);
+        return buildDocx(
+          pages.map((t, i) => ({ no: i + 1, text: t })),
+          pages.length > 1,
+        );
+      });
       downloadBlob(new Blob([doc as BlobPart], { type: DOCX_TYPE }), `${base(first)}.docx`);
       return { message: 'Готов файл Word', note: 'Открывается в Word и других редакторах' };
     }

@@ -480,3 +480,69 @@ export const findOnPage = async (
 // Сохранение и печать вынесены в @/lib/files — их можно использовать
 // без загрузки движка просмотра
 export { downloadBlob, canvasToBlob, printBlob, formatSize } from '@/lib/files';
+// Кусочек текста в пунктах, с настоящим шрифтом и размером — для точной
+// сборки документа Word из PDF
+export type RichPiece = {
+  str: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  size: number;
+  font: string;
+  angle: number;
+};
+
+// Страница целиком: текст со шрифтами и оформление — линии, таблицы,
+// заливки, картинки. Размеры в пунктах, от левого верхнего угла
+export const pageRich = async (doc: any, pageIndex: number) => {
+  const lib = await engineReady();
+  const { readDecor } = await import('@/lib/pdfDecor');
+  const page = await doc.getPage(pageIndex + 1);
+  const viewport = page.getViewport({ scale: 1, rotation: page.rotate });
+  const W = viewport.width || 1;
+  const H = viewport.height || 1;
+  const content = await page.getTextContent({ includeMarkedContent: false });
+
+  const pieces: RichPiece[] = [];
+  for (const item of content.items as any[]) {
+    const str = String(item.str ?? '');
+    if (!str) continue;
+    const tr = lib.Util.transform(viewport.transform, item.transform);
+    const size = Math.hypot(tr[2], tr[3]) || 10;
+    const w = item.width || Math.hypot(tr[0], tr[1]) * str.length * 0.5;
+    pieces.push({
+      str,
+      x: tr[4],
+      y: tr[5] - size,
+      w,
+      h: size,
+      size,
+      font: item.fontName,
+      angle: Math.atan2(tr[1], tr[0]),
+    });
+  }
+
+  // Рисунки вырезаем из отрисованной страницы: так они выходят такими,
+  // какими их видно на листе, с обрезкой и поворотом
+  const SCALE = 2;
+  let canvas: HTMLCanvasElement | null = null;
+  const crop = async (b: { x0: number; y0: number; x1: number; y1: number }) => {
+    if (!canvas) canvas = await drawPage(doc, pageIndex, SCALE, 0, 1);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round((b.x1 - b.x0) * SCALE));
+    c.height = Math.max(1, Math.round((b.y1 - b.y0) * SCALE));
+    c.getContext('2d')!.drawImage(canvas, b.x0 * SCALE, b.y0 * SCALE, c.width, c.height, 0, 0, c.width, c.height);
+    const blob: Blob | null = await new Promise((res) => c.toBlob(res, 'image/png'));
+    return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+  };
+
+  const decor = await readDecor(page, viewport.transform, W, H, lib as never, crop);
+
+  try {
+    page.cleanup();
+  } catch {
+    /* страница уже освобождена */
+  }
+  return { pieces, decor };
+};

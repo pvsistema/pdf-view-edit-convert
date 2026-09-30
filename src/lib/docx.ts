@@ -10,6 +10,7 @@
 
 import { zip } from '@/lib/zip';
 import type { FloatImage, PartImage, Seg } from '@/lib/ocrLayout';
+import type { RAnchor, RichPage, RPara, RRun, RTable } from '@/lib/pdfToDocx';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -276,3 +277,159 @@ export const buildDocx = (pages: DocxPage[], withMarks: boolean) => {
 };
 
 export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+// ————— Документ Word из PDF, сохранённого из Word —————
+//
+// Здесь всё берётся из точной разметки страницы: поля и размер листа,
+// шрифт, размер и начертание каждого куска текста, межстрочный интервал,
+// отступы, табуляции, таблицы с объединёнными ячейками и заливкой,
+// картинки на своих местах. Поэтому документ получается похожим на
+// исходный, а не лентой текста
+
+const tw = (pt: number) => Math.round(pt * 20);
+const emuOf = (pt: number) => Math.max(1, Math.round(pt * 12700));
+const eighths = (pt: number) => Math.max(2, Math.min(96, Math.round(pt * 8)));
+
+const richRun = (r: RRun, base: RichPage) => {
+  const rp: string[] = [];
+  if (r.font) rp.push(`<w:rFonts w:ascii="${esc(r.font)}" w:hAnsi="${esc(r.font)}" w:cs="${esc(r.font)}"/>`);
+  if ('t' in r) {
+    if (r.b) rp.push('<w:b/><w:bCs/>');
+    if (r.i) rp.push('<w:i/><w:iCs/>');
+  }
+  if (r.u) rp.push('<w:u w:val="single"/>');
+  if (r.size && Math.abs(r.size - base.size) >= 0.25) {
+    const h = Math.round(r.size * 2);
+    rp.push(`<w:sz w:val="${h}"/><w:szCs w:val="${h}"/>`);
+  }
+  // Сдвиг вверх или вниз — верхние и нижние индексы («м³», «H₂O»)
+  if ('t' in r && r.raise) rp.push(`<w:position w:val="${Math.round(r.raise * 2)}"/>`);
+  const props = rp.length ? `<w:rPr>${rp.join('')}</w:rPr>` : '';
+  if ('tab' in r) return `<w:r>${props}<w:tab/></w:r>`;
+  return `<w:r>${props}<w:t xml:space="preserve">${esc(r.t)}</w:t></w:r>`;
+};
+
+const anchorImg = (a: RAnchor, media: Media[]) => {
+  const n = media.length + 1;
+  const id = `rIdImg${n}`;
+  media.push({ name: `image${n}.png`, png: a.png, id });
+  const cx = emuOf(a.w);
+  const cy = emuOf(a.h);
+  return `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${251658240 + n}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:posOffset>${Math.round(a.x * 12700)}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>${Math.round(a.y * 12700)}</wp:posOffset></wp:positionV><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="${n}" name="Рисунок ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
+};
+
+const richPara2 = (p: RPara, media: Media[], page: RichPage, tabBase = 0) => {
+  const pp: string[] = [];
+  if (p.pageBreak) pp.push('<w:pageBreakBefore/>');
+  if (p.border) pp.push(`<w:pBdr><w:bottom w:val="single" w:sz="${eighths(p.border)}" w:space="0" w:color="000000"/></w:pBdr>`);
+  const tabs = p.tabs.filter((t) => t.pos - tabBase > 1);
+  if (tabs.length)
+    pp.push(`<w:tabs>${tabs.map((t) => `<w:tab w:val="${t.kind}" w:pos="${tw(t.pos - tabBase)}"/>`).join('')}</w:tabs>`);
+  // Межстрочный интервал — точный, как в PDF: иначе строки у Word
+  // расходятся со строками исходника, и страница «уплывает»
+  const empty = !p.runs.length;
+  pp.push(
+    `<w:spacing w:before="${tw(p.before)}" w:after="0" w:line="${tw(p.line)}" w:lineRule="exact"/>`,
+  );
+  if (p.left || p.firstLine) {
+    const fl = p.firstLine > 0 ? ` w:firstLine="${tw(p.firstLine)}"` : p.firstLine < 0 ? ` w:hanging="${tw(-p.firstLine)}"` : '';
+    pp.push(`<w:ind w:left="${tw(p.left)}"${fl}/>`);
+  }
+  if (p.align !== 'left') pp.push(`<w:jc w:val="${p.align}"/>`);
+  // У пустого абзаца-просвета шрифт крошечный: иначе Word растянет его
+  // по высоте шрифта, а не по заданному интервалу
+  if (empty) pp.push('<w:rPr><w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr>');
+  const anchors = (p.anchors || []).map((a) => anchorImg(a, media)).join('');
+  const runs = p.runs.map((r) => richRun(r, page)).join('');
+  return `<w:p><w:pPr>${pp.join('')}</w:pPr>${anchors}${runs}</w:p>`;
+};
+
+const richTable = (t: RTable, media: Media[], page: RichPage) => {
+  const grid = `<w:tblGrid>${t.cols.map((c) => `<w:gridCol w:w="${tw(c)}"/>`).join('')}</w:tblGrid>`;
+  const side = (tag: string, pt: number) =>
+    pt ? `<w:${tag} w:val="single" w:sz="${eighths(pt)}" w:space="0" w:color="000000"/>` : `<w:${tag} w:val="nil"/>`;
+  const rows = t.rows
+    .map((r) => {
+      let col = 0;
+      const cells = r.cells
+        .map((c) => {
+          const width = t.cols.slice(col, col + c.span).reduce((a, b) => a + b, 0);
+          col += c.span;
+          const pr: string[] = [`<w:tcW w:w="${tw(width)}" w:type="dxa"/>`];
+          if (c.span > 1) pr.push(`<w:gridSpan w:val="${c.span}"/>`);
+          if (c.vmerge) pr.push(c.vmerge === 'restart' ? '<w:vMerge w:val="restart"/>' : '<w:vMerge/>');
+          pr.push(
+            `<w:tcBorders>${side('top', c.borders.t)}${side('left', c.borders.l)}${side('bottom', c.borders.b)}${side('right', c.borders.r)}</w:tcBorders>`,
+          );
+          if (c.fill) pr.push(`<w:shd w:val="clear" w:color="auto" w:fill="${c.fill}"/>`);
+          if (c.valign !== 'top') pr.push(`<w:vAlign w:val="${c.valign}"/>`);
+          // Отступы и табуляции абзацев ячейки считаются от её поля
+          // Табуляции и отступы в разметке уже отсчитаны от поля ячейки
+          const inner = c.paras.length
+            ? c.paras.map((p) => richPara2(p, media, page)).join('')
+            : '<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p>';
+          return `<w:tc><w:tcPr>${pr.join('')}</w:tcPr>${inner}</w:tc>`;
+        })
+        .join('');
+      // Высота строки — не меньше, чем в исходнике
+      return `<w:tr><w:trPr><w:trHeight w:val="${tw(r.h)}" w:hRule="atLeast"/></w:trPr>${cells}</w:tr>`;
+    })
+    .join('');
+  // Отступ таблицы от поля — чтобы она стояла там же, где в исходнике.
+  // Word считает его от края текста до края ячейки, с учётом поля ячейки
+  return `<w:tbl><w:tblPr><w:tblW w:w="${tw(t.cols.reduce((a, b) => a + b, 0))}" w:type="dxa"/><w:tblInd w:w="${tw(t.indent - page.margins.l)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="108" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr>${grid}${rows}</w:tbl>`;
+};
+
+// Документ из страниц PDF. У каждой страницы — свой раздел со своими
+// полями и размером листа: альбомная страница остаётся альбомной
+export const buildRichDocx = (pages: RichPage[]) => {
+  const media: Media[] = [];
+  const main = pages[0];
+  const body: string[] = [];
+  const sect = (p: RichPage) =>
+    `<w:sectPr><w:pgSz w:w="${tw(p.W)}" w:h="${tw(p.H)}"${p.W > p.H ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="${tw(p.margins.t)}" w:right="${tw(p.margins.r)}" w:bottom="${tw(p.margins.b)}" w:left="${tw(p.margins.l)}" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>`;
+
+  pages.forEach((pg, k) => {
+    const parts = pg.blocks.map((b) => ('table' in b ? richTable(b.table, media, pg) : richPara2(b.p, media, pg)));
+    if (k < pages.length - 1) {
+      // Раздел кончается последним абзацем страницы: в него кладём
+      // описание листа, и следующая страница начинается с нового листа
+      const last = parts.length - 1;
+      const isPara = !('table' in pg.blocks[last]);
+      const brk = sect(pg).replace('<w:sectPr>', '<w:sectPr><w:type w:val="nextPage"/>');
+      if (isPara) parts[last] = parts[last].replace('<w:pPr>', `<w:pPr>${brk}`);
+      else parts.push(`<w:p><w:pPr>${brk}</w:pPr></w:p>`);
+    }
+    body.push(...parts);
+  });
+  const last = pages[pages.length - 1];
+
+  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>${body.join('')}${sect(last).replace('<w:sectPr>', '<w:sectPr><w:type w:val="nextPage"/>')}</w:body></w:document>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="png" ContentType="image/png"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${media
+    .map(
+      (m) =>
+        `<Relationship Id="${m.id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.name}"/>`,
+    )
+    .join('')}</Relationships>`;
+  // Основной шрифт и размер документа — самые частые в исходнике
+  const f = esc(main.font);
+  const half = Math.round(main.size * 2);
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="${f}" w:hAnsi="${f}" w:cs="${f}" w:eastAsia="${f}"/><w:sz w:val="${half}"/><w:szCs w:val="${half}"/><w:lang w:val="ru-RU"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="a"><w:name w:val="Normal"/></w:style><w:style w:type="table" w:default="1" w:styleId="t"><w:name w:val="Normal Table"/><w:tblPr><w:tblCellMar><w:left w:w="108" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>`;
+
+  return zip([
+    { name: '[Content_Types].xml', data: enc(contentTypes) },
+    { name: '_rels/.rels', data: enc(rels) },
+    { name: 'word/_rels/document.xml.rels', data: enc(docRels) },
+    { name: 'word/document.xml', data: enc(document) },
+    { name: 'word/styles.xml', data: enc(styles) },
+    ...media.map((m) => ({ name: `word/media/${m.name}`, data: m.png })),
+  ]);
+};
