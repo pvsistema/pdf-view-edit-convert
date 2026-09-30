@@ -15,6 +15,9 @@ import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
 import { readFrames, rereadWeak } from '@/lib/ocrReread';
 import { detectTurn, turnCanvas } from '@/lib/ocrOrient';
+import { fixWords } from '@/lib/spell/fixWords';
+import { checkWords, warmSpeller } from '@/lib/spell/speller';
+import TermsDialog from '@/components/app/TermsDialog';
 import {
   brokenFontsOf,
   cropBox,
@@ -173,6 +176,24 @@ const ToolsPanel = () => {
   // скан движок читает лучше как есть, а для выцветших копий её можно
   // включить галочкой
   const [clean, setClean] = useState(false);
+  // Исправление ошибок распознавания по словарю. Выбор запоминается
+  const [spell, setSpellRaw] = useState(() => {
+    try {
+      return localStorage.getItem('pvs-ocr-spell') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const setSpell = (v: boolean) => {
+    setSpellRaw(v);
+    try {
+      localStorage.setItem('pvs-ocr-spell', v ? '1' : '0');
+    } catch {
+      /* не страшно */
+    }
+  };
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [spellFixed, setSpellFixed] = useState(0);
 
   // Сколько листов уйдёт в работу при нынешнем выборе —
   // по этому числу считается полоса хода у распознавания
@@ -419,6 +440,10 @@ const ToolsPanel = () => {
 
       // Какие листы разбирать. По умолчанию весь документ, но в толстом
       // скане можно указать только нужные — это экономит много времени
+      // Словарь грузится в фоне, пока движок читает первый лист
+      if (spell) warmSpeller();
+      let fixedTotal = 0;
+
       const picked =
         ocrScope === 'current'
           ? [active]
@@ -508,6 +533,10 @@ const ToolsPanel = () => {
         // Досмотр рамок бланка: номер документа, код, числа в клетках
         await readFrames(data.blocks, sheet, worker as never).catch(() => undefined);
 
+        // Ошибки распознавания — «оргаиизация», «выработкн» — правим
+        // по словарю. Только слова, в которых сам движок сомневался
+        if (spell) fixedTotal += await fixWords(data.blocks, checkWords).catch(() => 0);
+
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
         const layout = readLayout(data, {
@@ -534,6 +563,7 @@ const ToolsPanel = () => {
       }
 
       await worker.terminate();
+      setSpellFixed(fixedTotal);
 
       const all = joinPages(sheets);
       setOcrText(all);
@@ -748,6 +778,34 @@ const ToolsPanel = () => {
             </label>
           )}
 
+          {t.key === 'ocr' && !locked && (
+            <div className="flex items-start gap-2 border-b border-border px-4 py-3">
+              <input
+                id="ocr-spell"
+                type="checkbox"
+                checked={spell}
+                disabled={!!busy}
+                onChange={(e) => setSpell(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary disabled:opacity-50"
+              />
+              <span className="min-w-0 flex-1">
+                <label htmlFor="ocr-spell" className="block cursor-pointer text-[0.82rem] font-bold">
+                  Исправлять по словарю
+                </label>
+                <span className="mt-0.5 block text-[0.76rem] leading-snug text-muted-foreground">
+                  «Оргаиизация» → «организация». Фамилии и сокращения не трогает
+                </span>
+                <button
+                  onClick={() => setTermsOpen(true)}
+                  disabled={!!busy}
+                  className="mt-1.5 text-[0.76rem] font-bold text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                >
+                  Мои термины и названия
+                </button>
+              </span>
+            </div>
+          )}
+
           {/* Выбор листов показываем только у распознавания: в толстом
               скане обычно нужна пара страниц, а не вся пачка */}
           {t.key === 'ocr' && !locked && pages.length > 1 && (
@@ -810,6 +868,16 @@ const ToolsPanel = () => {
         {ocrText && (
           <div className="border-b border-border p-4">
             <span className="label-caps">Распознанный текст</span>
+            {spellFixed > 0 && (
+              <span className="mt-1 block text-[0.74rem] text-muted-foreground">
+                Исправлено по словарю: {spellFixed}{' '}
+                {spellFixed % 10 === 1 && spellFixed % 100 !== 11
+                  ? 'слово'
+                  : [2, 3, 4].includes(spellFixed % 10) && ![12, 13, 14].includes(spellFixed % 100)
+                    ? 'слова'
+                    : 'слов'}
+              </span>
+            )}
 
             {/* Передача документа дальше — как в промышленных программах
                 распознавания: один и тот же результат можно отправить
@@ -878,6 +946,7 @@ const ToolsPanel = () => {
       </div>
 
       {showAct && <ActivateDialog onClose={() => setShowAct(false)} />}
+      {termsOpen && <TermsDialog onClose={() => setTermsOpen(false)} />}
     </aside>
   );
 };
