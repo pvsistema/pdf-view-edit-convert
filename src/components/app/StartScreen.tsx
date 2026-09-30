@@ -5,8 +5,6 @@ import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { readRecent, clearRecent, whenLabel, sizeLabel, type RecentDoc } from '@/lib/recent';
 
-type Tab = 'open' | 'scan' | 'recent';
-
 type Props = {
   // Открыть файл в работу
   onFile: (file: File) => void;
@@ -15,19 +13,17 @@ type Props = {
   onConvert: (kind: string) => void;
 };
 
-const TABS: { id: Tab; icon: string; label: string }[] = [
-  { id: 'open', icon: 'FolderOpen', label: 'Открыть' },
-  { id: 'scan', icon: 'Scan', label: 'Сканировать' },
-  { id: 'recent', icon: 'Clock', label: 'Последние' },
-];
-
-// Стартовое окно: слева закладки с видами работ, справа сами задачи.
-// Человек сразу видит, что программа умеет, и начинает с нужного
+// Стартовое окно — всё на одном экране, без закладок.
+//
+// Раньше виды работ прятались за тремя закладками слева: чтобы увидеть
+// сканер или последние файлы, нужно было догадаться переключиться.
+// Теперь человек сразу видит три вещи: куда бросить файл, что можно
+// сделать и с чем он работал недавно. Надписи обычными буквами, а не
+// заглавными — так их быстрее читать
 const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
   const { loading } = useDoc();
   const tabsApi = useTabs();
   const input = useRef<HTMLInputElement>(null);
-  const [tab, setTab] = useState<Tab>('open');
   const [over, setOver] = useState(false);
   const [recent, setRecent] = useState<RecentDoc[]>(() => readRecent());
 
@@ -54,193 +50,148 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
     input.current?.click();
   };
 
-  const task = (icon: string, title: string, note: string, fn: () => void, accent?: boolean) => (
+  // Распознавание работает внутри открытого документа — сначала
+  // открываем файл и подсказываем, где кнопка
+  const recognize = () => {
+    toast({
+      title: 'Выберите скан',
+      description: 'После открытия нажмите «Распознать» в панели инструментов справа',
+    });
+    input.current?.click();
+  };
+
+  // Плитка задачи: значок, короткое название и пояснение в одну строку
+  const tile = (icon: string, title: string, note: string, fn: () => void, tint: string) => (
     <button
       key={title}
       onClick={fn}
       disabled={loading}
-      className="flex w-full items-center gap-3 border border-border bg-card px-3 py-3 text-left transition-colors hover:border-primary hover:bg-background disabled:opacity-50 md:gap-4 md:px-5 md:py-4"
+      className="group flex items-center gap-3 border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-primary hover:bg-background disabled:opacity-50"
     >
-      <span
-        className={`flex h-9 w-9 shrink-0 items-center justify-center md:h-11 md:w-11 ${
-          accent ? 'bg-primary text-primary-foreground' : 'bg-secondary text-primary'
-        }`}
-      >
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center ${tint}`}>
         <Icon name={icon} size={20} />
       </span>
       <span className="min-w-0">
-        <span className="block font-head text-[0.85rem] font-bold uppercase leading-tight tracking-[-0.01em] md:text-[0.98rem]">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[0.78rem] text-muted-foreground md:text-[0.86rem]">{note}</span>
+        <span className="block font-head text-[0.95rem] font-bold leading-tight">{title}</span>
+        <span className="mt-0.5 block text-[0.8rem] leading-snug text-muted-foreground">{note}</span>
       </span>
-      <Icon name="ChevronRight" size={16} className="ml-auto shrink-0 text-muted-foreground" />
     </button>
   );
 
   return (
-    // На телефоне колонка с видами работ съедала половину экрана,
-    // поэтому там она превращается в полосу закладок сверху
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:flex-row">
-      {/* Закладки видов работ — как в привычных деловых программах */}
-      <div className="flex shrink-0 overflow-x-auto border-b border-border bg-panel text-panel-foreground md:w-[210px] md:flex-col md:overflow-visible md:border-b-0 md:border-r md:py-3">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => {
-              setTab(t.id);
-              if (t.id === 'recent') setRecent(readRecent());
+    <div className="min-h-0 flex-1 overflow-auto bg-background">
+      <div className="mx-auto grid max-w-[1180px] gap-6 px-4 py-5 md:px-8 md:py-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0">
+          {/* Главное действие — открыть документ. Большое поле: файл можно
+              бросить мышью или выбрать кнопкой */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOver(true);
             }}
-            className={`flex shrink-0 items-center gap-2 whitespace-nowrap border-b-[3px] px-4 py-3 text-left transition-colors md:gap-3 md:border-b-0 md:border-l-[3px] md:px-5 ${
-              tab === t.id
-                ? 'border-primary bg-panel-foreground/10 font-bold'
-                : 'border-transparent hover:bg-panel-foreground/5'
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setOver(false);
+              take(e.dataTransfer.files?.[0]);
+            }}
+            className={`flex flex-col items-center justify-center border-2 border-dashed px-4 py-8 text-center transition-colors md:py-10 ${
+              over ? 'border-primary bg-card' : 'border-border bg-card/60'
             }`}
           >
-            <Icon name={t.icon} size={17} />
-            <span className="font-head text-[0.8rem] uppercase tracking-[0.02em] md:text-[0.86rem]">
-              {t.label}
-            </span>
-          </button>
-        ))}
-
-        <div className="mt-auto hidden px-5 pb-1 pt-4 text-[0.72rem] uppercase tracking-[0.14em] text-panel-foreground/50 md:block">
-          Файлы обрабатываются
-          <br />
-          на вашем компьютере
-        </div>
-      </div>
-
-      <div className="min-w-0 flex-1 overflow-auto px-4 py-5 md:px-8 md:py-7">
-        {tab === 'open' && (
-          <>
-            <h1 className="font-head text-[1.15rem] font-black uppercase tracking-[-0.02em] md:text-[1.6rem]">
-              Просмотр и правка PDF
-            </h1>
-
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setOver(true);
-              }}
-              onDragLeave={() => setOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setOver(false);
-                take(e.dataTransfer.files?.[0]);
-              }}
-              className={`mt-4 flex flex-col items-center justify-center border-2 border-dashed px-4 py-7 text-center md:px-6 md:py-10 transition-colors ${
-                over ? 'border-primary bg-card' : 'border-border bg-card/60'
-              }`}
-            >
-              <Icon
-                name={loading ? 'LoaderCircle' : 'FileUp'}
-                size={32}
-                className={loading ? 'animate-spin text-primary' : 'text-primary'}
-              />
-              <p className="mt-4 font-head text-[1rem] font-bold uppercase">
-                {loading ? 'Открываю документ' : 'Перетащите файл сюда'}
-              </p>
-              <button
-                className="btn-block mt-5"
-                onClick={() => input.current?.click()}
-                disabled={loading}
-              >
-                <Icon name="FolderOpen" size={17} />
-                Открыть документ PDF
-              </button>
-            </div>
-
-            <h2 className="mt-8 font-head text-[1rem] font-black uppercase tracking-[-0.02em] md:text-[1.2rem]">
-              Конвертация документов
-            </h2>
-            <div className="mt-4 grid gap-2">
-              {task('FileType', 'Конвертировать в Word', 'Редактируемый документ', () =>
-                onConvert('word'),
-              )}
-              {task('Sheet', 'Конвертировать в Excel', 'Таблица из документа', () =>
-                onConvert('excel'),
-              )}
-              {task('Image', 'Конвертировать в JPG', 'Каждая страница картинкой', () =>
-                onConvert('jpg'),
-              )}
-              {task('ScanText', 'Распознать текст', 'Скан превращается в текст', () =>
-                onConvert('ocr'),
-              )}
-            </div>
-          </>
-        )}
-
-        {tab === 'scan' && (
-          <>
-            <h1 className="font-head text-[1.15rem] font-black uppercase tracking-[-0.02em] md:text-[1.6rem]">
-              Сканирование
-            </h1>
-            <p className="mt-3 max-w-[40em] text-muted-foreground">
-              Получите изображение со сканера и работайте с ним как с обычным документом.
+            <Icon
+              name={loading ? 'LoaderCircle' : 'FileUp'}
+              size={34}
+              className={loading ? 'animate-spin text-primary' : 'text-primary'}
+            />
+            <p className="mt-3 font-head text-[1.15rem] font-bold">
+              {loading ? 'Открываю документ…' : 'Откройте документ PDF'}
             </p>
-            <div className="mt-6 grid gap-2">
-              {task('Scan', 'Сканировать страницу', 'Один лист со сканера', () => onScan(false), true)}
-              {task('Layers', 'Пакетное сканирование', 'Несколько листов подряд', () =>
-                onScan(true),
-              )}
-            </div>
-          </>
-        )}
-
-        {tab === 'recent' && (
-          <>
-            <div className="flex items-center gap-3">
-              <h1 className="font-head text-[1.15rem] font-black uppercase tracking-[-0.02em] md:text-[1.6rem]">
-                Последние документы
-              </h1>
-              {recent.length > 0 && (
-                <button
-                  onClick={() => {
-                    clearRecent();
-                    setRecent([]);
-                  }}
-                  className="ml-auto text-[0.84rem] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                >
-                  Очистить список
-                </button>
-              )}
-            </div>
-
-            {recent.length === 0 ? (
-              <div className="mt-6 border border-dashed border-border bg-card/60 px-6 py-14 text-center">
-                <Icon name="Clock" size={26} className="text-muted-foreground" />
-                <p className="mt-3 text-muted-foreground">
-                  Здесь появятся документы, с которыми вы работали
-                </p>
-              </div>
-            ) : (
-              <div className="mt-5 grid gap-2">
-                {recent.map((d) => (
-                  <button
-                    key={`${d.name}-${d.at}`}
-                    onClick={() => reopen(d)}
-                    className="flex items-center gap-4 border border-border bg-card px-5 py-3 text-left transition-colors hover:border-primary hover:bg-background"
-                  >
-                    <Icon name="FileText" size={20} className="shrink-0 text-primary" />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{d.name}</span>
-                      <span className="text-[0.82rem] text-muted-foreground">
-                        {whenLabel(d.at)}
-                        {sizeLabel(d.size) ? ` · ${sizeLabel(d.size)}` : ''}
-                      </span>
-                    </span>
-                    <Icon
-                      name="ChevronRight"
-                      size={16}
-                      className="ml-auto shrink-0 text-muted-foreground"
-                    />
-                  </button>
-                ))}
-              </div>
+            {!loading && (
+              <p className="mt-1 text-[0.88rem] text-muted-foreground">
+                Перетащите файл в это окно или нажмите кнопку
+              </p>
             )}
-          </>
-        )}
+            <button
+              className="btn-block mt-5 !px-8 !py-4 normal-case !tracking-normal !text-[0.95rem]"
+              onClick={() => input.current?.click()}
+              disabled={loading}
+            >
+              <Icon name="FolderOpen" size={18} />
+              Выбрать файл
+            </button>
+          </div>
+
+          <h2 className="mt-8 font-head text-[1.05rem] font-bold">Что нужно сделать?</h2>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {tile('Scan', 'Сканировать', 'Лист со сканера сразу в PDF', () => onScan(false), 'bg-primary text-primary-foreground')}
+            {tile('Layers', 'Сканировать несколько листов', 'Стопка бумаг в один документ', () => onScan(true), 'bg-secondary text-primary')}
+            {tile('FileText', 'PDF в Word', 'Редактируемый документ', () => onConvert('to-word'), 'bg-secondary text-blue-700')}
+            {tile('Sheet', 'PDF в Excel', 'Таблицы из документа', () => onConvert('to-excel'), 'bg-secondary text-emerald-700')}
+            {tile('ScanText', 'Распознать текст', 'Из скана — текст, который можно править', recognize, 'bg-secondary text-primary')}
+            {tile('Image', 'PDF в картинки', 'Каждая страница — файл JPG', () => onConvert('to-jpg'), 'bg-secondary text-amber-700')}
+            {tile('Combine', 'Объединить файлы', 'Несколько PDF в один', () => onConvert('merge'), 'bg-secondary text-primary')}
+            {tile('Minimize2', 'Сжать PDF', 'Чтобы файл проходил по почте', () => onConvert('compress'), 'bg-secondary text-primary')}
+          </div>
+          <button
+            onClick={() => onConvert('')}
+            className="mt-3 inline-flex items-center gap-1.5 text-[0.88rem] font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Все инструменты
+            <Icon name="ArrowRight" size={14} />
+          </button>
+        </div>
+
+        {/* Последние документы — сразу на виду, одним щелчком */}
+        <aside className="min-w-0 lg:border-l lg:border-border lg:pl-6">
+          <div className="flex items-center gap-3">
+            <h2 className="font-head text-[1.05rem] font-bold">Недавние документы</h2>
+            {recent.length > 0 && (
+              <button
+                onClick={() => {
+                  clearRecent();
+                  setRecent([]);
+                }}
+                className="ml-auto text-[0.8rem] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Очистить
+              </button>
+            )}
+          </div>
+
+          {recent.length === 0 ? (
+            <div className="mt-3 border border-dashed border-border px-5 py-8 text-center">
+              <Icon name="Clock" size={22} className="text-muted-foreground" />
+              <p className="mt-2 text-[0.86rem] text-muted-foreground">
+                Здесь появятся документы, с которыми вы работали
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-1">
+              {recent.slice(0, 10).map((d) => (
+                <button
+                  key={`${d.name}-${d.at}`}
+                  onClick={() => reopen(d)}
+                  className="flex items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-card"
+                >
+                  <Icon name="FileText" size={18} className="shrink-0 text-primary" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[0.9rem] font-medium">{d.name}</span>
+                    <span className="text-[0.78rem] text-muted-foreground">
+                      {whenLabel(d.at)}
+                      {sizeLabel(d.size) ? ` · ${sizeLabel(d.size)}` : ''}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <p className="mt-6 flex items-start gap-2 text-[0.8rem] leading-snug text-muted-foreground">
+            <Icon name="ShieldCheck" size={15} className="mt-0.5 shrink-0" />
+            Документы обрабатываются на вашем компьютере и никуда не отправляются
+          </p>
+        </aside>
       </div>
 
       <input

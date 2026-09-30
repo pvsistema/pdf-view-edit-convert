@@ -36,6 +36,8 @@ const AppBar = () => {
   return (
     <header className="sticky top-0 z-50 shrink-0 border-b border-foreground bg-background">
       <div className="flex h-14 items-center gap-1.5 px-2 md:gap-3 md:px-4">
+        {/* Значок программы — слева, как у привычных программ Windows */}
+        <img src={LOGO_URL} alt={APP_NAME} className="hidden h-7 w-auto sm:block" />
         <MenuBar />
 
         {name && (
@@ -75,7 +77,7 @@ const AppBar = () => {
             <>
               <button
                 onClick={() => setShowPrint({})}
-                className="inline-flex h-10 items-center gap-2 border border-foreground px-2.5 md:px-4 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background"
+                className="inline-flex h-10 items-center gap-2 border border-foreground px-2.5 md:px-4 font-head text-[0.84rem] font-semibold transition-colors hover:bg-foreground hover:text-background"
                 title="Печать (Ctrl+P)"
               >
                 <Icon name="Printer" size={15} />
@@ -83,7 +85,7 @@ const AppBar = () => {
               </button>
               <button
                 onClick={save}
-                className="inline-flex h-10 items-center gap-2 bg-primary px-2.5 md:px-4 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] text-primary-foreground transition-colors hover:bg-deep"
+                className="inline-flex h-10 items-center gap-2 bg-primary px-2.5 md:px-4 font-head text-[0.84rem] font-semibold text-primary-foreground transition-colors hover:bg-deep"
                 title="Сохранить (Ctrl+S)"
               >
                 <Icon name="Save" size={15} />
@@ -95,7 +97,7 @@ const AppBar = () => {
           <button
             onClick={() => setShowAct(true)}
             title={isFull ? `Полная версия — ${license?.org}` : 'Активировать полную версию'}
-            className={`inline-flex h-10 items-center gap-2 px-2.5 md:px-3 font-head text-[0.7rem] font-bold uppercase tracking-[0.1em] transition-colors ${
+            className={`inline-flex h-10 items-center gap-2 px-2.5 md:px-3 font-head text-[0.84rem] font-semibold transition-colors ${
               isFull
                 ? 'border border-primary text-primary hover:bg-primary hover:text-primary-foreground'
                 : 'border border-foreground hover:bg-foreground hover:text-background'
@@ -105,12 +107,7 @@ const AppBar = () => {
             <span className="hidden lg:inline">{isFull ? 'Полная версия' : 'Активировать'}</span>
           </button>
 
-          <div className="flex items-center gap-2.5 sm:border-l sm:border-border sm:pl-3">
-            <span className="hidden font-head text-[0.76rem] font-bold uppercase tracking-[0.12em] sm:inline">
-              ПВ-Система&nbsp;PDF
-            </span>
-            <img src={LOGO_URL} alt={APP_NAME} className="h-7 w-auto" />
-          </div>
+
         </div>
       </div>
 

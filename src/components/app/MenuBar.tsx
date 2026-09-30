@@ -209,10 +209,10 @@ const MenuBar = () => {
   };
 
   const fileItems: MenuItem[] = [
-    { icon: 'FolderOpen', label: 'Открыть', hint: 'Ctrl+O', fn: () => openInput.current?.click(), on: true },
-    { icon: 'FilePlus2', label: 'Добавить файл', fn: () => appendInput.current?.click(), on: has },
+    { icon: 'FolderOpen', label: 'Открыть…', hint: 'Ctrl+O', fn: () => openInput.current?.click(), on: true },
+    { icon: 'FilePlus2', label: 'Добавить страницы из файла…', note: 'В конец открытого документа', fn: () => appendInput.current?.click(), on: has },
     { icon: 'Save', label: 'Сохранить', hint: 'Ctrl+S', fn: save, on: has, sep: true },
-    { icon: 'SaveAll', label: 'Сохранить как…', hint: 'Ctrl+Shift+S', fn: saveAs, on: has },
+    { icon: 'SaveAll', label: 'Сохранить как…', note: 'Под другим именем или в другую папку', hint: 'Ctrl+Shift+S', fn: saveAs, on: has },
     { icon: 'Printer', label: 'Печать…', hint: 'Ctrl+P', fn: print, on: has, sep: true },
     {
       icon: 'Keyboard',
@@ -300,23 +300,25 @@ const MenuBar = () => {
       fn: act(copySelection),
       on: has,
       sep: true,
+      group: 'Текст',
     },
     {
       icon: 'ScanText',
-      label: 'Копировать весь текст страницы',
+      label: 'Копировать текст страницы',
       fn: act(() => void copyPageText()),
       on: has,
     },
     {
       icon: 'RotateCw',
-      label: 'Повернуть страницу',
+      label: 'Повернуть на 90°',
       fn: act(() => current && rotate(current.uid, 90)),
       on: has,
       sep: true,
+      group: 'Текущая страница',
     },
     {
       icon: 'Copy',
-      label: 'Дублировать страницу',
+      label: 'Сделать копию',
       fn: act(() => current && duplicatePage(current.uid)),
       on: has,
     },
@@ -334,16 +336,17 @@ const MenuBar = () => {
     },
     {
       icon: 'Trash2',
-      label: 'Удалить страницу',
+      label: 'Удалить',
       fn: act(() => current && remove(current.uid)),
       on: has && pages.length > 1,
-      sep: true,
     },
     {
       icon: 'Eraser',
       label: 'Убрать все пометки',
+      note: 'Выделения, заметки и рисунки',
       fn: act(clearAnnots),
       on: annots.length > 0,
+      sep: true,
     },
   ];
 
@@ -404,13 +407,14 @@ const MenuBar = () => {
   const scanItems: MenuItem[] = [
     {
       icon: 'Scan',
-      label: 'Сканировать страницу',
+      label: 'Сканировать лист',
+      note: 'Один лист со сканера',
       fn: openScan('single'),
       on: true,
     },
     {
       icon: 'RotateCw',
-      label: 'Сканировать ещё раз',
+      label: 'Повторить с теми же настройками',
       // Подсказываем, чем именно — чтобы нажатие не было неожиданностью
       hint: canRepeat ? shortName(lastScan?.deviceName || '') : '',
       fn: act(() => {
@@ -423,13 +427,14 @@ const MenuBar = () => {
     },
     {
       icon: 'Layers',
-      label: 'Пакетное сканирование',
+      label: 'Сканировать несколько листов',
+      note: 'Стопка бумаг в один документ',
       fn: openScan('batch'),
       on: true,
     },
     {
       icon: 'FilePlus2',
-      label: 'Добавить скан к документу',
+      label: 'Досканировать в открытый документ',
       fn: openScan('batch', true),
       on: has,
       sep: true,
@@ -441,50 +446,14 @@ const MenuBar = () => {
   const openTool = (id: string) => act(() => setConvertAt(id));
 
   const convertItems: MenuItem[] = [
-    {
-      icon: 'LayoutGrid',
-      label: 'Все инструменты…',
-      fn: openTool(''),
-      on: true,
-    },
-    {
-      icon: 'Minimize2',
-      label: 'Сжать PDF',
-      fn: openTool('compress'),
-      on: true,
-      sep: true,
-    },
-    {
-      icon: 'Combine',
-      label: 'Объединить файлы',
-      fn: openTool('merge'),
-      on: true,
-    },
-    {
-      icon: 'Sun',
-      label: 'Улучшить скан',
-      fn: openTool('enhance'),
-      on: true,
-    },
-    {
-      icon: 'FileText',
-      label: 'PDF в Word',
-      fn: openTool('to-word'),
-      on: true,
-      sep: true,
-    },
-    {
-      icon: 'Image',
-      label: 'PDF в JPG',
-      fn: openTool('to-jpg'),
-      on: true,
-    },
-    {
-      icon: 'ImagePlus',
-      label: 'Фото и сканы в PDF',
-      fn: openTool('from-jpg'),
-      on: true,
-    },
+    { icon: 'FileText', label: 'PDF в Word', note: 'Редактируемый документ', fn: openTool('to-word'), on: true, group: 'Перевести в другой формат' },
+    { icon: 'Sheet', label: 'PDF в Excel', note: 'Таблицы из документа', fn: openTool('to-excel'), on: true },
+    { icon: 'Image', label: 'PDF в картинки JPG', fn: openTool('to-jpg'), on: true },
+    { icon: 'Combine', label: 'Объединить файлы', note: 'Несколько PDF в один', fn: openTool('merge'), on: true, sep: true, group: 'Работа с PDF' },
+    { icon: 'Minimize2', label: 'Сжать PDF', note: 'Уменьшить размер файла', fn: openTool('compress'), on: true },
+    { icon: 'Sun', label: 'Улучшить скан', note: 'Светлее фон, чётче текст', fn: openTool('enhance'), on: true },
+    { icon: 'ImagePlus', label: 'Фото и сканы в PDF', fn: openTool('from-jpg'), on: true, sep: true, group: 'Создать PDF' },
+    { icon: 'LayoutGrid', label: 'Все инструменты…', fn: openTool(''), on: true, sep: true },
   ];
 
   return (
@@ -507,7 +476,7 @@ const MenuBar = () => {
       />
 
       <MenuShell
-        title="Сканировать"
+        title="Сканер"
         open={menu === 'scan'}
         onToggle={() => setMenu((m) => (m === 'scan' ? null : 'scan'))}
         onClose={() => setMenu((m) => (m === 'scan' ? null : m))}
@@ -515,7 +484,7 @@ const MenuBar = () => {
       />
 
       <MenuShell
-        title="Конвертировать"
+        title="Инструменты"
         open={menu === 'convert'}
         onToggle={() => setMenu((m) => (m === 'convert' ? null : 'convert'))}
         onClose={() => setMenu((m) => (m === 'convert' ? null : m))}
