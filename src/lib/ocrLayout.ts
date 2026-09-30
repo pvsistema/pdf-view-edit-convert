@@ -148,8 +148,99 @@ const median = (a: number[]) => {
   return s[Math.floor(s.length / 2)];
 };
 
+// Раскладка по колонкам — как в газете или статье.
+//
+// Раньше строки собирались по высоте на листе: левая и правая колонки
+// склеивались в одну строку через табуляцию, и текст шёл вперемешку —
+// «начало левой … начало правой». Здесь ищется просвет между колонками:
+// несколько строк подряд, и в каждой на одном и том же месте по ширине
+// широкий разрыв. Такой участок делится на колонки, и они читаются по
+// очереди, сверху вниз. Заголовок во всю ширину и примечание под
+// колонками остаются на своих местах.
+//
+// Бланк с «Фамилия …… 00294» колонками не считается: в колонке статьи
+// в строке много слов, а в столбце бланка одно-два
+const MIN_COL_ROWS = 6;
+
+const splitColumns = (words: W[], depth = 0): W[][] => {
+  if (depth > 2 || words.length < 30) return [words];
+  const rows = buildRows(words) as unknown as { y: number; h: number; cells: W[] }[];
+  if (rows.length < MIN_COL_ROWS) return [words];
+
+  // Места возможного раздела — середины широких просветов в строках
+  const cuts: number[] = [];
+  for (const r of rows)
+    for (let k = 1; k < r.cells.length; k++) {
+      const a = r.cells[k - 1];
+      const b = r.cells[k];
+      if (b.x - (a.x + a.w) > r.h * 1.5) cuts.push((a.x + a.w + b.x) / 2);
+    }
+  if (!cuts.length) return [words];
+
+  // Строка не мешает разделу, если ни одно её слово не перекрывает
+  // линию раздела. Строка только с одной стороны (конец абзаца в одной
+  // колонке, пропуск между абзацами) участок не рвёт
+  const clear = (r: (typeof rows)[number], x: number) => !r.cells.some((c) => c.x < x && c.x + c.w > x);
+
+  let best: { from: number; to: number; cut: number } | null = null;
+  const tried = new Set<number>();
+  for (const x0 of cuts) {
+    const key = Math.round(x0 * 200);
+    if (tried.has(key)) continue;
+    tried.add(key);
+    let i = 0;
+    while (i < rows.length) {
+      if (!clear(rows[i], x0)) {
+        i++;
+        continue;
+      }
+      let j = i;
+      let both = 0;
+      // Большой пустой просвет по высоте — конец колонок: ниже уже
+      // другой кусок листа (примечание, подпись, таблица)
+      const lh = median(rows.map((r) => r.h));
+      while (
+        j < rows.length &&
+        clear(rows[j], x0) &&
+        (j === i || rows[j].y - (rows[j - 1].y + rows[j - 1].h) < lh * 4)
+      ) {
+        const r = rows[j];
+        if (r.cells.some((c) => c.x + c.w <= x0) && r.cells.some((c) => c.x >= x0)) both++;
+        j++;
+      }
+      if (both >= MIN_COL_ROWS && (!best || j - i > best.to - best.from)) best = { from: i, to: j, cut: x0 };
+      i = j;
+    }
+  }
+  if (!best) return [words];
+
+  const cut = best.cut;
+  const band = rows.slice(best.from, best.to);
+  const leftW = band.flatMap((r) => r.cells.filter((c) => c.x + c.w / 2 < cut));
+  const rightW = band.flatMap((r) => r.cells.filter((c) => c.x + c.w / 2 >= cut));
+
+  // Колонки статьи — строки со многими словами по обе стороны.
+  // Столбцы бланка и таблицы здесь не трогаем: ими занят поиск таблиц
+  const perRow = (ws: W[]) => ws.length / band.length;
+  if (perRow(leftW) < 2.5 || perRow(rightW) < 2.5) return [words];
+
+  const above = rows.slice(0, best.from).flatMap((r) => r.cells);
+  const below = rows.slice(best.to).flatMap((r) => r.cells);
+
+  return [
+    ...(above.length ? splitColumns(above, depth + 1) : []),
+    ...splitColumns(leftW, depth + 1),
+    ...splitColumns(rightW, depth + 1),
+    ...(below.length ? splitColumns(below, depth + 1) : []),
+  ];
+};
+
 // Строка листа, готовая к сборке: ячейки разнесены по местам
 type Row = {
+  // Края колонки, в которой стоит строка. Отступы, выравнивание и
+  // перенос строк в абзац считаются от краёв своей колонки
+  L: number;
+  R: number;
   y: number;
   h: number;
   x0: number;
@@ -206,8 +297,14 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
 
   // Строки листа и уборка мусора
   const all = wordsOf(blocks, width, height, size?.image);
-  type WRow = { y: number; h: number; cells: W[] };
-  const rawRows = buildRows(all) as unknown as WRow[];
+  type WRow = { y: number; h: number; cells: W[]; L: number; R: number };
+  // Строки собираем внутри каждой колонки, колонки идут по очереди
+  const rawRows: WRow[] = [];
+  for (const col of splitColumns(all)) {
+    const L = Math.min(...col.map((c) => c.x));
+    const R = Math.max(...col.map((c) => c.x + c.w));
+    for (const r of buildRows(col) as unknown as WRow[]) rawRows.push({ ...r, L, R });
+  }
   const cleanRows: WRow[] = [];
   for (const r of rawRows) {
     const rowConf = median(r.cells.map((c) => c.conf));
@@ -224,6 +321,8 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
       y: Math.min(...kept.map((c) => c.y)),
       h: Math.max(...kept.map((c) => c.h)),
       cells: kept,
+      L: r.L,
+      R: r.R,
     });
   }
   if (!cleanRows.length) return [];
@@ -231,6 +330,8 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   // Высоту строки считаем по середине слов: одна высокая скобка
   // не должна делать строку крупнее
   const rows: Row[] = cleanRows.map((r) => ({
+    L: r.L,
+    R: r.R,
     y: r.y,
     h: median(r.cells.map((c) => c.h)),
     x0: Math.min(...r.cells.map((c) => c.x)),
@@ -276,6 +377,15 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   };
 
   const bodyRaw = median(rows.map(sizeOfRow));
+  const lineH = median(rows.map((r) => r.h));
+  // Обычный шаг строк внутри колонки
+  const pitch =
+    median(
+      rows
+        .slice(1)
+        .map((r, k) => (r.R === rows[k].R ? r.y - rows[k].y : 0))
+        .filter((d) => d > 0 && d < lineH * 3),
+    ) || lineH * 1.5;
   const bodyPt = bodyRaw;
 
   // Толщина штриха относительно кегля. У обычного Times она около
@@ -286,7 +396,14 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
     return em > 0 && w.stroke > 0 ? w.stroke / em : 0;
   };
 
+  // Ширина колонки строки. Узкая колонка по сравнению со всем листом —
+  // её строки не выравниваем по центру и вправо: короткая строка
+  // в колонке статьи — это конец абзаца, а не заголовок
+  const colSpan = (r: Row) => r.R - r.L || span;
+  const inColumn = (r: Row) => colSpan(r) < span * 0.8;
+
   const alignOfRow = (r: Row): OcrPart['align'] => {
+    if (inColumn(r)) return 'left';
     const pl = (r.x0 - left) / span;
     const pr = (right - r.x1) / span;
     if (r.cells.length > 1) return 'left';
@@ -336,7 +453,7 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
   // Просвет перед строкой — в двадцатых долях пункта. Обычный межстрочный
   // интервал вычитаем, чтобы не раздувать документ
   const gapBefore = (r: Row, pt: number) => {
-    if (lastBottom === null) return 0;
+    if (lastBottom === null || r.y < lastBottom) return 0;
     const gapPt = (r.y - lastBottom) * ptH;
     return Math.max(0, Math.min(1440, Math.round((gapPt - pt * 0.35) * 20)));
   };
@@ -379,9 +496,22 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
       cur.part.align === 'left' &&
       r.cells.length === 1 &&
       prev.cells.length === 1 &&
-      prev.x1 > right - span * 0.06 &&
-      r.y - (prev.y + prev.h) < Math.max(r.h, prev.h) * 0.9 &&
-      Math.abs(pt - (cur.part.size || pt)) <= 1 &&
+      prev.R === r.R &&
+      // Строка дошла до края. В колонке статьи правый край обычно
+      // неровный — там хватает трёх четвертей ширины
+      prev.x1 > prev.R - colSpan(prev) * (inColumn(prev) ? 0.4 : 0.06) &&
+      // Следующая строка ниже прошлой: при переходе к новой колонке
+      // строка снова оказывается наверху листа — это уже новый абзац
+      r.y > prev.y &&
+      // В колонке просвет меряем шагом строк: высота строки из одних
+      // строчных букв гуляет, а шаг от строки к строке в абзаце ровный.
+      // Пропуск между абзацами заметно больше этого шага
+      (inColumn(prev)
+        ? r.y - prev.y < pitch * 1.3
+        : r.y - (prev.y + prev.h) < Math.max(r.h, prev.h) * 0.9) &&
+      // В колонке строки из одних строчных букв меряются неточно —
+      // там допускаем разброс чуть больше
+      Math.abs(pt - (cur.part.size || pt)) <= (inColumn(r) ? 2 : 1) &&
       bold === cur.part.bold;
 
     if (joins) {
@@ -389,7 +519,7 @@ export const readLayout = (data: PageData, size?: PageSize): OcrPart[] => {
     } else {
       flush();
       const heading = pt >= bodyPt * 1.25 && r.cells.length === 1;
-      const indent = align === 'left' ? toTw(r.x0 - left) : 0;
+      const indent = align === 'left' ? toTw(r.x0 - (inColumn(r) ? r.L : left)) : 0;
       // Позиции табуляции считаются от левого поля листа (так их меряет
       // Word). Ячейка, прижатая к правому краю, ставится правой
       // табуляцией: тогда длинное «222-км» не переносится на новую строку

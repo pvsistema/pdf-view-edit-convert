@@ -255,7 +255,7 @@ export const readFrames = async (
           }
     }
   } finally {
-    await reader.setParameters({ tessedit_pageseg_mode: '6' });
+    await reader.setParameters({ tessedit_pageseg_mode: '3' });
   }
 };
 
@@ -363,7 +363,7 @@ export const rereadWeak = async (
       line.words = words;
     }
   } finally {
-    // Возвращаем обычный режим движка: разбор листа как блока текста
-    await reader.setParameters({ tessedit_pageseg_mode: '6' });
+    // Возвращаем обычный режим движка: разбор листа с поиском колонок
+    await reader.setParameters({ tessedit_pageseg_mode: '3' });
   }
 };

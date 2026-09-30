@@ -14,6 +14,7 @@ import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
 import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
 import { readFrames, rereadWeak } from '@/lib/ocrReread';
+import { detectTurn, turnCanvas } from '@/lib/ocrOrient';
 import {
   brokenFontsOf,
   cropBox,
@@ -60,6 +61,9 @@ const canFast = async () => {
 // то, с чем работают промышленные программы разбора документов: мельче
 // движок путает похожие буквы, крупнее — только дольше считает
 const OCR_DPI = 300;
+
+// Разбор листа: движок сам ищет колонки, блоки текста и подписи
+const PAGE_MODE = '3';
 
 // Распознанный лист: номер страницы, её текст и разметка —
 // где заголовки, где абзацы, что набрано жирным
@@ -401,6 +405,16 @@ const ToolsPanel = () => {
         // по картинке, ошибается в размере букв и путает похожие знаки —
         // отсюда были искажённые слова
         user_defined_dpi: String(OCR_DPI),
+        // Движок сам находит на листе колонки, блоки и подписи.
+        // Раньше лист читался одним сплошным блоком: строки двух колонок
+        // статьи склеивались в одну — «начало левой … начало правой»
+        tessedit_pageseg_mode: PAGE_MODE as never,
+        // Перевод в чёрно-белое — отдельно для каждого участка листа.
+        // С одной общей границей для всего листа текст на серой плашке,
+        // под штампом или в тени у переплёта пропадал целиком
+        thresholding_method: '2',
+        thresholding_window_size: '0.5',
+        thresholding_kfactor: '0.34',
       });
 
       // Какие листы разбирать. По умолчанию весь документ, но в толстом
@@ -443,7 +457,7 @@ const ToolsPanel = () => {
           // колонки и абзацы и не теряет мелкие знаки формулы
           await worker.setParameters({ tessedit_pageseg_mode: '7' as never });
           const { data } = await worker.recognize(cropBox(picture, box));
-          await worker.setParameters({ tessedit_pageseg_mode: '6' as never });
+          await worker.setParameters({ tessedit_pageseg_mode: PAGE_MODE as never });
           return data.text || '';
         };
 
@@ -459,7 +473,13 @@ const ToolsPanel = () => {
         // Чем крупнее отрисовка, тем точнее распознавание. Раньше здесь
         // стояло втрое — это всего 216 точек на дюйм, движку не хватало
         // деталей и он путал похожие буквы. 300 — то, к чему привык сканер
-        const canvas = await renderPageOnce(doc, pg.src, OCR_DPI / 72, pg.rotation);
+        const drawn = await renderPageOnce(doc, pg.src, OCR_DPI / 72, pg.rotation);
+
+        // Лист, вставленный в сканер вверх ногами или боком, сначала
+        // ставим как надо — иначе движок читает его как мусор
+        const turn = await detectTurn(drawn, worker as never, OCR_DPI).catch(() => 0 as const);
+        await worker.setParameters({ tessedit_pageseg_mode: PAGE_MODE as never });
+        const canvas = turnCanvas(drawn, turn);
 
         // Чистку применяем только к настоящим сканам — бледным, серым,
         // с пылью. Чёткую страницу она портит: буквы огрубляются и текст
