@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { pageText, pageSize } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
@@ -156,6 +156,93 @@ const Viewer = ({ tool, setTool }: Props) => {
       off = true;
     };
   }, [pages, docOf]);
+
+  // Точка окна, которая должна остаться на месте при смене масштаба.
+  // Пусто — середина окна
+  const anchor = useRef<{ x: number; y: number } | null>(null);
+  const prevZoom = useRef(zoom);
+  const lastScroll = useRef({ top: 0, left: 0 });
+
+  // При смене масштаба лента растёт или сжимается. Без подстройки
+  // прокрутки место, которое человек разглядывал, уезжало: при
+  // увеличении окно смотрело в левый верхний угол, а не туда же.
+  // Пересчитываем прокрутку так, чтобы точка документа под курсором
+  // (или в середине окна) осталась на месте
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    const was = prevZoom.current;
+    prevZoom.current = zoom;
+    if (!box || was === zoom) return;
+
+    const k = zoom / was;
+    const at = anchor.current ?? { x: box.clientWidth / 2, y: box.clientHeight / 2 };
+    anchor.current = null;
+
+    // Лента уже перестроена под новый масштаб. Старое положение каждого
+    // листа восстанавливаем расчётом: растягиваются только сами листы,
+    // а поля ленты, промежутки и подписи «Стр. N» остаются прежними
+    const PAD = 24;
+    const sheets = Array.from(box.querySelectorAll<HTMLElement>('[data-sheet]'));
+    if (!sheets.length) return;
+
+    // Листы одного ряда (разворот) стоят на одной высоте — берём ряды
+    const rowsTop: { el: HTMLElement; top: number }[] = [];
+    for (const el of sheets) {
+      const last = rowsTop[rowsTop.length - 1];
+      if (!last || Math.abs(last.top - el.offsetTop) > 1) rowsTop.push({ el, top: el.offsetTop });
+    }
+    const first = rowsTop[0].el;
+    const inner = first.firstElementChild as HTMLElement | null;
+    // Постоянная часть ряда: промежуток и подпись под листом
+    // (вместе с отступом до следующего листа — его offsetHeight не видит)
+    const fixed = inner
+      ? rowsTop.length > 1
+        ? rowsTop[1].top - rowsTop[0].top - inner.offsetHeight
+        : first.offsetHeight - inner.offsetHeight
+      : 0;
+
+    const oldTop = (r: number) => PAD + r * fixed + (rowsTop[r].top - PAD - r * fixed) / k;
+
+    // Прокрутку берём ту, что была ДО перестройки: при уменьшении браузер
+    // успевает урезать её под короткую ленту, и расчёт съезжал бы
+    const was2 = lastScroll.current;
+    const oldY = was2.top + at.y;
+    let r = 0;
+    while (r + 1 < rowsTop.length && oldTop(r + 1) <= oldY) r++;
+
+    const oTop = oldTop(r);
+    const rowEl = rowsTop[r].el;
+    const sheetH = (rowEl.firstElementChild as HTMLElement | null)?.offsetHeight ?? rowEl.offsetHeight;
+    // Точка внутри листа — растягивается; в подписи под листом — нет
+    const inside = oldY - oTop;
+    const oldH = sheetH / k;
+    const newY =
+      inside <= oldH ? rowsTop[r].top + inside * k : rowsTop[r].top + sheetH + (inside - oldH);
+    box.scrollTop = Math.max(0, newY - at.y);
+
+    // По горизонтали листы стоят по центру ленты. Ширина ленты — по самому
+    // широкому листу, но не меньше окна
+    const newW = box.scrollWidth;
+    const contentNew = newW - PAD * 2;
+    const oldW = Math.max(box.clientWidth, contentNew / k + PAD * 2);
+    const centerNew = newW / 2;
+    const centerOld = oldW / 2;
+    const oldX = was2.left + at.x;
+    const newX = centerNew + (oldX - centerOld) * k;
+    box.scrollLeft = Math.max(0, newX - at.x);
+    lastScroll.current = { top: box.scrollTop, left: box.scrollLeft };
+  }, [zoom]);
+
+  // Последнее положение прокрутки — до того, как лента перестроится
+  // под новый масштаб
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+    const keep = () => (lastScroll.current = { top: box.scrollTop, left: box.scrollLeft });
+    keep();
+    box.addEventListener('scroll', keep, { passive: true });
+    return () => box.removeEventListener('scroll', keep);
+  }, []);
 
   // Как только масштаб меняют вручную, подгонка выключается
   const setZoom: typeof setZoomRaw = (v) => {
@@ -435,6 +522,9 @@ const Viewer = ({ tool, setTool }: Props) => {
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
+      // Увеличиваем к месту под курсором, как в Acrobat
+      const r = box.getBoundingClientRect();
+      anchor.current = { x: e.clientX - r.left, y: e.clientY - r.top };
       setZoom((z) =>
         e.deltaY > 0 ? zoomOut(z) : zoomIn(z),
       );
@@ -1028,9 +1118,13 @@ const Viewer = ({ tool, setTool }: Props) => {
         )}
         {/* Непрерывная лента: все листы идут один за другим,
             прокрутка не прерывается на границах страниц */}
-        <div className="flex flex-col items-center p-6">
+        {/* Ширина ленты — по самому широкому листу, но не меньше окна.
+            Раньше лента была шириной с окно, а листы центрировались
+            внутри неё: увеличенный лист вылезал за левый край, куда
+            прокрутка не достаёт, и полосы прокрутки были короче документа */}
+        <div className="flex w-max min-w-full flex-col items-center p-6">
           {rows.map((row) => (
-            <div key={row[0].p.uid} className="flex items-start justify-center gap-4">
+            <div key={row[0].p.uid} className="flex w-max items-start justify-center gap-4">
               {row.map(({ p, i }) => (
                 <SheetView
                   key={p.uid}
