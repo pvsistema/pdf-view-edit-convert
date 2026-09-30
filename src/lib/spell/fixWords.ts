@@ -98,10 +98,16 @@ const core = (t: string) => {
   return m ? { pre: m[1], word: m[2], post: m[3] } : { pre: '', word: t, post: '' };
 };
 
-// Исправляет слова в разметке листа прямо на месте. Возвращает число
-// исправленных слов
-export const fixWords = async (blocks: Block[] | null | undefined, check: Checker) => {
-  if (!blocks) return 0;
+// Исправление: что прочитал движок и на что заменено
+export type SpellFix = { from: string; to: string };
+
+// Исправляет слова в разметке листа прямо на месте. Возвращает список
+// исправлений — их показываем человеку для проверки
+export const fixWords = async (
+  blocks: Block[] | null | undefined,
+  check: Checker,
+): Promise<SpellFix[]> => {
+  if (!blocks) return [];
   const terms = new Set([...MINING_TERMS, ...readTerms()].map(lower));
 
   // Собираем сомнительные слова со всего листа, чтобы проверить их
@@ -122,11 +128,11 @@ export const fixWords = async (blocks: Block[] | null | undefined, check: Checke
           slots.push({ w, ...c, name: properName(c.word, k === 0) });
         });
       }
-  if (!slots.length) return 0;
+  if (!slots.length) return [];
 
   const verdict = await check([...new Set(slots.map((s) => s.word))]);
 
-  let fixed = 0;
+  const fixed: SpellFix[] = [];
   for (const s of slots) {
     const v = verdict[s.word];
     if (!v || v === true) continue;
@@ -141,8 +147,9 @@ export const fixWords = async (blocks: Block[] | null | undefined, check: Checke
     // Два разных верных варианта — угадывать не берёмся
     const uniq = [...new Set(good.map(lower))];
     if (uniq.length !== 1) continue;
-    s.w.text = s.pre + keepCase(s.word, good[0]) + s.post;
-    fixed++;
+    const to = keepCase(s.word, good[0]);
+    s.w.text = s.pre + to + s.post;
+    fixed.push({ from: s.word, to });
   }
   return fixed;
 };

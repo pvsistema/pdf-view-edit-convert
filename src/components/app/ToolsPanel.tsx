@@ -15,7 +15,8 @@ import { readLayout, type OcrPart } from '@/lib/ocrLayout';
 import { layoutFromPieces } from '@/lib/pdfLayout';
 import { readFrames, rereadWeak } from '@/lib/ocrReread';
 import { detectTurn, turnCanvas } from '@/lib/ocrOrient';
-import { fixWords } from '@/lib/spell/fixWords';
+import { fixWords, type SpellFix } from '@/lib/spell/fixWords';
+import OcrTextBox from '@/components/app/OcrTextBox';
 import { checkWords, warmSpeller } from '@/lib/spell/speller';
 import TermsDialog from '@/components/app/TermsDialog';
 import {
@@ -193,7 +194,7 @@ const ToolsPanel = () => {
     }
   };
   const [termsOpen, setTermsOpen] = useState(false);
-  const [spellFixed, setSpellFixed] = useState(0);
+  const [spellFixes, setSpellFixes] = useState<SpellFix[]>([]);
 
   // Сколько листов уйдёт в работу при нынешнем выборе —
   // по этому числу считается полоса хода у распознавания
@@ -442,7 +443,7 @@ const ToolsPanel = () => {
       // скане можно указать только нужные — это экономит много времени
       // Словарь грузится в фоне, пока движок читает первый лист
       if (spell) warmSpeller();
-      let fixedTotal = 0;
+      const fixes: SpellFix[] = [];
 
       const picked =
         ocrScope === 'current'
@@ -535,7 +536,7 @@ const ToolsPanel = () => {
 
         // Ошибки распознавания — «оргаиизация», «выработкн» — правим
         // по словарю. Только слова, в которых сам движок сомневался
-        if (spell) fixedTotal += await fixWords(data.blocks, checkWords).catch(() => 0);
+        if (spell) fixes.push(...(await fixWords(data.blocks, checkWords).catch(() => [])));
 
         // Пустую страницу тоже запоминаем, чтобы нумерация листов
         // в Word совпадала с нумерацией в самом документе
@@ -563,7 +564,7 @@ const ToolsPanel = () => {
       }
 
       await worker.terminate();
-      setSpellFixed(fixedTotal);
+      setSpellFixes(fixes);
 
       const all = joinPages(sheets);
       setOcrText(all);
@@ -868,16 +869,6 @@ const ToolsPanel = () => {
         {ocrText && (
           <div className="border-b border-border p-4">
             <span className="label-caps">Распознанный текст</span>
-            {spellFixed > 0 && (
-              <span className="mt-1 block text-[0.74rem] text-muted-foreground">
-                Исправлено по словарю: {spellFixed}{' '}
-                {spellFixed % 10 === 1 && spellFixed % 100 !== 11
-                  ? 'слово'
-                  : [2, 3, 4].includes(spellFixed % 10) && ![12, 13, 14].includes(spellFixed % 100)
-                    ? 'слова'
-                    : 'слов'}
-              </span>
-            )}
 
             {/* Передача документа дальше — как в промышленных программах
                 распознавания: один и тот же результат можно отправить
@@ -935,11 +926,11 @@ const ToolsPanel = () => {
                 </button>
               ))}
             </div>
-            <textarea
+            <OcrTextBox
               value={ocrText}
-              onChange={(e) => setOcrText(e.target.value)}
-              rows={12}
-              className="mt-3 w-full resize-y border border-border bg-background p-3 text-[0.82rem] leading-relaxed outline-none focus:border-primary"
+              onChange={setOcrText}
+              fixes={spellFixes}
+              onFixesChange={setSpellFixes}
             />
           </div>
         )}
