@@ -20,12 +20,14 @@ import {
 import {
   pagesToImages,
   pdfToRichDocx,
+  pdfToRichXlsx,
   readAllText,
   toExcelHtml,
   toHtmlPage,
   toPlainText,
 } from '@/lib/convert/fromPdf';
 import { buildDocx, DOCX_TYPE } from '@/lib/docx';
+import { XLSX_TYPE } from '@/lib/xlsx';
 
 export type ToolSettings = {
   level: CompressLevel;
@@ -138,6 +140,13 @@ export const runTool = async (
     }
 
     case 'to-excel': {
+      // Настоящая книга .xlsx с таблицами как в документе. Если что-то
+      // пошло не так — по-старому, строками текста
+      const book = await pdfToRichXlsx(first, onStep).catch(() => null);
+      if (book) {
+        downloadBlob(new Blob([book as BlobPart], { type: XLSX_TYPE }), `${base(first)}.xlsx`);
+        return { message: 'Готова таблица', note: 'Таблицы перенесены с объединёнными ячейками и заливкой' };
+      }
       const pages = await readAllText(first, onStep);
       saveText(toExcelHtml(pages), `${base(first)}.xls`, 'application/vnd.ms-excel');
       return { message: 'Готова таблица', note: 'Файл открывается в Excel' };

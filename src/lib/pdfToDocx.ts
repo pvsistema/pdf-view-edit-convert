@@ -633,7 +633,9 @@ const buildTable = (
         const cy = p.base - p.size * 0.35;
         return cx > x0 && cx < x1 && cy > y0 && cy < y1;
       });
-      const cellRows = buildRows(inside);
+      // Пустые кусочки (пробел в конце ячейки) строкой не считаем: иначе
+      // лишняя «строка» из одного пробела сбивала выравнивание по высоте
+      const cellRows = buildRows(inside).filter((q) => q.ps.some((p) => !blank(p.str)));
       if (!cellRows.length) continue;
       // Поля ячейки: Word по умолчанию отступает 5,4 пункта от рамки
       const pad = 5.4;
@@ -647,11 +649,16 @@ const buildTable = (
         s.cell.paras.push(p);
       }
       // Выравнивание по высоте: текст посередине ячейки или у низа
-      const tTop = cellRows[0].top;
-      const tBot = cellRows[cellRows.length - 1].base;
+      // Текст меряем по заглавной букве: от линии письма вверх на 0,7
+      // размера шрифта. Верх строки с межстрочным запасом давал
+      // перекос, и текст посередине объединённой ячейки считался «внизу»
+      const first = cellRows[0];
+      const lastR = cellRows[cellRows.length - 1];
+      const tTop = first.base - first.size * 0.7;
+      const tBot = lastR.base;
       const above = tTop - y0;
       const below = y1 - tBot;
-      if (Math.abs(above - below) < 2.5 && above > 3) {
+      if (Math.abs(above - below) < Math.max(2.5, (y1 - y0) * 0.12) && above > 2) {
         s.cell.valign = 'center';
         s.cell.paras[0].before = 0;
       } else if (below < above - 4) {

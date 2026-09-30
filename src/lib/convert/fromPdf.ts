@@ -147,3 +147,20 @@ export const pdfToRichDocx = async (file: File, onStep?: StepFn) => {
     closeDoc(doc);
   }
 };
+
+// Книга Excel с обликом исходника: таблицы с объединёнными ячейками,
+// заливкой и рамками, по листу на страницу
+export const pdfToRichXlsx = async (file: File, onStep?: StepFn) => {
+  const { buildRichXlsx } = await import('@/lib/xlsxRich');
+  const doc = await loadDocFromBytes(await file.arrayBuffer());
+  try {
+    const pages = await richPages(
+      doc,
+      Array.from({ length: doc.numPages }, (_, i) => i),
+      onStep,
+    );
+    return buildRichXlsx(pages);
+  } finally {
+    closeDoc(doc);
+  }
+};

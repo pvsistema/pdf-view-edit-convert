@@ -16,6 +16,7 @@ import { layoutFromPieces } from '@/lib/pdfLayout';
 import { readFrames, readMarks, readMissed, rereadWeak } from '@/lib/ocrReread';
 import { missedSpots } from '@/lib/ocrInk';
 import { canvasJpeg, findStamps, withoutInk } from '@/lib/ocrStamps';
+import { buildRichXlsx } from '@/lib/xlsxRich';
 import type { RichPage } from '@/lib/pdfToDocx';
 import { detectSkew, detectTurn, straighten, turnCanvas } from '@/lib/ocrOrient';
 import { fixWords, type SpellFix } from '@/lib/spell/fixWords';
@@ -708,7 +709,12 @@ const ToolsPanel = () => {
       }
     }
 
-    const bytes = buildXlsx(sheets);
+    // Документ с текстом (PDF из Word) и текст не правили — книга
+    // с обликом исходника: таблицы с объединёнными ячейками и заливкой
+    const bytes =
+      !edited && ocrPages.length && ocrPages.every((p) => p.rich)
+        ? buildRichXlsx(ocrPages.map((p) => p.rich!))
+        : buildXlsx(sheets);
     downloadBlob(
       new Blob([bytes as BlobPart], { type: XLSX_TYPE }),
       `${baseName(name)}-распознано.xlsx`,
