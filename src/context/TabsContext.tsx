@@ -25,6 +25,8 @@ type Ctx = {
   openTab: (source: File | DocSource) => void;
   closeTab: (id: string) => void;
   selectTab: (id: string) => void;
+  // Вернуться на стартовое окно: документы остаются открытыми во вкладках
+  goHome: () => void;
   renameTab: (id: string, title: string) => void;
   activeTitle: string;
   // Вкладка сообщает, есть ли в ней правки, которых нет в файле
@@ -96,6 +98,7 @@ export const TabsProvider = ({ children }: { children: React.ReactNode }) => {
   const isTabDirty = useCallback((id: string) => dirtyRef.current.includes(id), []);
 
   const selectTab = useCallback((id: string) => setActiveId(id), []);
+  const goHome = useCallback(() => setActiveId(''), []);
 
   const renameTab = useCallback((id: string, title: string) => {
     setTabs((list) => list.map((t) => (t.id === id ? { ...t, title } : t)));
@@ -132,6 +135,7 @@ export const TabsProvider = ({ children }: { children: React.ReactNode }) => {
       openTab,
       closeTab,
       selectTab,
+      goHome,
       renameTab,
       activeTitle,
       setTabDirty,
@@ -144,6 +148,7 @@ export const TabsProvider = ({ children }: { children: React.ReactNode }) => {
       openTab,
       closeTab,
       selectTab,
+      goHome,
       renameTab,
       activeTitle,
       setTabDirty,

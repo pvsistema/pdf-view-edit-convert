@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
+import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { downloadBlob } from '@/lib/files';
 import { pageText } from '@/lib/pdf';
@@ -460,6 +461,19 @@ const MenuBar = () => {
     // На узком экране меню не помещалось целиком и обрезалось —
     // теперь его можно прокрутить пальцем вбок
     <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto md:gap-1">
+      {/* Главная — назад к стартовому окну; документ остаётся во вкладке */}
+      {tabsApi?.activeId && (
+        <button
+          onClick={() => {
+            close();
+            tabsApi.goHome();
+          }}
+          title="Главная страница"
+          className="flex h-9 w-9 shrink-0 items-center justify-center transition-colors hover:bg-card"
+        >
+          <Icon name="House" size={18} />
+        </button>
+      )}
       <MenuShell
         title="Файл"
         open={menu === 'file'}

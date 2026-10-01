@@ -102,8 +102,10 @@ const Workspace = () => {
   return (
     <AppWindow title={activeTitle ? `${activeTitle} — ПВ-Система PDF` : undefined}>
       <div className="relative flex h-full flex-col overflow-hidden bg-background font-body text-foreground">
-        {tabs.length === 0 ? (
-          // Пока ничего не открыто, показываем стартовое окно с задачами
+        {tabs.length > 0 && <TabsBar />}
+        {/* Стартовое окно: когда ничего не открыто или нажата «Главная».
+            Открытые документы при этом остаются во вкладках */}
+        {(tabs.length === 0 || !activeId) && (
           <DocProvider>
             <AppBar />
             <StartScreen
@@ -112,9 +114,9 @@ const Workspace = () => {
               onConvert={(kind) => requestConvert(kind)}
             />
           </DocProvider>
-        ) : (
+        )}
+        {tabs.length > 0 && (
           <>
-            <TabsBar />
             {/* Открытые документы остаются в памяти: неактивная вкладка
                 просто скрыта, поэтому возврат к ней происходит мгновенно */}
             {tabs.map((t) => (
