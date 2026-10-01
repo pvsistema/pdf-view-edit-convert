@@ -462,18 +462,20 @@ const MenuBar = () => {
     // теперь его можно прокрутить пальцем вбок
     <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto md:gap-1">
       {/* Главная — назад к стартовому окну; документ остаётся во вкладке */}
-      {tabsApi?.activeId && (
-        <button
-          onClick={() => {
-            close();
-            tabsApi.goHome();
-          }}
-          title="Главная страница"
-          className="flex h-9 w-9 shrink-0 items-center justify-center transition-colors hover:bg-card"
-        >
-          <Icon name="House" size={18} />
-        </button>
-      )}
+      {/* Видна всегда; на самой главной странице подсвечена */}
+      <button
+        onClick={() => {
+          close();
+          tabsApi?.goHome();
+        }}
+        title="Главная страница"
+        aria-label="Главная страница"
+        className={`flex h-9 w-9 shrink-0 items-center justify-center transition-colors ${
+          tabsApi?.activeId ? 'hover:bg-card' : 'bg-card text-primary'
+        }`}
+      >
+        <Icon name="House" size={18} />
+      </button>
       <MenuShell
         title="Файл"
         open={menu === 'file'}
