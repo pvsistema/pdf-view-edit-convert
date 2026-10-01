@@ -15,6 +15,7 @@ declare global {
     chrome?: {
       webview?: {
         postMessage: (m: unknown) => void;
+        postMessageWithAdditionalObjects?: (m: unknown, objs: unknown[]) => void;
         addEventListener?: (t: string, cb: EventListener) => void;
         removeEventListener?: (t: string, cb: EventListener) => void;
       };
@@ -320,7 +321,7 @@ export type NativeLicenseState = {
 export const onNativeLicense = (cb: (s: NativeLicenseState) => void) =>
   listen<NativeLicenseState>('licenseState', cb);
 
-export type DesktopDoc = { name: string; url?: string; file?: File; size?: number };
+export type DesktopDoc = { name: string; url?: string; file?: File; size?: number; path?: string };
 
 export const onDesktopFile = (cb: (doc: DesktopDoc) => void) => {
   const handler = (e: MessageEvent) => {
@@ -332,7 +333,7 @@ export const onDesktopFile = (cb: (doc: DesktopDoc) => void) => {
       // Программа сообщает адрес документа. Передаём его как есть:
       // просмотрщик прочитает только нужные страницы, а не весь файл
       if (data.url) {
-        cb({ name, url: data.url as string, size: Number(data.size) || 0 });
+        cb({ name, url: data.url as string, size: Number(data.size) || 0, path: data.path || undefined });
         return;
       }
 
@@ -354,3 +355,21 @@ export const onDesktopFile = (cb: (doc: DesktopDoc) => void) => {
 };
 
 export {};
+// Повторно открыть документ по пути на диске (список недавних)
+export const openByPath = (path: string) => send({ type: 'openPath', path });
+
+// Файл выбрали в окне выбора или перетащили: просим программу сказать,
+// где он лежит на диске — браузерная часть этого не знает
+export const askFilePath = (file: File) => {
+  try {
+    window.chrome?.webview?.postMessageWithAdditionalObjects?.({ type: 'rememberPath' }, [file]);
+  } catch {
+    /* старая версия движка окна — путь просто не запомнится */
+  }
+};
+
+export const onFilePath = (cb: (d: { name: string; size: number; path: string }) => void) =>
+  listen<{ name: string; size: number; path: string }>('filePath', cb);
+
+export const onOpenFileMissing = (cb: (d: { path: string }) => void) =>
+  listen<{ path: string }>('openFileMissing', cb);

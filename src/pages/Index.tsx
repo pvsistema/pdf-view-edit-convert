@@ -8,7 +8,16 @@ import AppWindow from '@/components/app/AppWindow';
 import { DocProvider } from '@/context/DocContext';
 import { LicenseProvider } from '@/context/LicenseContext';
 import { TabsProvider, useTabs } from '@/context/TabsContext';
-import { isDesktop, onDesktopFile, onPrintDone, onSaveDone, setNativeTitle } from '@/lib/desktop';
+import {
+  isDesktop,
+  onDesktopFile,
+  onFilePath,
+  onOpenFileMissing,
+  onPrintDone,
+  onSaveDone,
+  setNativeTitle,
+} from '@/lib/desktop';
+import { setRecentPath } from '@/lib/recent';
 import { toast } from '@/hooks/use-toast';
 import { takeRenameWaiter } from '@/lib/files';
 import UpdateBanner from '@/components/app/UpdateBanner';
@@ -23,10 +32,25 @@ const Workspace = () => {
   useEffect(
     () =>
       onDesktopFile((d) => {
-        if (d.url) openTab({ name: d.name, url: d.url, size: d.size });
+        if (d.url) openTab({ name: d.name, url: d.url, size: d.size, path: d.path });
         else if (d.file) openTab(d.file);
       }),
     [openTab],
+  );
+
+  // Программа сообщила, где лежит выбранный файл, — дописываем путь
+  // в недавние, чтобы потом открыть документ одним щелчком
+  useEffect(() => onFilePath((d) => setRecentPath(d.name, d.size, d.path)), []);
+
+  useEffect(
+    () =>
+      onOpenFileMissing(() =>
+        toast({
+          title: 'Файл не найден',
+          description: 'Документ переместили, переименовали или удалили. Откройте его заново через «Выбрать файл»',
+        }),
+      ),
+    [],
   );
 
   useEffect(

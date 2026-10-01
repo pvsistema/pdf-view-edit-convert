@@ -379,7 +379,11 @@ public class MainForm : Form
                 type = "openFile",
                 name,
                 size,
-                url = "https://pvspdf.file/" + Path.GetFileName(temp)
+                url = "https://pvspdf.file/" + Path.GetFileName(temp),
+                // Где документ лежит на диске: по этому пути его откроют
+                // из списка недавних. Временная копия удаляется при
+                // следующем запуске, и ссылка на неё уже не работает
+                path = Path.GetFullPath(path)
             };
             _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
         }
@@ -470,6 +474,45 @@ public class MainForm : Form
                     ? (pr.GetString() ?? "")
                     : "";
                 _ = PrintPdfAsync(b64, fileName, printer);
+            }
+            else if (type == "openPath")
+            {
+                // Повторное открытие из списка недавних документов
+                string p = root.TryGetProperty("path", out var pp) ? (pp.GetString() ?? "") : "";
+                if (p.Length > 0 && File.Exists(p))
+                {
+                    _ = SendFileAsync(p);
+                }
+                else
+                {
+                    _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                    {
+                        type = "openFileMissing",
+                        path = p
+                    }));
+                }
+            }
+            else if (type == "rememberPath")
+            {
+                // Документ выбрали в окне выбора файла или перетащили мышью:
+                // сообщаем интерфейсу, где он лежит, чтобы запомнить
+                // в недавних
+                if (e.AdditionalObjects != null)
+                {
+                    foreach (var obj in e.AdditionalObjects)
+                    {
+                        if (obj is not CoreWebView2File f || string.IsNullOrEmpty(f.Path)) continue;
+                        long size = 0;
+                        try { size = new FileInfo(f.Path).Length; } catch { }
+                        _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                        {
+                            type = "filePath",
+                            name = Path.GetFileName(f.Path),
+                            size,
+                            path = f.Path
+                        }));
+                    }
+                }
             }
             else if (type == "printerSetup")
             {

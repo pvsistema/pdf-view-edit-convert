@@ -34,7 +34,7 @@ export type Annot = {
 };
 
 // Документ, который уже доступен по адресу — так его передаёт программа
-export type DocSource = { name: string; url: string; size?: number };
+export type DocSource = { name: string; url: string; size?: number; path?: string };
 
 export type SourceFile = {
   id: string;

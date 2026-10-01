@@ -6,9 +6,9 @@ export type RecentDoc = {
   name: string;
   size: number;
   at: number;
-  // Ссылка на файл, если документ пришёл из программы,
-  // — по ней его можно открыть повторно
-  url?: string;
+  // Где документ лежит на компьютере — по этому пути программа
+  // открывает его повторно
+  path?: string;
 };
 
 const KEY = 'pvs-recent';
@@ -18,7 +18,9 @@ export const readRecent = (): RecentDoc[] => {
   try {
     const raw = localStorage.getItem(KEY);
     const list = raw ? (JSON.parse(raw) as RecentDoc[]) : [];
-    return Array.isArray(list) ? list.filter((d) => d && d.name) : [];
+    return Array.isArray(list)
+      ? list.filter((d) => d && d.name).map(({ name, size, at, path }) => ({ name, size, at, path }))
+      : [];
   } catch {
     return [];
   }
@@ -32,6 +34,19 @@ export const addRecent = (doc: Omit<RecentDoc, 'at'>) => {
     localStorage.setItem(KEY, JSON.stringify(list));
   } catch {
     /* хранилище недоступно — список просто не сохранится */
+  }
+};
+
+// Путь к файлу узнаём чуть позже открытия — дописываем его в запись
+export const setRecentPath = (name: string, size: number, path: string) => {
+  try {
+    const list = readRecent();
+    const hit = list.find((d) => d.name === name && (!size || !d.size || d.size === size));
+    if (!hit) return;
+    hit.path = path;
+    localStorage.setItem(KEY, JSON.stringify(list));
+  } catch {
+    /* хранилище недоступно */
   }
 };
 

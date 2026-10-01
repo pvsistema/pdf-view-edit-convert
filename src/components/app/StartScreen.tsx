@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
-import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
+import { isDesktop, openByPath } from '@/lib/desktop';
 import { readRecent, clearRecent, whenLabel, sizeLabel, type RecentDoc } from '@/lib/recent';
 
 type Props = {
@@ -22,7 +22,6 @@ type Props = {
 // заглавными — так их быстрее читать
 const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
   const { loading } = useDoc();
-  const tabsApi = useTabs();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [recent, setRecent] = useState<RecentDoc[]>(() => readRecent());
@@ -36,16 +35,18 @@ const StartScreen = ({ onFile, onScan, onConvert }: Props) => {
     onFile(file);
   };
 
-  // Повторное открытие из списка последних: файл берём по сохранённой
-  // ссылке, а если её нет — просим указать документ заново
+  // Повторное открытие из списка последних. Раньше здесь бралась
+  // временная ссылка на копию файла, а копии удаляются при следующем
+  // запуске программы — поэтому документ «не открывался». Теперь
+  // программа открывает сам файл по его месту на диске
   const reopen = (d: RecentDoc) => {
-    if (d.url && tabsApi) {
-      tabsApi.openTab({ name: d.name, url: d.url, size: d.size });
+    if (d.path && isDesktop()) {
+      openByPath(d.path);
       return;
     }
     toast({
       title: 'Укажите файл заново',
-      description: `Программа не хранит сам документ — выберите «${d.name}» на компьютере`,
+      description: `Выберите «${d.name}» на компьютере — дальше он будет открываться из списка сразу`,
     });
     input.current?.click();
   };

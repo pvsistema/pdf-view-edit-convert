@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { DocSource } from '@/context/DocContext';
 import { addRecent } from '@/lib/recent';
+import { askFilePath } from '@/lib/desktop';
 import { isDesktop, reportUnsaved } from '@/lib/desktop';
 
 export type TabItem = {
@@ -56,11 +57,13 @@ export const TabsProvider = ({ children }: { children: React.ReactNode }) => {
     setActiveId(id);
 
     // Запоминаем документ для списка последних на стартовом окне
-    addRecent(
-      source instanceof File
-        ? { name: source.name, size: source.size }
-        : { name: source.name, size: source.size ?? 0, url: source.url },
-    );
+    if (source instanceof File) {
+      addRecent({ name: source.name, size: source.size });
+      // Путь к файлу сообщит программа — запишем его, когда придёт
+      if (isDesktop()) askFilePath(source);
+    } else {
+      addRecent({ name: source.name, size: source.size ?? 0, path: source.path });
+    }
   }, []);
 
   const closeTab = useCallback((id: string) => {
