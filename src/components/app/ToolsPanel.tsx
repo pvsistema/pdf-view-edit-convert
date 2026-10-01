@@ -17,6 +17,7 @@ import { readFrames, readMarks, readMissed, rereadWeak } from '@/lib/ocrReread';
 import { missedSpots } from '@/lib/ocrInk';
 import { canvasJpeg, findStamps, withoutInk } from '@/lib/ocrStamps';
 import { buildRichXlsx } from '@/lib/xlsxRich';
+import { richPages } from '@/lib/convert/fromPdf';
 import type { RichPage } from '@/lib/pdfToDocx';
 import { detectSkew, detectTurn, straighten, turnCanvas } from '@/lib/ocrOrient';
 import { fixWords, type SpellFix } from '@/lib/spell/fixWords';
@@ -497,10 +498,9 @@ const ToolsPanel = () => {
         if (ready) {
           // Страница с настоящим текстом: заодно снимаем её точный облик,
           // чтобы в Word она вышла как оригинал, а не лентой текста
-          const rich = await (async () => {
-            const { richPages } = await import('@/lib/convert/fromPdf');
-            return (await richPages(doc, [pg.src]))[0];
-          })().catch(() => undefined);
+          const rich = await richPages(doc, [pg.src])
+            .then((r) => r[0])
+            .catch(() => undefined);
           sheets.push({ no: i + 1, text: ready.text, parts: ready.parts, rich });
           // По такой странице поиск и так работает — берём её как есть
           searchable.push(null);

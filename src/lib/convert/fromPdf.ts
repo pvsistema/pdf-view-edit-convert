@@ -1,6 +1,9 @@
 // Извлечение содержимого PDF в другие форматы
 
-import { loadDocFromBytes, pageText, renderPageOnce, closeDoc } from '@/lib/pdf';
+import { loadDocFromBytes, pageText, renderPageOnce, closeDoc, pageRich } from '@/lib/pdf';
+import { buildRichPage, type RichPage } from '@/lib/pdfToDocx';
+import { buildRichDocx } from '@/lib/docx';
+import { buildRichXlsx } from '@/lib/xlsxRich';
 
 export type StepFn = (done: number, total: number) => void;
 
@@ -112,9 +115,7 @@ export const pagesToImages = async (
 // чтобы ничего не потерялось. Для распознавания сканов есть отдельный
 // инструмент
 export const richPages = async (doc: any, indexes: number[], onStep?: StepFn) => {
-  const { pageRich } = await import('@/lib/pdf');
-  const { buildRichPage } = await import('@/lib/pdfToDocx');
-  const out: import('@/lib/pdfToDocx').RichPage[] = [];
+  const out: RichPage[] = [];
   let k = 0;
   for (const i of indexes) {
     const { pieces, decor } = await pageRich(doc, i);
@@ -134,7 +135,6 @@ export const richPages = async (doc: any, indexes: number[], onStep?: StepFn) =>
 };
 
 export const pdfToRichDocx = async (file: File, onStep?: StepFn) => {
-  const { buildRichDocx } = await import('@/lib/docx');
   const doc = await loadDocFromBytes(await file.arrayBuffer());
   try {
     const pages = await richPages(
@@ -151,7 +151,6 @@ export const pdfToRichDocx = async (file: File, onStep?: StepFn) => {
 // Книга Excel с обликом исходника: таблицы с объединёнными ячейками,
 // заливкой и рамками, по листу на страницу
 export const pdfToRichXlsx = async (file: File, onStep?: StepFn) => {
-  const { buildRichXlsx } = await import('@/lib/xlsxRich');
   const doc = await loadDocFromBytes(await file.arrayBuffer());
   try {
     const pages = await richPages(
