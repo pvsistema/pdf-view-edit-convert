@@ -5,16 +5,65 @@ import { useDoc, type PageMeta } from '@/context/DocContext';
 import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { takePage, heldPage, dropInto, MIME } from '@/lib/pageSwap';
+import ThumbMenu from '@/components/app/ThumbMenu';
+import { pageToJpeg, jpegName } from '@/lib/pageJpeg';
+import { downloadBlob } from '@/lib/files';
+import { requestPrint } from '@/lib/printBus';
 
 const PagesPanel = () => {
-  const { pages, files, active, setActive, rotate, remove, move, movePageTo, append, name } =
-    useDoc();
+  const {
+    pages,
+    files,
+    active,
+    setActive,
+    rotate,
+    remove,
+    move,
+    movePageTo,
+    append,
+    name,
+    buildPdf,
+  } = useDoc();
   const input = useRef<HTMLInputElement>(null);
   const tabsApi = useTabs();
   const tabId = tabsApi?.activeId ?? 'single';
 
   const [held, setHeld] = useState<string | null>(null);
   const [mark, setMark] = useState<number | null>(null);
+  // Меню по правой кнопке на миниатюре
+  const [menu, setMenu] = useState<{ x: number; y: number; page: PageMeta; index: number } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState(false);
+
+  const openMenu = (e: React.MouseEvent, page: PageMeta, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActive(index);
+    setMenu({ x: e.clientX, y: e.clientY, page, index });
+  };
+
+  // Одна страница отдельным файлом — картинкой или PDF
+  const exportPage = async (page: PageMeta, index: number, kind: 'jpeg' | 'pdf') => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const bytes = await buildPdf([page]);
+      if (kind === 'jpeg') {
+        downloadBlob(await pageToJpeg(bytes), jpegName(name, index + 1));
+      } else {
+        const base = (name || 'document').replace(/\.pdf$/i, '');
+        downloadBlob(
+          new Blob([bytes as BlobPart], { type: 'application/pdf' }),
+          `${base}-стр-${index + 1}.pdf`,
+        );
+      }
+    } catch {
+      toast({ title: 'Не удалось сохранить страницу', description: 'Попробуйте ещё раз' });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Берём страницу мышью: кладём её в общий обменник, чтобы
   // соседняя вкладка смогла принять этот же лист
@@ -134,6 +183,7 @@ const PagesPanel = () => {
             onDragEnd={finish}
             onDragOver={over}
             onDrop={put}
+            onMenu={openMenu}
           />
         ))}
 
@@ -142,6 +192,68 @@ const PagesPanel = () => {
           С клавишей Ctrl страница копируется.
         </p>
       </div>
+
+      {menu && (
+        <ThumbMenu
+          x={menu.x}
+          y={menu.y}
+          title={`Страница ${menu.index + 1}`}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              icon: 'Image',
+              label: 'Экспорт страницы в JPEG',
+              on: !busy,
+              fn: () => void exportPage(menu.page, menu.index, 'jpeg'),
+            },
+            {
+              icon: 'FileOutput',
+              label: 'Экспорт страницы в PDF',
+              on: !busy,
+              fn: () => void exportPage(menu.page, menu.index, 'pdf'),
+            },
+            {
+              icon: 'Printer',
+              label: 'Печать страницы',
+              fn: () => requestPrint({ scope: 'current' }),
+            },
+            {
+              icon: 'RotateCw',
+              label: 'Повернуть вправо на 90°',
+              sep: true,
+              fn: () => rotate(menu.page.uid, 90),
+            },
+            {
+              icon: 'RotateCcw',
+              label: 'Повернуть влево на 90°',
+              fn: () => rotate(menu.page.uid, -90),
+            },
+            {
+              icon: 'ArrowUp',
+              label: 'Переместить выше',
+              on: menu.index > 0,
+              fn: () => move(menu.page.uid, -1),
+            },
+            {
+              icon: 'ArrowDown',
+              label: 'Переместить ниже',
+              on: menu.index < pages.length - 1,
+              fn: () => move(menu.page.uid, 1),
+            },
+            {
+              icon: 'Trash2',
+              label: 'Удалить страницу',
+              sep: true,
+              danger: true,
+              on: pages.length > 1,
+              fn: () => {
+                remove(menu.page.uid);
+                toast({ title: 'Страница удалена' });
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };

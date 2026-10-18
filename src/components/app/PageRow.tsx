@@ -19,6 +19,7 @@ type Props = {
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent, index: number) => void;
   onDrop: (e: React.DragEvent, index: number) => void;
+  onMenu: (e: React.MouseEvent, page: PageMeta, index: number) => void;
 };
 
 // Отдельная строка списка страниц. Перерисовывается только та,
@@ -39,6 +40,7 @@ const PageRow = ({
   onDragEnd,
   onDragOver,
   onDrop,
+  onMenu,
 }: Props) => (
   <div className="relative">
     {/* Полоска показывает, куда встанет страница */}
@@ -51,6 +53,7 @@ const PageRow = ({
       onDragEnd={onDragEnd}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={(e) => onDrop(e, index)}
+      onContextMenu={(e) => onMenu(e, page, index)}
       className={`group mb-3 cursor-grab border p-2 transition-colors active:cursor-grabbing ${
         dragging ? 'opacity-40' : ''
       } ${
