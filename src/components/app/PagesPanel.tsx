@@ -31,6 +31,7 @@ const PagesPanel = () => {
     active,
     setActive,
     rotate,
+    rotateMany,
     remove,
     removeMany,
     move,
@@ -322,9 +323,10 @@ const PagesPanel = () => {
 
       {/* Полоса действий с отмеченными страницами */}
       {pickedPages.length > 1 && (
-        <div className="flex items-center gap-2 border-t border-border bg-background px-3 py-2.5">
-          <span className="flex-1 text-[0.78rem]">
-            Отмечено: <b>{pickedPages.length}</b>
+        <div className="flex items-center gap-1 border-t border-border bg-background px-3 py-2.5">
+          <span className="flex-1 whitespace-nowrap text-[0.78rem]" title="Отмечено страниц">
+            <Icon name="CheckCheck" size={13} className="mr-1 inline -translate-y-px text-primary" fallback="Check" />
+            <b>{pickedPages.length}</b>
           </span>
           <button
             onClick={() => void exportMany(pickedPages)}
@@ -343,6 +345,22 @@ const PagesPanel = () => {
           >
             <Icon name="FileOutput" size={13} />
             PDF
+          </button>
+          <button
+            onClick={() => rotateMany(pickedPages.map((p) => p.uid), -90)}
+            disabled={busy}
+            title="Повернуть отмеченные влево на 90°"
+            className="p-1.5 text-muted-foreground transition-colors hover:text-primary disabled:opacity-35"
+          >
+            <Icon name="RotateCcw" size={15} />
+          </button>
+          <button
+            onClick={() => rotateMany(pickedPages.map((p) => p.uid), 90)}
+            disabled={busy}
+            title="Повернуть отмеченные вправо на 90°"
+            className="p-1.5 text-muted-foreground transition-colors hover:text-primary disabled:opacity-35"
+          >
+            <Icon name="RotateCw" size={15} />
           </button>
           <button
             onClick={() => setAskDel(true)}
@@ -421,6 +439,17 @@ const PagesPanel = () => {
               label: `Сохранить отмеченные (${pickedPages.length}) в отдельный PDF`,
               on: !busy,
               fn: () => void pdfMany(pickedPages),
+            },
+            {
+              icon: 'RotateCw',
+              label: 'Повернуть отмеченные вправо на 90°',
+              sep: true,
+              fn: () => rotateMany(pickedPages.map((p) => p.uid), 90),
+            },
+            {
+              icon: 'RotateCcw',
+              label: 'Повернуть отмеченные влево на 90°',
+              fn: () => rotateMany(pickedPages.map((p) => p.uid), -90),
             },
             {
               icon: 'Trash2',

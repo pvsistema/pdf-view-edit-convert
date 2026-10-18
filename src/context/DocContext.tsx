@@ -91,6 +91,8 @@ type Ctx = {
   open: (file: File | DocSource) => Promise<void>;
   append: (file: File) => Promise<void>;
   rotate: (uid: string, dir: number) => void;
+  // Повернуть несколько страниц одним действием: Ctrl+Z вернёт их все сразу
+  rotateMany: (uids: string[], dir: number) => void;
   remove: (uid: string) => void;
   // Удалить несколько страниц одним действием: Ctrl+Z вернёт их все сразу
   removeMany: (uids: string[]) => void;
@@ -405,6 +407,19 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       apply('поворот страницы', {
         pages: pagesRef.current.map((x) =>
           x.uid === uid ? { ...x, rotation: (x.rotation + dir + 360) % 360 } : x,
+        ),
+      });
+    },
+    [apply],
+  );
+
+  const rotateMany = useCallback(
+    (uids: string[], dir: number) => {
+      const set = new Set(uids);
+      if (!set.size) return;
+      apply(set.size > 1 ? `поворот страниц (${set.size})` : 'поворот страницы', {
+        pages: pagesRef.current.map((x) =>
+          set.has(x.uid) ? { ...x, rotation: (x.rotation + dir + 360) % 360 } : x,
         ),
       });
     },
@@ -877,6 +892,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       open,
       append,
       rotate,
+      rotateMany,
       remove,
       removeMany,
       move,
@@ -912,6 +928,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       open,
       append,
       rotate,
+      rotateMany,
       remove,
       removeMany,
       move,
