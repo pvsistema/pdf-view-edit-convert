@@ -98,6 +98,9 @@ type Ctx = {
   removeMany: (uids: string[]) => void;
   move: (uid: string, dir: number) => void;
   movePageTo: (uid: string, at: number) => void;
+  // Перенести несколько страниц разом: встают подряд, в прежнем порядке,
+  // перед страницей с номером at (at = число страниц — в самый конец)
+  movePagesTo: (uids: string[], at: number) => void;
   insertPage: (page: PageMeta, file: SourceFile, at: number, label?: string) => void;
   reset: () => void;
   docOf: (p: PageMeta) => any;
@@ -295,6 +298,26 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       next.splice(to, 0, item);
       if (to === from) return;
       apply('перемещение страницы', { pages: next });
+      setActive(to);
+    },
+    [apply],
+  );
+
+  const movePagesTo = useCallback(
+    (uids: string[], at: number) => {
+      const set = new Set(uids);
+      const all = pagesRef.current;
+      const group = all.filter((x) => set.has(x.uid));
+      if (!group.length) return;
+      const rest = all.filter((x) => !set.has(x.uid));
+      // Место вставки считаем среди оставшихся страниц: сколько из них
+      // стояло перед точкой, куда бросили группу
+      const to = all.slice(0, Math.max(0, Math.min(at, all.length))).filter((x) => !set.has(x.uid)).length;
+      const next = [...rest.slice(0, to), ...group, ...rest.slice(to)];
+      if (next.every((x, i) => x === all[i])) return;
+      apply(group.length > 1 ? `перемещение страниц (${group.length})` : 'перемещение страницы', {
+        pages: next,
+      });
       setActive(to);
     },
     [apply],
@@ -897,6 +920,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       removeMany,
       move,
       movePageTo,
+      movePagesTo,
       insertPage,
       duplicatePage,
       selectAllPages,
@@ -933,6 +957,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       removeMany,
       move,
       movePageTo,
+      movePagesTo,
       insertPage,
       duplicatePage,
       selectAllPages,

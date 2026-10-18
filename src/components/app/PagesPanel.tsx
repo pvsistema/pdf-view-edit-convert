@@ -36,6 +36,7 @@ const PagesPanel = () => {
     removeMany,
     move,
     movePageTo,
+    movePagesTo,
     append,
     name,
     buildPdf,
@@ -193,6 +194,18 @@ const PagesPanel = () => {
 
   // Берём страницу мышью: кладём её в общий обменник, чтобы
   // соседняя вкладка смогла принять этот же лист
+  // Тянут одну из нескольких отмеченных страниц — едет вся группа
+  const groupHeld = (uid: string) => picked.length > 1 && picked.includes(uid);
+
+  // Перенос отмеченных в начало или в конец документа
+  const moveGroup = (where: 'start' | 'end') => {
+    movePagesTo(picked, where === 'start' ? 0 : pages.length);
+    toast({
+      title: `Страницы перенесены ${where === 'start' ? 'в начало' : 'в конец'}`,
+      description: 'Вернуть можно сочетанием Ctrl+Z',
+    });
+  };
+
   const start = (e: React.DragEvent, page: PageMeta) => {
     const file = files.find((f) => f.id === page.fileId);
     if (!file) return;
@@ -201,7 +214,21 @@ const PagesPanel = () => {
     takePage({ tabId, page, file, label: name });
     e.dataTransfer.effectAllowed = 'copyMove';
     e.dataTransfer.setData(MIME, page.uid);
-    e.dataTransfer.setData('text/plain', `Страница ${pages.indexOf(page) + 1}`);
+    const group = picked.length > 1 && picked.includes(page.uid);
+    e.dataTransfer.setData(
+      'text/plain',
+      group ? `Страниц: ${picked.length}` : `Страница ${pages.indexOf(page) + 1}`,
+    );
+    // Под курсором показываем, сколько страниц едет
+    if (group) {
+      const tag = document.createElement('div');
+      tag.textContent = `Страниц: ${picked.length}`;
+      tag.style.cssText =
+        'position:fixed;top:-100px;left:0;padding:6px 10px;background:hsl(var(--primary));color:hsl(var(--primary-foreground));font:700 12px sans-serif;';
+      document.body.appendChild(tag);
+      e.dataTransfer.setDragImage(tag, 10, 10);
+      setTimeout(() => tag.remove(), 0);
+    }
   };
 
   const finish = () => {
@@ -232,7 +259,8 @@ const PagesPanel = () => {
     const copy = e.ctrlKey || e.metaKey;
 
     if (cargo.tabId === tabId) {
-      movePageTo(cargo.page.uid, at);
+      if (groupHeld(cargo.page.uid)) movePagesTo(picked, at);
+      else movePageTo(cargo.page.uid, at);
     } else if (dropInto(tabId, at, copy)) {
       toast({
         title: copy ? 'Страница скопирована' : 'Страница перенесена',
@@ -250,7 +278,8 @@ const PagesPanel = () => {
     const copy = e.ctrlKey || e.metaKey;
 
     if (cargo.tabId === tabId) {
-      movePageTo(cargo.page.uid, pages.length);
+      if (groupHeld(cargo.page.uid)) movePagesTo(picked, pages.length);
+      else movePageTo(cargo.page.uid, pages.length);
     } else if (dropInto(tabId, pages.length, copy)) {
       toast({
         title: copy ? 'Страница скопирована' : 'Страница перенесена',
@@ -299,7 +328,7 @@ const PagesPanel = () => {
             activeRow={i === active}
             picked={picked.includes(p.uid)}
             last={pages.length === 1}
-            dragging={held === p.uid}
+            dragging={held === p.uid || (!!held && groupHeld(held) && picked.includes(p.uid))}
             markAbove={mark === i}
             markBelow={mark === i + 1 && i === pages.length - 1}
             onSelect={select}
@@ -317,7 +346,8 @@ const PagesPanel = () => {
         <p className="px-1 pb-2 pt-1 text-[0.7rem] leading-relaxed text-muted-foreground">
           Страницы можно перетаскивать мышью — внутри документа и на вкладку другого файла.
           С клавишей Ctrl страница копируется. Щелчок с Ctrl или Shift отмечает несколько
-          страниц — их можно разом сохранить картинками.
+          страниц — их можно разом перенести, повернуть, сохранить или удалить. Отмеченные
+          страницы перетаскиваются все вместе.
         </p>
       </div>
 
@@ -345,6 +375,22 @@ const PagesPanel = () => {
           >
             <Icon name="FileOutput" size={13} />
             PDF
+          </button>
+          <button
+            onClick={() => moveGroup('start')}
+            disabled={busy}
+            title="Перенести отмеченные в начало документа"
+            className="p-1.5 text-muted-foreground transition-colors hover:text-primary disabled:opacity-35"
+          >
+            <Icon name="ArrowUpToLine" size={15} />
+          </button>
+          <button
+            onClick={() => moveGroup('end')}
+            disabled={busy}
+            title="Перенести отмеченные в конец документа"
+            className="p-1.5 text-muted-foreground transition-colors hover:text-primary disabled:opacity-35"
+          >
+            <Icon name="ArrowDownToLine" size={15} />
           </button>
           <button
             onClick={() => rotateMany(pickedPages.map((p) => p.uid), -90)}
@@ -439,6 +485,17 @@ const PagesPanel = () => {
               label: `Сохранить отмеченные (${pickedPages.length}) в отдельный PDF`,
               on: !busy,
               fn: () => void pdfMany(pickedPages),
+            },
+            {
+              icon: 'ArrowUpToLine',
+              label: 'Перенести отмеченные в начало',
+              sep: true,
+              fn: () => moveGroup('start'),
+            },
+            {
+              icon: 'ArrowDownToLine',
+              label: 'Перенести отмеченные в конец',
+              fn: () => moveGroup('end'),
             },
             {
               icon: 'RotateCw',
