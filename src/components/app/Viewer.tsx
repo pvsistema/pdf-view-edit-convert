@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { pageText, pageSize } from '@/lib/pdf';
+import { pageText, pageSize, loadDocFromBytes, renderPageOnce, closeDoc } from '@/lib/pdf';
 import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
@@ -924,6 +924,33 @@ const Viewer = ({ tool, setTool }: Props) => {
         const base = (name || 'document').replace(/\.pdf$/i, '');
         downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), `${base}-стр-${pages.indexOf(target) + 1}.pdf`);
       } finally {
+        setBusy(false);
+      }
+    },
+
+    // Экспорт одной страницы картинкой JPEG. Берём страницу так, как она
+    // выглядит в документе: с поворотом, надписями и пометками.
+    // Плотность 200 точек на дюйм — чётко и для печати, и для отправки
+    onExportJpeg: async () => {
+      setBusy(true);
+      let doc: any = null;
+      try {
+        const bytes = await buildPdf([target]);
+        doc = await loadDocFromBytes((bytes as Uint8Array).slice().buffer as ArrayBuffer);
+        const canvas = await renderPageOnce(doc, 0, 200 / 72);
+        const blob = await new Promise<Blob>((res, rej) =>
+          canvas.toBlob(
+            (b) => (b ? res(b) : rej(new Error('Страница не собралась'))),
+            'image/jpeg',
+            0.92,
+          ),
+        );
+        const base = (name || 'document').replace(/\.pdf$/i, '');
+        downloadBlob(blob, `${base}-стр-${pages.indexOf(target) + 1}.jpg`);
+      } catch {
+        toast({ title: 'Не удалось сохранить картинку', description: 'Попробуйте ещё раз' });
+      } finally {
+        closeDoc(doc);
         setBusy(false);
       }
     },

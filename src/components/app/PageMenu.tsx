@@ -30,6 +30,7 @@ export type MenuActions = {
   onEditDoc: () => void;
   onPrint: () => void;
   onExport: () => void;
+  onExportJpeg: () => void;
   onSavePdf: () => void;
   onPageSetup: () => void;
 };
@@ -203,9 +204,15 @@ const PageMenu = ({ at, onClose, ...act }: Props) => {
     },
     {
       icon: 'FileOutput',
-      label: 'Экспорт страницы',
+      label: 'Экспорт страницы в PDF',
       on: true,
       fn: run(act.onExport),
+    },
+    {
+      icon: 'Image',
+      label: 'Экспорт страницы в JPEG',
+      on: true,
+      fn: run(act.onExportJpeg),
     },
     {
       icon: 'FileDown',
