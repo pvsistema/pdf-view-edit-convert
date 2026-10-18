@@ -435,7 +435,7 @@ const Viewer = ({ tool, setTool }: Props) => {
       }
 
       // Shift+Ctrl+D удаляет страницу, на которой человек сейчас находится
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.code === 'KeyD' || e.key === 'D' || e.key === 'd')) {
         e.preventDefault();
         const cur = pages[active];
         if (!cur) return;
@@ -924,6 +924,8 @@ const Viewer = ({ tool, setTool }: Props) => {
         const bytes = await buildPdf([target]);
         const base = (name || 'document').replace(/\.pdf$/i, '');
         downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), `${base}-стр-${pages.indexOf(target) + 1}.pdf`);
+      } catch {
+        toast({ title: 'Не удалось сохранить страницу', description: 'Попробуйте ещё раз' });
       } finally {
         setBusy(false);
       }

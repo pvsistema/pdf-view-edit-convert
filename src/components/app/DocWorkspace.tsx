@@ -7,13 +7,17 @@ import ToolsPanel from '@/components/app/ToolsPanel';
 import AppBar from '@/components/app/AppBar';
 import { useTabs, ActiveTabProvider } from '@/context/TabsContext';
 import { registerTab } from '@/lib/pageSwap';
+import { onSaveAndCloseRequest } from '@/lib/closeBus';
+import { isDesktop, nativeSave, onSaveDone } from '@/lib/desktop';
+import { downloadBlob } from '@/lib/files';
+import { toast } from '@/hooks/use-toast';
 
 type Props = { source: File | DocSource; tabId: string; activeTab: boolean };
 
 // Рабочая область одной вкладки: документ открывается один раз
 // и остаётся готовым, пока вкладку не закроют
 const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
-  const { pages, name, open, loading, insertPage, remove, dirty } = useDoc();
+  const { pages, name, open, loading, insertPage, remove, dirty, buildPdf, markSaved } = useDoc();
   const [tool, setTool] = useState<Tool>('hand');
   const [panel, setPanel] = useState<'pages' | 'tools' | null>(null);
   const tabsApi = useTabs();
@@ -32,6 +36,43 @@ const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
   useEffect(() => {
     if (name && rename) rename(tabId, name);
   }, [name, rename, tabId]);
+
+  // «Сохранить и закрыть» из вопроса при закрытии вкладки
+  const closeTab = tabsApi?.closeTab;
+  const saveRef = useRef({ buildPdf, markSaved, name });
+  saveRef.current = { buildPdf, markSaved, name };
+  useEffect(
+    () =>
+      onSaveAndCloseRequest(async (id) => {
+        if (id !== tabId) return;
+        const { buildPdf: build, markSaved: saved, name: docName } = saveRef.current;
+        const file = docName || 'document.pdf';
+        try {
+          const blob = new Blob([(await build()) as BlobPart], { type: 'application/pdf' });
+          if (!isDesktop()) {
+            downloadBlob(blob, file);
+            saved();
+            closeTab?.(tabId);
+            return;
+          }
+          // В программе закрываем вкладку, только когда файл записан.
+          // Если окно «Сохранить как» закрыли — документ остаётся открытым
+          const off = onSaveDone((r) => {
+            off();
+            if (r.ok) {
+              saved();
+              closeTab?.(tabId);
+            } else if (!r.cancelled) {
+              toast({ title: 'Не удалось сохранить', description: r.error || 'Документ остался открытым' });
+            }
+          });
+          await nativeSave(blob, file);
+        } catch {
+          toast({ title: 'Не удалось сохранить', description: 'Документ остался открытым' });
+        }
+      }),
+    [tabId, closeTab],
+  );
 
   // Несохранённые правки этой вкладки видны всей программе:
   // по ним задаётся вопрос при закрытии

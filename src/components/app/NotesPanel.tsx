@@ -3,6 +3,8 @@ import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { readNotes, saveNotes, noteWhen, type Note } from '@/lib/notes';
 import { onNotesChanged, notesChanged } from '@/lib/noteBus';
+import { toast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 
 // Панель замечаний: все заметки документа списком, с автором и датой.
 // Щелчок ведёт к нужному месту, как в программах для вычитки
@@ -53,7 +55,35 @@ const NotesPanel = () => {
   const toggle = (id: string) =>
     keep(list.map((n) => (n.id === id ? { ...n, done: !n.done } : n)));
 
-  const drop = (id: string) => keep(list.filter((n) => n.id !== id));
+  // Удаляем сразу, но с кнопкой «Вернуть» в сообщении: случайный
+  // щелчок не должен стоить человеку текста замечания
+  const drop = (id: string) => {
+    const gone = list.find((n) => n.id === id);
+    if (!gone) return;
+    keep(list.filter((n) => n.id !== id));
+    const docName = name;
+    const t = toast({
+      title: 'Замечание удалено',
+      description: gone.text ? `«${gone.text.slice(0, 60)}${gone.text.length > 60 ? '…' : ''}»` : undefined,
+      action: (
+        <ToastAction
+          altText="Вернуть замечание"
+          onClick={() => {
+            // Берём свежий список: за это время могли добавить другие
+            const now = readNotes(docName);
+            if (now.some((n) => n.id === gone.id)) return;
+            const back = [...now, gone].sort((x, y) => x.page - y.page || x.y - y.y);
+            saveNotes(docName, back);
+            notesChanged();
+            setList(readNotes(docName));
+            t.dismiss();
+          }}
+        >
+          Вернуть
+        </ToastAction>
+      ),
+    });
+  };
 
   const goTo = (n: Note) => setActive(Math.min(n.page, pages.length - 1));
 

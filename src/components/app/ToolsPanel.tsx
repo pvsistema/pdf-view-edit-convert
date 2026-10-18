@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
 import { canvasToBlob, downloadBlob } from '@/lib/files';
@@ -164,11 +164,29 @@ const joinPages = (sheets: OcrSheet[]) =>
     .filter(Boolean)
     .join('\n\n');
 
+// Человек нажал «Отмена» — прерываем работу на ближайшем шаге
+class StopWork extends Error {
+  constructor() {
+    super('Остановлено');
+  }
+}
+
 const ToolsPanel = () => {
   const { pages, name, active, docOf, buildPdf } = useDoc();
   const { isFull, license } = useLicense();
   const [busy, setBusy] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [progressRaw, setProgressRaw] = useState(0);
+  const progress = progressRaw;
+  // «Отмена»: работа прерывается на ближайшем шаге — после текущей страницы
+  const stopRef = useRef(false);
+  const [stopping, setStopping] = useState(false);
+  // Движок распознавания: при отмене или сбое его надо закрыть, иначе он
+  // так и останется в памяти
+  const ocrWorker = useRef<{ terminate: () => Promise<unknown> } | null>(null);
+  const setProgress = useCallback((v: number) => {
+    if (stopRef.current && v > 0) throw new StopWork();
+    setProgressRaw(v);
+  }, []);
   const [ocrText, setOcrText] = useState('');
   // Тот же текст, но разложенный по страницам: нужен для выгрузки
   // в Word, где каждая страница должна лечь на отдельный лист
@@ -216,9 +234,12 @@ const ToolsPanel = () => {
 
   const run = async (key: string, trial: boolean, fn: () => Promise<void>) => {
     setBusy(key);
-    setProgress(0);
+    stopRef.current = false;
+    setStopping(false);
+    setProgressRaw(0);
     try {
       await fn();
+      if (stopRef.current) throw new StopWork();
       // Попытку списываем только за удавшуюся работу: сорвалась —
       // человек не должен терять пробный запуск
       if (trial) {
@@ -234,8 +255,10 @@ const ToolsPanel = () => {
         if (rest === 0) setShowAct(true);
       }
     } catch (e) {
+      if (e instanceof StopWork || stopRef.current) {
+        toast({ title: 'Остановлено', description: 'Работа прервана, документ не изменён' });
       // Модуль не открылся: лицензия кончилась или компьютер не активирован
-      if (e instanceof ModuleLocked) {
+      } else if (e instanceof ModuleLocked) {
         toast({ title: 'Нужна полная версия', description: e.message });
         setShowAct(true);
       } else {
@@ -256,7 +279,13 @@ const ToolsPanel = () => {
       }
     } finally {
       setBusy(null);
-      setProgress(0);
+      setProgressRaw(0);
+      setStopping(false);
+      stopRef.current = false;
+      if (ocrWorker.current) {
+        void ocrWorker.current.terminate().catch(() => undefined);
+        ocrWorker.current = null;
+      }
     }
   };
 
@@ -403,7 +432,7 @@ const ToolsPanel = () => {
       // процессоре — какое взять, решаем по самому компьютеру
       const fast = await canFast();
 
-      const worker = await createWorker('rus+eng', 1, {
+      const worker: Awaited<ReturnType<typeof createWorker>> = await createWorker('rus+eng', 1, {
         langPath: base,
         workerPath: `${base}/worker.min.js`,
         // Указываем файл ядра прямо. Сам движок искал бы файлы без
@@ -422,9 +451,12 @@ const ToolsPanel = () => {
         // на них и распознавание срывается без внятной причины
         cacheMethod: 'none',
         logger: (m: { status: string; progress: number }) => {
-          if (m.status === 'recognizing text') setProgress(Math.round(m.progress * 100));
+          if (m.status === 'recognizing text' && !stopRef.current)
+            setProgressRaw(Math.round(m.progress * 100));
         },
       });
+
+      ocrWorker.current = worker;
 
       await worker.setParameters({
         // Сохраняем пробелы между словами: без этого столбцы и отступы
@@ -612,6 +644,7 @@ const ToolsPanel = () => {
         setProgress(Math.round(((n + 1) / picked.length) * 100));
       }
 
+      ocrWorker.current = null;
       await worker.terminate();
       setSpellFixes(fixes);
 
@@ -804,18 +837,37 @@ const ToolsPanel = () => {
                       style={{ width: `${Math.max(3, progress)}%` }}
                     />
                   </span>
-                  <span className="mt-1 block text-[0.75rem] text-muted-foreground">
-                    {(() => {
-                      const total = t.key === 'ocr' ? ocrCount || pages.length : pages.length;
-                      return progress > 0
-                        ? `Обработано ${Math.round((progress / 100) * total)} из ${total} стр.`
-                        : 'Подготовка';
-                    })()}
+                  <span className="mt-1 flex items-center gap-2 text-[0.75rem] text-muted-foreground">
+                    <span className="flex-1">
+                      {stopping
+                        ? 'Останавливаю после текущей страницы…'
+                        : (() => {
+                            const total = t.key === 'ocr' ? ocrCount || pages.length : pages.length;
+                            return progress > 0
+                              ? `Обработано ${Math.round((progress / 100) * total)} из ${total} стр.`
+                              : 'Подготовка';
+                          })()}
+                    </span>
                   </span>
                 </>
               )}
             </span>
           </button>
+          {busy === t.key && (
+            <div className="flex justify-end border-b border-border px-4 py-2">
+              <button
+                onClick={() => {
+                  stopRef.current = true;
+                  setStopping(true);
+                }}
+                disabled={stopping}
+                className="flex items-center gap-1.5 border border-foreground bg-background px-2.5 py-1 font-head text-[0.7rem] font-bold uppercase tracking-[0.06em] transition-colors hover:bg-card disabled:opacity-40"
+              >
+                <Icon name="Square" size={11} />
+                Отмена
+              </button>
+            </div>
+          )}
 
           {/* Подготовка скана. Бледные и запылённые копии без неё
               распознаются плохо, но на чистой цифровой выкладке

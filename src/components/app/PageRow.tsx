@@ -10,6 +10,9 @@ type Props = {
   // Отмечена для действий с несколькими страницами (Ctrl / Shift)
   picked: boolean;
   last: boolean;
+  // Первая и последняя в списке: двигать дальше некуда
+  first: boolean;
+  lastRow: boolean;
   dragging: boolean;
   markAbove: boolean;
   markBelow: boolean;
@@ -32,6 +35,8 @@ const PageRow = ({
   activeRow,
   picked,
   last,
+  first,
+  lastRow,
   dragging,
   markAbove,
   markBelow,
@@ -81,28 +86,30 @@ const PageRow = ({
         </span>
         <div className="flex items-center gap-0.5">
           <button
-            className="p-1 hover:text-primary"
+            className="p-1 hover:text-primary disabled:opacity-30 disabled:hover:text-current"
             title="Вверх"
             onClick={() => onMove(page.uid, -1)}
+            disabled={first}
           >
             <Icon name="ArrowUp" size={13} />
           </button>
           <button
-            className="p-1 hover:text-primary"
+            className="p-1 hover:text-primary disabled:opacity-30 disabled:hover:text-current"
             title="Вниз"
             onClick={() => onMove(page.uid, 1)}
+            disabled={lastRow}
           >
             <Icon name="ArrowDown" size={13} />
           </button>
           <button
-            className="p-1 hover:text-primary"
+            className="p-1 hover:text-primary disabled:opacity-30 disabled:hover:text-current"
             title="Повернуть"
             onClick={() => onRotate(page.uid, 90)}
           >
             <Icon name="RotateCw" size={13} />
           </button>
           <button
-            className="p-1 hover:text-destructive"
+            className="p-1 hover:text-destructive disabled:opacity-30 disabled:hover:text-current"
             title="Удалить страницу"
             onClick={() => onRemove(page.uid)}
             disabled={last}

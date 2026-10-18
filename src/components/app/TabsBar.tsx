@@ -3,7 +3,7 @@ import Icon from '@/components/ui/icon';
 import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { heldPage, dropInto } from '@/lib/pageSwap';
-import { onCloseTabRequest } from '@/lib/closeBus';
+import { onCloseTabRequest, requestSaveAndClose } from '@/lib/closeBus';
 import TopLayer from '@/components/app/TopLayer';
 
 // Полоса вкладок: каждый открытый документ занимает свою вкладку,
@@ -175,10 +175,17 @@ const TabsBar = () => {
                 закрыть, они пропадут.
               </p>
             </div>
-            <div className="flex items-center gap-2 border-t border-border px-5 py-3.5">
-              <button onClick={() => setAsk(null)} className="btn-block">
-                <Icon name="ArrowLeft" size={15} />
-                Вернуться
+            <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5">
+              <button
+                autoFocus
+                onClick={() => {
+                  requestSaveAndClose(ask.id);
+                  setAsk(null);
+                }}
+                className="btn-block"
+              >
+                <Icon name="Save" size={15} />
+                Сохранить и закрыть
               </button>
               <button
                 onClick={() => {
@@ -187,7 +194,13 @@ const TabsBar = () => {
                 }}
                 className="px-3 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.08em] text-destructive hover:underline"
               >
-                Закрыть без сохранения
+                Не сохранять
+              </button>
+              <button
+                onClick={() => setAsk(null)}
+                className="ml-auto px-3 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.08em] hover:underline"
+              >
+                Отмена
               </button>
             </div>
           </div>

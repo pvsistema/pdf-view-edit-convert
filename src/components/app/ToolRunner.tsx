@@ -9,6 +9,8 @@ import { DEFAULT_SETTINGS, runTool, type ToolSettings } from '@/lib/convert/runT
 import type { ToolDef } from '@/lib/convert/catalog';
 import { isTrialTool, leftWord, onTrialChange, spendTrial, trialLeft } from '@/lib/trial';
 
+const CANCELLED = 'cancelled';
+
 type Props = {
   tool: ToolDef;
   onBack: () => void;
@@ -38,6 +40,9 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
   const [set, setSet] = useState<ToolSettings>({ ...DEFAULT_SETTINGS, paper: tool.id === 'from-scan' ? 'a4' : 'fit' });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Человек нажал «Отмена»: работа прервётся на ближайшей странице
+  const stop = useRef(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState<string>('');
 
@@ -103,10 +108,13 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
     setError('');
     setDone('');
     setProgress(0);
+    stop.current = false;
+    setStopping(false);
     try {
-      const r = await runTool(tool.id, files, set, (d, t) =>
-        setProgress(t ? Math.round((d / t) * 100) : 0),
-      );
+      const r = await runTool(tool.id, files, set, (d, t) => {
+        if (stop.current) throw new Error(CANCELLED);
+        setProgress(t ? Math.round((d / t) * 100) : 0);
+      });
       setDone(r.note || r.message);
       toast({ title: r.message, description: r.note });
 
@@ -123,10 +131,17 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
         });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось выполнить');
+      if (stop.current) {
+        // Отмена — не ошибка: просто сообщаем, что файл не создан
+        toast({ title: 'Остановлено', description: 'Файл не создан, документ не изменён' });
+      } else {
+        setError(e instanceof Error ? e.message : 'Не удалось выполнить');
+      }
     } finally {
       setBusy(false);
       setProgress(0);
+      setStopping(false);
+      stop.current = false;
     }
   };
 
@@ -382,7 +397,22 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
           <div className="mt-5 border border-primary bg-primary/5 px-4 py-3">
             <div className="flex items-center gap-3 text-[0.88rem]">
               <Icon name="LoaderCircle" size={16} className="animate-spin text-primary" />
-              Работаю над документом{progress > 0 ? ` — ${progress}%` : ''}
+              <span className="flex-1">
+                {stopping
+                  ? 'Останавливаю…'
+                  : `Работаю над документом${progress > 0 ? ` — ${progress}%` : ''}`}
+              </span>
+              <button
+                onClick={() => {
+                  stop.current = true;
+                  setStopping(true);
+                }}
+                disabled={stopping}
+                className="flex items-center gap-1.5 border border-foreground bg-background px-2.5 py-1 font-head text-[0.7rem] font-bold uppercase tracking-[0.06em] transition-colors hover:bg-card disabled:opacity-40"
+              >
+                <Icon name="Square" size={11} />
+                Отмена
+              </button>
             </div>
             <div className="mt-2.5 h-1 w-full bg-border">
               <div

@@ -328,6 +328,8 @@ const PagesPanel = () => {
             activeRow={i === active}
             picked={picked.includes(p.uid)}
             last={pages.length === 1}
+            first={i === 0}
+            lastRow={i === pages.length - 1}
             dragging={held === p.uid || (!!held && groupHeld(held) && picked.includes(p.uid))}
             markAbove={mark === i}
             markBelow={mark === i + 1 && i === pages.length - 1}
