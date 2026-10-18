@@ -6,10 +6,23 @@ import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { takePage, heldPage, dropInto, MIME } from '@/lib/pageSwap';
 import ThumbMenu from '@/components/app/ThumbMenu';
+import TopLayer from '@/components/app/TopLayer';
 import { pageToJpeg, pagesToJpegs, jpegName } from '@/lib/pageJpeg';
 import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import { downloadBlob } from '@/lib/files';
 import { requestPrint } from '@/lib/printBus';
+
+// Номера страниц коротко: 1, 2, 3, 5, 7, 8 → «1-3_5_7-8»
+const rangeLabel = (nums: number[]) => {
+  const out: string[] = [];
+  const sorted = [...nums].sort((a, b) => a - b);
+  for (let i = 0; i < sorted.length; i++) {
+    const start = sorted[i];
+    while (i + 1 < sorted.length && sorted[i + 1] === sorted[i] + 1) i++;
+    out.push(start === sorted[i] ? `${start}` : `${start}-${sorted[i]}`);
+  }
+  return out.join('_');
+};
 
 const PagesPanel = () => {
   const {
@@ -19,6 +32,7 @@ const PagesPanel = () => {
     setActive,
     rotate,
     remove,
+    removeMany,
     move,
     movePageTo,
     append,
@@ -83,6 +97,39 @@ const PagesPanel = () => {
 
   // Отмеченные страницы в порядке документа
   const pickedPages = pages.filter((p) => picked.includes(p.uid));
+
+  // Отмеченные страницы одним файлом PDF, в порядке документа
+  const pdfMany = async (list: PageMeta[]) => {
+    if (busy || !list.length) return;
+    setBusy(true);
+    try {
+      const bytes = await buildPdf(list);
+      const base = (name || 'document').replace(/\.pdf$/i, '');
+      const nums = list.map((p) => pages.indexOf(p) + 1);
+      downloadBlob(
+        new Blob([bytes as BlobPart], { type: 'application/pdf' }),
+        `${base}-стр-${rangeLabel(nums)}.pdf`,
+      );
+      if (!isDesktop()) toast({ title: 'Страницы сохранены', description: `${list.length} стр. в одном PDF` });
+    } catch {
+      toast({ title: 'Не удалось сохранить страницы', description: 'Попробуйте ещё раз' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Удаление спрашиваем заранее: страниц сразу несколько
+  const [askDel, setAskDel] = useState(false);
+  const deleteMany = () => {
+    const uids = pickedPages.map((p) => p.uid);
+    removeMany(uids);
+    setPicked([]);
+    setAskDel(false);
+    toast({
+      title: `Удалено страниц: ${uids.length}`,
+      description: 'Вернуть можно сочетанием Ctrl+Z',
+    });
+  };
 
   const exportMany = async (list: PageMeta[]) => {
     if (busy || !list.length) return;
@@ -283,10 +330,31 @@ const PagesPanel = () => {
             onClick={() => void exportMany(pickedPages)}
             disabled={busy}
             title="Сохранить отмеченные страницы картинками JPEG"
-            className="flex items-center gap-1.5 bg-primary px-2.5 py-1.5 font-head text-[0.68rem] font-bold uppercase tracking-[0.06em] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-primary px-2 py-1.5 font-head text-[0.66rem] font-bold uppercase tracking-[0.06em] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             <Icon name={busy ? 'LoaderCircle' : 'Image'} size={13} className={busy ? 'animate-spin' : ''} />
-            В JPEG
+            JPEG
+          </button>
+          <button
+            onClick={() => void pdfMany(pickedPages)}
+            disabled={busy}
+            title="Сохранить отмеченные страницы в отдельный PDF"
+            className="flex items-center gap-1.5 border border-foreground px-2 py-1.5 font-head text-[0.66rem] font-bold uppercase tracking-[0.06em] transition-colors hover:bg-card disabled:opacity-50"
+          >
+            <Icon name="FileOutput" size={13} />
+            PDF
+          </button>
+          <button
+            onClick={() => setAskDel(true)}
+            disabled={busy || pickedPages.length >= pages.length}
+            title={
+              pickedPages.length >= pages.length
+                ? 'Все страницы удалить нельзя'
+                : 'Удалить отмеченные страницы'
+            }
+            className="p-1.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-35"
+          >
+            <Icon name="Trash2" size={15} />
           </button>
           <button
             onClick={() => setPicked([])}
@@ -296,6 +364,39 @@ const PagesPanel = () => {
             <Icon name="X" size={15} />
           </button>
         </div>
+      )}
+
+      {askDel && (
+        <TopLayer>
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-foreground/40 px-4">
+            <div className="w-full max-w-[400px] border border-border bg-background shadow-xl">
+              <div className="flex items-center gap-2.5 border-b border-border px-5 py-3.5">
+                <Icon name="Trash2" size={17} className="shrink-0 text-destructive" />
+                <span className="label-caps">Удалить страницы</span>
+              </div>
+              <p className="px-5 py-4 text-[0.88rem] leading-relaxed">
+                Удалить отмеченные страницы ({pickedPages.length} шт.:{' '}
+                {rangeLabel(pickedPages.map((p) => pages.indexOf(p) + 1)).replace(/_/g, ', ')})?
+                Вернуть их можно сочетанием Ctrl+Z.
+              </p>
+              <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3.5">
+                <button
+                  onClick={() => setAskDel(false)}
+                  className="px-3 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.08em] hover:underline"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={deleteMany}
+                  autoFocus
+                  className="bg-destructive px-3 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.08em] text-destructive-foreground hover:opacity-90"
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+        </TopLayer>
       )}
 
       {menu && (
@@ -314,6 +415,20 @@ const PagesPanel = () => {
               label: `Экспорт отмеченных (${pickedPages.length}) в JPEG`,
               on: !busy,
               fn: () => void exportMany(pickedPages),
+            },
+            {
+              icon: 'FileOutput',
+              label: `Сохранить отмеченные (${pickedPages.length}) в отдельный PDF`,
+              on: !busy,
+              fn: () => void pdfMany(pickedPages),
+            },
+            {
+              icon: 'Trash2',
+              label: `Удалить отмеченные (${pickedPages.length})`,
+              sep: true,
+              danger: true,
+              on: pickedPages.length < pages.length,
+              fn: () => setAskDel(true),
             },
             {
               icon: 'X',

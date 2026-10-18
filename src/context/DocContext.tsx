@@ -92,6 +92,8 @@ type Ctx = {
   append: (file: File) => Promise<void>;
   rotate: (uid: string, dir: number) => void;
   remove: (uid: string) => void;
+  // Удалить несколько страниц одним действием: Ctrl+Z вернёт их все сразу
+  removeMany: (uids: string[]) => void;
   move: (uid: string, dir: number) => void;
   movePageTo: (uid: string, at: number) => void;
   insertPage: (page: PageMeta, file: SourceFile, at: number, label?: string) => void;
@@ -419,6 +421,22 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         annots: annotsRef.current.filter((a) => a.pageUid !== uid),
       });
       setActive((a) => Math.max(0, Math.min(a >= idx ? a - 1 : a, next.length - 1)));
+    },
+    [apply],
+  );
+
+  const removeMany = useCallback(
+    (uids: string[]) => {
+      const gone = new Set(uids);
+      const next = pagesRef.current.filter((x) => !gone.has(x.uid));
+      // Весь документ удалить нельзя — хотя бы одна страница остаётся
+      if (!next.length || next.length === pagesRef.current.length) return;
+      const firstGone = pagesRef.current.findIndex((x) => gone.has(x.uid));
+      apply(uids.length > 1 ? `удаление страниц (${uids.length})` : 'удаление страницы', {
+        pages: next,
+        annots: annotsRef.current.filter((a) => !gone.has(a.pageUid)),
+      });
+      setActive(Math.max(0, Math.min(firstGone, next.length - 1)));
     },
     [apply],
   );
@@ -860,6 +878,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       append,
       rotate,
       remove,
+      removeMany,
       move,
       movePageTo,
       insertPage,
@@ -894,6 +913,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       append,
       rotate,
       remove,
+      removeMany,
       move,
       movePageTo,
       insertPage,
