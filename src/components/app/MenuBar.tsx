@@ -13,7 +13,7 @@ import ShortcutsDialog from '@/components/app/ShortcutsDialog';
 import TopLayer from '@/components/app/TopLayer';
 import ScanDialog from '@/components/app/ScanDialog';
 import ConvertDialog from '@/components/app/ConvertDialog';
-import { isDesktop, desktopVersion } from '@/lib/desktop';
+import { isDesktop, desktopVersion, openLogsFolder } from '@/lib/desktop';
 import { APP_VERSION } from '@/lib/brand';
 import { checkUpdate } from '@/lib/adminApi';
 import { saveUpdateInfo, forgetSkipped } from '@/lib/updateStore';
@@ -229,6 +229,24 @@ const MenuBar = () => {
       fn: act(() => void lookForUpdate()),
       on: !checking,
     },
+    // Только в программе: журнал лежит на компьютере
+    ...(isDesktop()
+      ? [
+          {
+            icon: 'FileWarning',
+            label: 'Журнал ошибок',
+            note: 'Папка с файлами для службы поддержки',
+            fn: act(() => {
+              openLogsFolder();
+              toast({
+                title: 'Папка журнала открыта',
+                description: 'Пришлите в поддержку файл за нужный день — в нём нет содержимого документов',
+              });
+            }),
+            on: true,
+          },
+        ]
+      : []),
     {
       icon: 'X',
       label: 'Закрыть документ',

@@ -40,6 +40,9 @@ internal static class Program
         // это самая долгая часть запуска, и ждать её впустую незачем
         MainForm.WarmUp();
 
+        // Старые журналы убираем в фоне — запуск не ждёт
+        _ = Task.Run(AppLog.Cleanup);
+
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -71,17 +74,11 @@ internal static class Program
 
     static void ShowFatal(Exception? ex)
     {
-        try
-        {
-            string log = Path.Combine(InstallDir, "error.log");
-            Directory.CreateDirectory(InstallDir);
-            File.AppendAllText(log, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {ex}\r\n\r\n");
-        }
-        catch { }
+        AppLog.Error("сбой", "Необработанная ошибка программы", ex);
 
         MessageBox.Show(
             "Произошла ошибка:\r\n\r\n" + (ex?.Message ?? "неизвестная ошибка") +
-            "\r\n\r\nПодробности записаны в файл error.log в папке программы.",
+            "\r\n\r\nПодробности записаны в журнал: " + AppLog.Dir,
             "ПВ-Система PDF",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error);

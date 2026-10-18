@@ -373,3 +373,42 @@ export const onFilePath = (cb: (d: { name: string; size: number; path: string })
 
 export const onOpenFileMissing = (cb: (d: { path: string }) => void) =>
   listen<{ path: string }>('openFileMissing', cb);
+
+// Запись в журнал программы (C:\PVSPDF\logs). В браузере — только в консоль
+export const logError = (area: string, err: unknown, level: 'error' | 'warn' = 'error') => {
+  const message =
+    err instanceof Error
+      ? `${err.name}: ${err.message}${err.stack ? `\n${err.stack.split('\n').slice(1, 6).join('\n')}` : ''}`
+      : typeof err === 'string'
+        ? err
+        : (() => {
+            try {
+              return JSON.stringify(err);
+            } catch {
+              return String(err);
+            }
+          })();
+  if (!isDesktop()) {
+    console.error(`[${area}]`, err);
+    return;
+  }
+  send({ type: 'log', area, message, level });
+};
+
+// Открыть папку с журналами в проводнике — чтобы переслать файл в поддержку
+export const openLogsFolder = () => send({ type: 'openLogs' });
+
+// Неожиданные сбои страницы тоже в журнал: без них жалобу «что-то
+// не сработало» не разобрать. Одинаковые подряд не повторяем
+let lastLogged = '';
+export const watchPageErrors = () => {
+  if (!isDesktop()) return;
+  const once = (area: string, err: unknown) => {
+    const key = String(err instanceof Error ? err.message : err).slice(0, 200);
+    if (key === lastLogged) return;
+    lastLogged = key;
+    logError(area, err);
+  };
+  window.addEventListener('error', (e) => once('страница', e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => once('страница', e.reason));
+};

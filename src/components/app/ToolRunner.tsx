@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { toast } from '@/hooks/use-toast';
 import { formatSize } from '@/lib/files';
-import { isDesktop } from '@/lib/desktop';
+import { isDesktop, logError } from '@/lib/desktop';
 import { useLicense } from '@/context/LicenseContext';
 import { countPages } from '@/lib/convert/pdfOps';
 import { DEFAULT_SETTINGS, runTool, type ToolSettings } from '@/lib/convert/runTool';
@@ -136,6 +136,7 @@ const ToolRunner = ({ tool, onBack, onClose, onNeedFull }: Props) => {
         toast({ title: 'Остановлено', description: 'Файл не создан, документ не изменён' });
       } else {
         setError(e instanceof Error ? e.message : 'Не удалось выполнить');
+        logError(`инструмент ${tool.id}`, e, 'warn');
       }
     } finally {
       setBusy(false);

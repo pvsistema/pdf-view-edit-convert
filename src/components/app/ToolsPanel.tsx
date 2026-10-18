@@ -33,7 +33,7 @@ import {
   type BrokenRun,
 } from '@/lib/brokenText';
 import { matchBrokenGlyphs } from '@/lib/glyphMatch';
-import { isDesktop, nativeSaveMany } from '@/lib/desktop';
+import { isDesktop, logError, nativeSaveMany } from '@/lib/desktop';
 import {
   isTrialTool,
   leftWord,
@@ -265,7 +265,7 @@ const ToolsPanel = () => {
       } else {
         // Настоящую причину пишем в журнал: без неё сбой у пользователя
         // не отличить от сбоя в документе
-        console.error('Сбой инструмента', key, e);
+        logError(`инструмент ${key}`, e);
 
         // Движок распознавания сообщает о сбое простой строкой, а не
         // полноценной ошибкой. Раньше такую строку отбрасывали и писали

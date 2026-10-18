@@ -123,6 +123,7 @@ public class MainForm : Form
             }
             catch (Exception ex)
             {
+                AppLog.Error("запуск", "Не удалось запустить просмотрщик WebView2", ex);
                 ShowViewerError(ex);
                 return;
             }
@@ -393,6 +394,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("открытие", "Не удалось открыть файл: " + path, ex);
             if (IsDisposed || Disposing) return;
             MessageBox.Show("Не удалось открыть файл:\r\n" + ex.Message,
                 "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -663,8 +665,25 @@ public class MainForm : Form
                 string dev = root.TryGetProperty("device", out var sd) ? (sd.GetString() ?? "") : "";
                 _ = DriverUiAsync(dev);
             }
+            else if (type == "log")
+            {
+                // Ошибка из интерфейса программы — в тот же журнал
+                string area = root.TryGetProperty("area", out var la) ? (la.GetString() ?? "интерфейс") : "интерфейс";
+                string text = root.TryGetProperty("message", out var lm) ? (lm.GetString() ?? "") : "";
+                string level = root.TryGetProperty("level", out var ll) ? (ll.GetString() ?? "error") : "error";
+                if (text.Length > 4000) text = text.Substring(0, 4000) + "…";
+                if (level == "warn") AppLog.Warn(area, text);
+                else AppLog.Error(area, text);
+            }
+            else if (type == "openLogs")
+            {
+                AppLog.OpenFolder();
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLog.Error("команда", "Сбой при обработке команды интерфейса", ex);
+        }
     }
 
     // Обновление программы: скачиваем установщик, показывая ход загрузки,
@@ -714,6 +733,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("обновление", "Не удалось установить обновление", ex);
             SendUpdate(new { type = "updateState", state = "error", error = ex.Message });
         }
         finally
@@ -864,6 +884,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("сканер", "Сбой сканирования", ex);
             SendUpdate(new { type = "scanDone", ok = false, error = ex.Message });
         }
         finally
@@ -906,6 +927,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("сканер", "Сбой сканирования", ex);
             SendUpdate(new { type = "scanDone", ok = false, error = ex.Message });
         }
     }
@@ -962,6 +984,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("сканер", "Не удалось открыть настройку драйвера", ex);
             SendUpdate(new
             {
                 type = "scanSetupDone",
@@ -1044,6 +1067,7 @@ public class MainForm : Form
                 }
                 else
                 {
+                    AppLog.Warn("печать", "Принтер вернул ошибку: " + info);
                     PostToPage(new { type = "printDone", ok = false, error = info });
                     MessageBox.Show(
                         "Не удалось напечатать документ.\r\n\r\n" + info,
@@ -1067,6 +1091,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("печать", "Не удалось напечатать", ex);
             PostToPage(new { type = "printDone", ok = false, error = ex.Message });
             MessageBox.Show(
                 "Не удалось отправить документ на печать.\r\n\r\n" + ex.Message,
@@ -1148,6 +1173,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("сохранение", "Не удалось сохранить файл", ex);
             PostToPage(new { type = "saveDone", ok = false, error = ex.Message });
             MessageBox.Show(
                 "Не удалось сохранить файл.\r\n\r\n" + ex.Message,
@@ -1186,6 +1212,7 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppLog.Error("сохранение", "Не удалось сохранить файл", ex);
             PostToPage(new { type = "saveDone", ok = false, error = ex.Message });
             MessageBox.Show(
                 "Не удалось сохранить файлы.\r\n\r\n" + ex.Message,
