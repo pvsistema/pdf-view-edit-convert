@@ -7,11 +7,13 @@ type Props = {
   page: PageMeta;
   index: number;
   activeRow: boolean;
+  // Отмечена для действий с несколькими страницами (Ctrl / Shift)
+  picked: boolean;
   last: boolean;
   dragging: boolean;
   markAbove: boolean;
   markBelow: boolean;
-  onSelect: (i: number) => void;
+  onSelect: (i: number, e: React.MouseEvent) => void;
   onRotate: (uid: string, dir: number) => void;
   onRemove: (uid: string) => void;
   onMove: (uid: string, dir: number) => void;
@@ -28,6 +30,7 @@ const PageRow = ({
   page,
   index,
   activeRow,
+  picked,
   last,
   dragging,
   markAbove,
@@ -57,12 +60,19 @@ const PageRow = ({
       className={`group mb-3 cursor-grab border p-2 transition-colors active:cursor-grabbing ${
         dragging ? 'opacity-40' : ''
       } ${
-        activeRow
-          ? 'border-primary bg-background'
-          : 'border-border bg-background/60 hover:border-foreground'
+        picked
+          ? 'border-primary bg-primary/10 ring-2 ring-primary'
+          : activeRow
+            ? 'border-primary bg-background'
+            : 'border-border bg-background/60 hover:border-foreground'
       }`}
     >
-      <button className="block w-full" onClick={() => onSelect(index)}>
+      <button className="relative block w-full" onClick={(e) => onSelect(index, e)}>
+        {picked && (
+          <span className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center bg-primary text-primary-foreground">
+            <Icon name="Check" size={13} />
+          </span>
+        )}
         <PageThumb page={page} />
       </button>
       <div className="mt-2 flex items-center justify-between">

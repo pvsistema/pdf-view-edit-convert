@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import PageRow from '@/components/app/PageRow';
 import { useDoc, type PageMeta } from '@/context/DocContext';
@@ -6,7 +6,8 @@ import { useTabs } from '@/context/TabsContext';
 import { toast } from '@/hooks/use-toast';
 import { takePage, heldPage, dropInto, MIME } from '@/lib/pageSwap';
 import ThumbMenu from '@/components/app/ThumbMenu';
-import { pageToJpeg, jpegName } from '@/lib/pageJpeg';
+import { pageToJpeg, pagesToJpegs, jpegName } from '@/lib/pageJpeg';
+import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import { downloadBlob } from '@/lib/files';
 import { requestPrint } from '@/lib/printBus';
 
@@ -36,9 +37,86 @@ const PagesPanel = () => {
   );
   const [busy, setBusy] = useState(false);
 
+  // Отмеченные страницы: Ctrl+щелчок — добавить или убрать одну,
+  // Shift+щелчок — отметить подряд от выбранной до этой
+  const [picked, setPicked] = useState<string[]>([]);
+  const anchor = useRef<number>(0);
+
+  // Удалённые страницы из отметки убираем
+  useEffect(() => {
+    setPicked((list) => {
+      const next = list.filter((uid) => pages.some((p) => p.uid === uid));
+      return next.length === list.length ? list : next;
+    });
+  }, [pages]);
+
+  const select = useCallback(
+    (i: number, e: React.MouseEvent) => {
+      const uid = pages[i]?.uid;
+      if (!uid) return;
+      if (e.ctrlKey || e.metaKey) {
+        setPicked((list) => {
+          // Первая отметка с Ctrl захватывает и ту страницу, что уже открыта
+          const base = list.length ? list : [pages[active]?.uid].filter(Boolean) as string[];
+          return base.includes(uid) ? base.filter((x) => x !== uid) : [...base, uid];
+        });
+        anchor.current = i;
+      } else if (e.shiftKey) {
+        const [a, b] = [Math.min(anchor.current, i), Math.max(anchor.current, i)];
+        setPicked(pages.slice(a, b + 1).map((p) => p.uid));
+      } else {
+        setPicked([]);
+        anchor.current = i;
+      }
+      setActive(i);
+    },
+    [pages, active, setActive],
+  );
+
+  // Esc снимает отметку
+  useEffect(() => {
+    if (!picked.length) return;
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setPicked([]);
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [picked.length]);
+
+  // Отмеченные страницы в порядке документа
+  const pickedPages = pages.filter((p) => picked.includes(p.uid));
+
+  const exportMany = async (list: PageMeta[]) => {
+    if (busy || !list.length) return;
+    setBusy(true);
+    const t = toast({ title: 'Сохраняю страницы', description: `0 из ${list.length}` });
+    try {
+      const bytes = await buildPdf(list);
+      const names = list.map((p) => jpegName(name, pages.indexOf(p) + 1));
+      const items = await pagesToJpegs(bytes, names, (done, total) =>
+        t.update({ id: t.id, title: 'Сохраняю страницы', description: `${done} из ${total}` }),
+      );
+      // В программе папку выбирают один раз, а не окно на каждую страницу
+      if (isDesktop()) {
+        await nativeSaveMany(items);
+        t.dismiss();
+      } else {
+        for (const it of items) {
+          downloadBlob(it.blob, it.name);
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        t.update({ id: t.id, title: 'Страницы сохранены', description: `${items.length} картинок JPEG` });
+      }
+    } catch {
+      t.update({ id: t.id, title: 'Не удалось сохранить страницы', description: 'Попробуйте ещё раз' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openMenu = (e: React.MouseEvent, page: PageMeta, index: number) => {
     e.preventDefault();
     e.stopPropagation();
+    // Щелчок правой кнопкой вне отметки — работаем с одной этой страницей
+    if (!picked.includes(page.uid)) setPicked([]);
     setActive(index);
     setMenu({ x: e.clientX, y: e.clientY, page, index });
   };
@@ -171,11 +249,12 @@ const PagesPanel = () => {
             page={p}
             index={i}
             activeRow={i === active}
+            picked={picked.includes(p.uid)}
             last={pages.length === 1}
             dragging={held === p.uid}
             markAbove={mark === i}
             markBelow={mark === i + 1 && i === pages.length - 1}
-            onSelect={setActive}
+            onSelect={select}
             onRotate={rotate}
             onRemove={remove}
             onMove={move}
@@ -189,17 +268,60 @@ const PagesPanel = () => {
 
         <p className="px-1 pb-2 pt-1 text-[0.7rem] leading-relaxed text-muted-foreground">
           Страницы можно перетаскивать мышью — внутри документа и на вкладку другого файла.
-          С клавишей Ctrl страница копируется.
+          С клавишей Ctrl страница копируется. Щелчок с Ctrl или Shift отмечает несколько
+          страниц — их можно разом сохранить картинками.
         </p>
       </div>
+
+      {/* Полоса действий с отмеченными страницами */}
+      {pickedPages.length > 1 && (
+        <div className="flex items-center gap-2 border-t border-border bg-background px-3 py-2.5">
+          <span className="flex-1 text-[0.78rem]">
+            Отмечено: <b>{pickedPages.length}</b>
+          </span>
+          <button
+            onClick={() => void exportMany(pickedPages)}
+            disabled={busy}
+            title="Сохранить отмеченные страницы картинками JPEG"
+            className="flex items-center gap-1.5 bg-primary px-2.5 py-1.5 font-head text-[0.68rem] font-bold uppercase tracking-[0.06em] text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            <Icon name={busy ? 'LoaderCircle' : 'Image'} size={13} className={busy ? 'animate-spin' : ''} />
+            В JPEG
+          </button>
+          <button
+            onClick={() => setPicked([])}
+            title="Снять отметку (Esc)"
+            className="p-1 text-muted-foreground hover:text-foreground"
+          >
+            <Icon name="X" size={15} />
+          </button>
+        </div>
+      )}
 
       {menu && (
         <ThumbMenu
           x={menu.x}
           y={menu.y}
-          title={`Страница ${menu.index + 1}`}
+          title={
+            pickedPages.length > 1
+              ? `Отмечено страниц: ${pickedPages.length}`
+              : `Страница ${menu.index + 1}`
+          }
           onClose={() => setMenu(null)}
-          items={[
+          items={pickedPages.length > 1 ? [
+            {
+              icon: 'Images',
+              label: `Экспорт отмеченных (${pickedPages.length}) в JPEG`,
+              on: !busy,
+              fn: () => void exportMany(pickedPages),
+            },
+            {
+              icon: 'X',
+              label: 'Снять отметку',
+              sep: true,
+              fn: () => setPicked([]),
+            },
+          ] : [
             {
               icon: 'Image',
               label: 'Экспорт страницы в JPEG',
