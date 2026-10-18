@@ -8,6 +8,7 @@ import { useLicense } from '@/context/LicenseContext';
 import { loadOcrModule, ModuleLocked } from '@/lib/secureModule';
 import ActivateDialog from '@/components/app/ActivateDialog';
 import { parseRange } from '@/components/app/PrintDialog';
+import { checkRange } from '@/lib/convert/pdfOps';
 import { cleanScan } from '@/lib/scanClean';
 import { buildDocx, buildRichDocx, DOCX_TYPE } from '@/lib/docx';
 import { buildXlsx, XLSX_TYPE, type SheetData } from '@/lib/xlsx';
@@ -483,6 +484,9 @@ const ToolsPanel = () => {
       // Словарь грузится в фоне, пока движок читает первый лист
       if (spell) warmSpeller();
       const fixes: SpellFix[] = [];
+
+      // Номера за пределами документа называем прямо, а не пропускаем
+      if (ocrScope === 'range') checkRange(ocrRange, pages.length);
 
       const picked =
         ocrScope === 'current'

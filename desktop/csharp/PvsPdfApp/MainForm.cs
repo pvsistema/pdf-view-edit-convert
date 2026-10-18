@@ -228,8 +228,10 @@ public class MainForm : Form
                         .Where(File.Exists)
                         .ToArray();
 
+                    if (IsDisposed || Disposing || !IsHandleCreated) break;
                     BeginInvoke(new Action(async () =>
                     {
+                        if (IsDisposed || Disposing) return;
                         if (WindowState == FormWindowState.Minimized)
                             WindowState = FormWindowState.Normal;
                         Activate();
@@ -256,10 +258,12 @@ public class MainForm : Form
             string json = JsonSerializer.Serialize(PrinterList());
             try
             {
+                if (IsDisposed || Disposing || !IsHandleCreated) return;
                 BeginInvoke(new Action(() =>
                 {
                     try
                     {
+                        if (IsDisposed || Disposing) return;
                         _web.CoreWebView2?.ExecuteScriptAsync(
                             "window.PVSPDF_PRINTERS = " + json + ";" +
                             "window.dispatchEvent(new CustomEvent('pvspdf-printers'));");
@@ -385,10 +389,11 @@ public class MainForm : Form
                 // следующем запуске, и ссылка на неё уже не работает
                 path = Path.GetFullPath(path)
             };
-            _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
+            PostToPage(msg);
         }
         catch (Exception ex)
         {
+            if (IsDisposed || Disposing) return;
             MessageBox.Show("Не удалось открыть файл:\r\n" + ex.Message,
                 "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
@@ -485,11 +490,11 @@ public class MainForm : Form
                 }
                 else
                 {
-                    _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                    PostToPage(new
                     {
                         type = "openFileMissing",
                         path = p
-                    }));
+                    });
                 }
             }
             else if (type == "rememberPath")
@@ -504,13 +509,13 @@ public class MainForm : Form
                         if (obj is not CoreWebView2File f || string.IsNullOrEmpty(f.Path)) continue;
                         long size = 0;
                         try { size = new FileInfo(f.Path).Length; } catch { }
-                        _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                        PostToPage(new
                         {
                             type = "filePath",
                             name = Path.GetFileName(f.Path),
                             size,
                             path = f.Path
-                        }));
+                        });
                     }
                 }
             }
@@ -917,15 +922,9 @@ public class MainForm : Form
     {
         try
         {
-            if (IsDisposed) return;
-            BeginInvoke(new Action(() =>
-            {
-                try
-                {
-                    _web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
-                }
-                catch { }
-            }));
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            string json = JsonSerializer.Serialize(payload);
+            BeginInvoke(new Action(() => PostJsonNow(json)));
         }
         catch { }
     }
@@ -1194,11 +1193,31 @@ public class MainForm : Form
         }
     }
 
+    // Отправка сообщения странице. Окно могли уже закрыть, пока шло
+    // сохранение или печать: тогда сообщение просто некому показать,
+    // и это не повод для системной ошибки
     void PostToPage(object msg)
     {
         try
         {
-            _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            string json = JsonSerializer.Serialize(msg);
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => PostJsonNow(json)));
+                return;
+            }
+            PostJsonNow(json);
+        }
+        catch { }
+    }
+
+    void PostJsonNow(string json)
+    {
+        try
+        {
+            if (IsDisposed || Disposing) return;
+            _web.CoreWebView2?.PostWebMessageAsJson(json);
         }
         catch { }
     }

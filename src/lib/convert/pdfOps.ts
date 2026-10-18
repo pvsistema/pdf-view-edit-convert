@@ -94,6 +94,47 @@ export const parseRange = (input: string, total: number) => {
   return [...picked].sort((a, b) => a - b);
 };
 
+const pagesWord = (n: number) => {
+  const d = n % 10;
+  const h = n % 100;
+  if (d === 1 && h !== 11) return 'страница';
+  if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return 'страницы';
+  return 'страниц';
+};
+
+// Проверяем, что человек написал: номера за пределами документа и
+// непонятные записи называем прямо, а не пропускаем молча
+export const checkRange = (input: string, total: number) => {
+  const bad: string[] = [];
+  const over: number[] = [];
+  for (const part of input.split(/[,;]/)) {
+    const t = part.trim();
+    if (!t) continue;
+    const range = /^(\d+)\s*[-–—]\s*(\d+)$/.exec(t);
+    if (range) {
+      const a = Number(range[1]);
+      const b = Number(range[2]);
+      if (a < 1 || b < 1) bad.push(t);
+      else if (Math.max(a, b) > total) over.push(Math.max(a, b));
+      continue;
+    }
+    if (!/^\d+$/.test(t) || Number(t) < 1) bad.push(t);
+    else if (Number(t) > total) over.push(Number(t));
+  }
+  if (bad.length) {
+    throw new Error(
+      `Не понял запись: ${bad.map((b) => `«${b}»`).join(', ')}. ` +
+        'Пишите номера через запятую, диапазон — через дефис: 1, 3, 5-7',
+    );
+  }
+  if (over.length) {
+    throw new Error(
+      `В документе ${total} ${pagesWord(total)}, а указан номер ${Math.max(...over)}. ` +
+        `Укажите номера от 1 до ${total}`,
+    );
+  }
+};
+
 // Удаление указанных страниц
 export const dropPages = async (file: File, drop: number[]) => {
   const { PDFDocument } = await import('pdf-lib');

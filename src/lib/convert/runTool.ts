@@ -6,7 +6,9 @@ import { isDesktop, nativeSaveMany } from '@/lib/desktop';
 import { imagesToPdf } from '@/lib/convert/imagePdf';
 import { textToPdf } from '@/lib/convert/textPdf';
 import {
+  checkRange,
   compressPdf,
+  countPages,
   dropPages,
   enhanceScan,
   insertBlank,
@@ -89,7 +91,9 @@ export const runTool = async (
     }
 
     case 'remove-pages': {
-      const list = parseRange(set.range, 100000);
+      const total = await countPages(first);
+      checkRange(set.range, total);
+      const list = parseRange(set.range, total);
       if (!list.length) throw new Error('Укажите номера страниц, например 2, 5-7');
       const bytes = await dropPages(first, list);
       savePdf(bytes, `${base(first)}-без-лишних.pdf`);
@@ -97,7 +101,9 @@ export const runTool = async (
     }
 
     case 'extract-pages': {
-      const list = parseRange(set.range, 100000);
+      const total = await countPages(first);
+      checkRange(set.range, total);
+      const list = parseRange(set.range, total);
       if (!list.length) throw new Error('Укажите номера страниц, например 1-3');
       const bytes = await keepPages(first, list);
       savePdf(bytes, `${base(first)}-выбранные.pdf`);
@@ -106,7 +112,9 @@ export const runTool = async (
 
     case 'reorder': {
       // Порядок берём как написано, не сортируя: в этом весь смысл
-      const order = parseOrder(set.range, 100000);
+      const total = await countPages(first);
+      checkRange(set.range, total);
+      const order = parseOrder(set.range, total);
       if (!order.length) throw new Error('Укажите порядок страниц, например 3, 1, 2');
       const bytes = await reorderPages(first, order);
       savePdf(bytes, `${base(first)}-новый-порядок.pdf`);
@@ -114,6 +122,12 @@ export const runTool = async (
     }
 
     case 'blank': {
+      const total = await countPages(first);
+      if (set.at > total + 1) {
+        throw new Error(
+          `В документе ${total} стр. Чтобы добавить листы в конец, укажите ${total + 1}`,
+        );
+      }
       const bytes = await insertBlank(first, Math.max(1, set.at), Math.max(1, set.count));
       savePdf(bytes, `${base(first)}-с-листами.pdf`);
       return { message: 'Чистые листы добавлены', note: `Вставлено: ${set.count}` };

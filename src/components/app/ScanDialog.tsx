@@ -58,6 +58,24 @@ const COLORS = [
   { v: 'bw', t: 'Чёрно-белый' },
 ] as const;
 
+// Подсказки «что сделать» по тексту ошибки. Если программа уже
+// объяснила, что делать (есть «Проверьте», «Положите» и т.п.), молчим
+const scanTips = (err: string): string[] => {
+  const t = err.toLowerCase();
+  if (/провер|положите|установите|переустанов|обновите|откройте|закройте|включите/.test(t)) return [];
+  if (/уже идёт/.test(t)) return ['Дождитесь окончания текущего сканирования или нажмите «Остановить»'];
+  if (/бумаг|податчик|замят|jam|paper/.test(t))
+    return ['Положите листы в автоподатчик лицевой стороной как указано на сканере', 'Уберите замятый лист и закройте крышку'];
+  if (/занят|busy|другой программ/.test(t))
+    return ['Закройте другие программы сканирования — драйвер работает только с одной', 'Подождите несколько секунд и повторите'];
+  return [
+    'Сканер включён и прогрелся (индикатор не мигает)',
+    'Кабель USB подключён, либо сканер в той же сети, что и компьютер',
+    'Другие программы сканирования закрыты',
+    'Если не помогло — выключите и включите сканер, затем нажмите «Искать снова»',
+  ];
+};
+
 const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) => {
   // Настройки прошлого раза — окно открывается уже готовым к работе
   const saved = useRef(loadScanPrefs(batch)).current;
@@ -208,13 +226,13 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           return;
         }
         if (!r.ok) {
-          setError(r.error || 'Сканер не ответил');
+          setError(r.error || 'Сканер не ответил на команду сканирования.');
           return;
         }
         if (!r.pages?.length) {
           // Подробность из программы важнее общей фразы: по ней видно,
           // на каком шаге оборвалась цепочка
-          setError(r.error || 'Сканер не передал ни одной страницы');
+          setError(r.error || 'Сканер не передал ни одной страницы.');
           return;
         }
 
@@ -777,6 +795,24 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
               {/* Подробности приходят в несколько строк — сохраняем
                   переносы, иначе объяснение слипается в кашу */}
               <div className="whitespace-pre-wrap">{error}</div>
+              {/* Что делать — короткий список по смыслу ошибки.
+                  Если в самом сообщении совет уже есть, не повторяем */}
+              {(() => {
+                const tips = scanTips(error);
+                if (!tips.length) return null;
+                return (
+                  <div className="mt-3 border-t border-destructive/30 pt-2.5">
+                    <div className="mb-1 font-head text-[0.68rem] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                      Что проверить
+                    </div>
+                    <ul className="list-disc space-y-0.5 pl-4 text-[0.8rem] leading-relaxed">
+                      {tips.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
               {/* Частый случай: драйвер сообщил об аппарате, которого
                   на самом деле нет под рукой */}
               {current?.twain && (
