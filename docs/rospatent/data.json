@@ -2,8 +2,8 @@
   "program": "ПВ-Система PDF",
   "version": "3.55.0",
   "year": "2026",
-  "holder": "",
+  "holder": "Ипатов Сергей Генадьевич",
   "holder_address": "",
-  "authors": [],
-  "city": ""
+  "authors": [{"name": "Ипатов Сергей Генадьевич"}],
+  "city": "Сибай"
 }
