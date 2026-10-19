@@ -131,6 +131,15 @@ def mb(n):
     return f'{n / 1024 / 1024:.2f}'.replace('.', ',')
 
 
+def kb(n):
+    return f'{round(n / 1024):,}'.replace(',', ' ')
+
+
+# Должно дословно совпадать с полем «Операционная система» в заявлении
+OS_TEXT = ('Windows 10, Windows 11 (64 бит); Astra Linux, РЕД ОС, Альт '
+           'и другие ОС — через веб-браузер')
+
+
 def referat_text(size):
     return (
         f'{DATA["program"]} — редактор документов PDF для компьютеров с Windows '
@@ -144,9 +153,9 @@ def referat_text(size):
         'и текста; оптическое распознавание русского и английского текста '
         'с созданием PDF с поиском; сканирование со сканеров WIA и TWAIN; '
         'печать; активация лицензии и обновление. Тип ЭВМ: IBM PC-совместимый '
-        'компьютер. ОС: Windows 10 и 11 (64 бит), веб-браузер. '
-        'Язык: TypeScript, C#, Python. '
-        f'Объём программы: {mb(size)} Мб.'
+        f'компьютер. ОС: {OS_TEXT}. '
+        'Язык: C#, JavaScript (TypeScript), Python. '
+        f'Объём программы: {kb(size)} Кбайт.'
     )
 
 
@@ -302,8 +311,8 @@ def draw_title(pdf, size, full_total, picked):
         f'Фрагменты исходного текста: страницы 1–{HEAD_PAGES} и '
         f'{full_total - TAIL_PAGES + 1}–{full_total} из {full_total} страниц полного текста. '
         'В скобках внизу каждой страницы указан её номер в полном тексте.')
-    row('Языки программирования:', 'C#, TypeScript, Python')
-    row('Объём исходного текста:', f'{size:,} байт ({mb(size)} Мб)'.replace(',', ' ', 2))
+    row('Языки программирования:', 'C#, JavaScript (TypeScript), Python')
+    row('Объём исходного текста:', f'{kb(size)} Кбайт ({size:,} байт)'.replace(',', ' '))
 
     pdf.set_font('Sans', '', SIZE)
     pdf.set_xy(pdf.l_margin, pdf.h - 20 * MM - LINE * 3)
