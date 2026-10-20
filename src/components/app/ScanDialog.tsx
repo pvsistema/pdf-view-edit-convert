@@ -22,6 +22,7 @@ import {
   type ScanSetup,
 } from '@/lib/desktop';
 import AddScannerBox from '@/components/app/AddScannerBox';
+import { isLinuxDesktop } from '@/lib/desktop';
 import { scansToPdf, scanFileName } from '@/lib/scanToPdf';
 import { loadScanPrefs, saveScanPrefs } from '@/lib/scanPrefs';
 
@@ -428,7 +429,13 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
           ) : (
             <Icon name="ListChecks" size={13} />
           )}
-          {choosing ? 'Выберите в окне драйвера' : 'Выбрать сканер из драйвера'}
+          {isLinuxDesktop()
+            ? choosing
+              ? 'Ищу сканеры в системе'
+              : 'Найти сканер в системе'
+            : choosing
+              ? 'Выберите в окне драйвера'
+              : 'Выбрать сканер из драйвера'}
         </span>
       </button>
 
@@ -521,7 +528,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
               </div>
               <p className="mt-2 text-[0.84rem] leading-relaxed text-muted-foreground">
                 {hint ||
-                  'Проверьте, что устройство включено, подключено к компьютеру и для него установлен драйвер производителя. Сетевой сканер должен быть добавлен в разделе Windows «Принтеры и сканеры».'}
+                  (isLinuxDesktop()
+                    ? 'Проверьте, что устройство включено, подключено к компьютеру и для него установлен драйвер SANE. Сетевое МФУ находится через пакет sane-airscan.'
+                    : 'Проверьте, что устройство включено, подключено к компьютеру и для него установлен драйвер производителя. Сетевой сканер должен быть добавлен в разделе Windows «Принтеры и сканеры».')}
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
@@ -536,10 +545,10 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                 <button
                   onClick={viaDriver}
                   disabled={busy || building}
-                  title="Выбрать сканер средствами Windows"
+                  title={isLinuxDesktop() ? 'Открыть программу сканирования системы' : 'Выбрать сканер средствами Windows'}
                   className="border border-border px-4 py-2 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:border-foreground disabled:opacity-40"
                 >
-                  Выбрать через Windows
+                  {isLinuxDesktop() ? 'Программа сканирования' : 'Выбрать через Windows'}
                 </button>
                 <button
                   onClick={() => {
@@ -559,8 +568,9 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
 
               {reportBox}
               <p className="mt-3 text-[0.78rem] leading-relaxed text-muted-foreground">
-                Некоторые сетевые и многофункциональные устройства не отвечают на общий
-                опрос. Окно Windows находит их напрямую — попробуйте этот способ.
+                {isLinuxDesktop()
+                  ? 'Сетевое МФУ, которое не нашлось само, можно добавить вручную по адресу SANE — например, airscan:e0:Kyocera или escl:http://192.168.1.50:80.'
+                  : 'Некоторые сетевые и многофункциональные устройства не отвечают на общий опрос. Окно Windows находит их напрямую — попробуйте этот способ.'}
               </p>
             </div>
           )}
@@ -729,13 +739,23 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
               </div>
 
               <p className="mt-4 text-[0.76rem] leading-relaxed text-muted-foreground">
-                Если сканер не слушается этих настроек, нажмите «Окно драйвера» — откроются
-                настройки производителя устройства, а снимок вернётся сюда.
+                {isLinuxDesktop()
+                  ? 'Если сканер не слушается этих настроек, нажмите «Окно драйвера» — откроется программа сканирования системы (XSane или «Простое сканирование»). Сохраните в ней снимок и откройте файл здесь.'
+                  : 'Если сканер не слушается этих настроек, нажмите «Окно драйвера» — откроются настройки производителя устройства, а снимок вернётся сюда.'}
               </p>
 
               {/* Нужного аппарата нет в списке — отчёт покажет, где он теряется.
                   Частая причина у сетевых МФУ: драйвер установлен, но аппарат
                   в него не добавлен, и тогда его не видит ни одна программа */}
+              {isLinuxDesktop() ? (
+                <p className="mt-4 text-[0.76rem] leading-relaxed text-muted-foreground">
+                  Нет нужного сканера? Сетевые МФУ находит пакет «sane-airscan», USB-аппаратам
+                  нужен драйвер SANE от производителя. Если сканер видит только администратор,
+                  добавьте пользователя в группы «scanner» и «lp» и войдите в систему заново.
+                  Подробности — в «Отчёте о поиске».
+                </p>
+              ) : (
+              <>
               <p className="mt-4 text-[0.76rem] leading-relaxed text-muted-foreground">
                 Нет нужного сканера? У сетевых МФУ (Kyocera, Ricoh, Sharp) драйвер показывает
                 только те аппараты, которые заранее добавлены в его собственной настройке.
@@ -750,6 +770,8 @@ const ScanDialog = ({ batch = false, quick = false, onReady, onClose }: Props) =
                 или по сети, смотря как подключён ваш МФУ. Пока этот шаг
                 не сделан, аппарат не увидит ни одна программа сканирования.
               </p>
+              </>
+              )}
 
               {setupBox}
 

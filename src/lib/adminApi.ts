@@ -3,6 +3,8 @@ const LIC_URL = 'https://functions.poehali.dev/75aa9cca-1901-4a09-ae83-b403dbd90
 const VER_URL = 'https://functions.poehali.dev/30df1eed-1f2b-4871-a057-0dd656d6f09f';
 const PAY_URL = 'https://functions.poehali.dev/c3b8df06-2a49-4c03-a2aa-cc13498ab792';
 
+import { desktopPackage } from '@/lib/desktop';
+
 const TOKEN_KEY = 'pv_admin_token';
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
@@ -181,6 +183,7 @@ export const verifyKey = (
     action: 'verify',
     key,
     app_version: appVersion,
+    package: desktopPackage(),
     machine_id: machine,
     machine_name: machineName,
   }) as Promise<{
@@ -196,6 +199,8 @@ export type Release = {
   id: number;
   version: string;
   download_url: string;
+  download_url_deb?: string;
+  download_url_rpm?: string;
   notes: string;
   is_required: boolean;
   is_published: boolean;
@@ -205,7 +210,7 @@ export type Release = {
 // Отпечаток компьютера передаём, чтобы тем же ответом узнать
 // серверный счёт проб — без отдельного обращения
 export const checkUpdate = (version: string, machineId = '') =>
-  post(VER_URL, { action: 'check', version, machine_id: machineId }) as Promise<
+  post(VER_URL, { action: 'check', version, machine_id: machineId, package: desktopPackage() }) as Promise<
     UpdateInfo & { trial_used?: number }
   >;
 

@@ -59,6 +59,24 @@ def _outdated(cur, current: str) -> dict:
     }
 
 
+def _kind(v) -> str:
+    '''Тип пакета Linux-программы. Пустая строка — Windows'''
+    v = str(v or '').strip().lower()
+    return v if v in ('deb', 'rpm') else ''
+
+
+def _url_column(kind: str) -> str:
+    return {'deb': 'download_url_deb', 'rpm': 'download_url_rpm'}.get(kind, 'download_url')
+
+
+def _has_url(kind: str) -> str:
+    '''Для Linux берём только выпуски, у которых есть пакет: иначе программа
+    предложила бы обновление, которое ей нечем поставить'''
+    if not kind:
+        return ''
+    return f"AND COALESCE({_url_column(kind)}, '') <> '' "
+
+
 def _auth(cur, event, body) -> bool:
     headers = event.get('headers') or {}
     token = headers.get('X-Auth-Token') or headers.get('x-auth-token') or body.get('token', '')
@@ -103,9 +121,14 @@ def handler(event, context):
             )
             trial_used = cur.fetchone()[0] or 0
 
+        # Linux-программа сообщает тип своего пакета (deb или rpm) и получает
+        # ссылку на него. Windows-программа его не передаёт — ей, как и
+        # раньше, отдаётся ссылка на установщик .exe
+        kind = _kind(body.get('package') or params.get('package', ''))
         cur.execute(
-            f"SELECT version, download_url, notes, is_required, published_at "
+            f"SELECT version, {_url_column(kind)}, notes, is_required, published_at "
             f"FROM {SCHEMA}.app_releases WHERE is_published = TRUE "
+            f"{_has_url(kind)}"
             f"ORDER BY published_at DESC LIMIT 1"
         )
         row = cur.fetchone()
@@ -190,7 +213,8 @@ def handler(event, context):
 
     if action == 'list':
         cur.execute(
-            f"SELECT id, version, download_url, notes, is_required, is_published, published_at "
+            f"SELECT id, version, download_url, notes, is_required, is_published, published_at, "
+            f"download_url_deb, download_url_rpm "
             f"FROM {SCHEMA}.app_releases ORDER BY published_at DESC LIMIT 100"
         )
         items = [
@@ -202,6 +226,8 @@ def handler(event, context):
                 'is_required': bool(r[4]),
                 'is_published': bool(r[5]),
                 'published_at': r[6].strftime('%Y-%m-%d %H:%M') if r[6] else '',
+                'download_url_deb': r[7] or '',
+                'download_url_rpm': r[8] or '',
             }
             for r in cur.fetchall()
         ]
@@ -216,6 +242,8 @@ def handler(event, context):
             conn.close()
             return _resp(400, {'error': 'Укажите номер версии'})
         url = _esc(body.get('download_url', ''))
+        url_deb = _esc(body.get('download_url_deb', ''))
+        url_rpm = _esc(body.get('download_url_rpm', ''))
         notes = _esc(body.get('notes', ''))
         required = 'TRUE' if body.get('is_required') else 'FALSE'
         published = 'TRUE' if body.get('is_published', True) else 'FALSE'
@@ -225,12 +253,14 @@ def handler(event, context):
         if row:
             cur.execute(
                 f"UPDATE {SCHEMA}.app_releases SET download_url = '{url}', notes = '{notes}', "
+                f"download_url_deb = '{url_deb}', download_url_rpm = '{url_rpm}', "
                 f"is_required = {required}, is_published = {published}, published_at = NOW() WHERE id = {row[0]}"
             )
         else:
             cur.execute(
-                f"INSERT INTO {SCHEMA}.app_releases (version, download_url, notes, is_required, is_published) "
-                f"VALUES ('{version}', '{url}', '{notes}', {required}, {published})"
+                f"INSERT INTO {SCHEMA}.app_releases "
+                f"(version, download_url, download_url_deb, download_url_rpm, notes, is_required, is_published) "
+                f"VALUES ('{version}', '{url}', '{url_deb}', '{url_rpm}', '{notes}', {required}, {published})"
             )
         cur.close()
         conn.close()

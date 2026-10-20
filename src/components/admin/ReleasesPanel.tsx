@@ -7,6 +7,8 @@ import MinVersionCard from '@/components/admin/MinVersionCard';
 const empty = {
   version: '',
   download_url: '',
+  download_url_deb: '',
+  download_url_rpm: '',
   notes: '',
   is_required: false,
   is_published: true,
@@ -78,6 +80,29 @@ const ReleasesPanel = () => {
               value={form.download_url}
               onChange={(e) => setForm({ ...form, download_url: e.target.value })}
               placeholder="https://…/PVSPDF-Setup-1.1.0.exe"
+              className={field}
+            />
+          </div>
+        </div>
+
+        {/* Linux-пакеты необязательны: если поле пустое, Linux-программа
+            этот выпуск просто не увидит, а Windows обновится как обычно */}
+        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="label-caps">Пакет Linux .deb — Astra Linux</label>
+            <input
+              value={form.download_url_deb}
+              onChange={(e) => setForm({ ...form, download_url_deb: e.target.value })}
+              placeholder="https://…/pvspdf_1.1.0_amd64.deb (необязательно)"
+              className={field}
+            />
+          </div>
+          <div>
+            <label className="label-caps">Пакет Linux .rpm — РЕД ОС, Альт</label>
+            <input
+              value={form.download_url_rpm}
+              onChange={(e) => setForm({ ...form, download_url_rpm: e.target.value })}
+              placeholder="https://…/pvspdf-1.1.0.x86_64.rpm (необязательно)"
               className={field}
             />
           </div>
@@ -155,6 +180,11 @@ const ReleasesPanel = () => {
                   <td className="whitespace-nowrap px-4 py-3 text-[0.84rem]">{r.published_at}</td>
                   <td className="max-w-[220px] truncate px-4 py-3 text-[0.82rem] text-muted-foreground">
                     {r.download_url || '—'}
+                    {(r.download_url_deb || r.download_url_rpm) && (
+                      <span className="mt-1 block text-[0.72rem]">
+                        Linux: {[r.download_url_deb && '.deb', r.download_url_rpm && '.rpm'].filter(Boolean).join(', ')}
+                      </span>
+                    )}
                   </td>
                   <td className="max-w-[240px] truncate px-4 py-3 text-[0.82rem] text-muted-foreground">
                     {r.notes || '—'}

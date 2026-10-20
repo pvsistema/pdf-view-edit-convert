@@ -10,48 +10,87 @@
       "name": "Проверка версии отвечает номером последней",
       "method": "POST",
       "path": "/",
-      "body": { "action": "check", "version": "1.0.0" },
+      "body": {
+        "action": "check",
+        "version": "1.0.0"
+      },
       "expectedStatus": 200,
-      "expectedBody": { "latest": "string" },
+      "expectedBody": {
+        "latest": "string"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Проверка версии для Linux-пакета",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "check",
+        "version": "1.0.0",
+        "package": "deb"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "latest": "string"
+      },
       "bodyMatcher": "partial"
     },
     {
       "name": "Публикация без доступа",
       "method": "POST",
       "path": "/",
-      "body": { "action": "publish", "version": "9.9.9" },
+      "body": {
+        "action": "publish",
+        "version": "9.9.9"
+      },
       "expectedStatus": 401
     },
     {
       "name": "Настройки закрыты без доступа",
       "method": "POST",
       "path": "/",
-      "body": { "action": "get_settings" },
+      "body": {
+        "action": "get_settings"
+      },
       "expectedStatus": 401
     },
     {
       "name": "Минимальную версию не задать без доступа",
       "method": "POST",
       "path": "/",
-      "body": { "action": "set_min_version", "min_version": "9.9.9" },
+      "body": {
+        "action": "set_min_version",
+        "min_version": "9.9.9"
+      },
       "expectedStatus": 401
     },
     {
       "name": "Проверка версии сообщает о блокировке",
       "method": "POST",
       "path": "/",
-      "body": { "action": "check", "version": "1.0.0" },
+      "body": {
+        "action": "check",
+        "version": "99.0.0"
+      },
       "expectedStatus": 200,
-      "expectedBody": { "blocked": false },
+      "expectedBody": {
+        "blocked": false
+      },
       "bodyMatcher": "partial"
     },
     {
       "name": "Проверка версии возвращает счёт проб",
       "method": "POST",
       "path": "/",
-      "body": { "action": "check", "version": "1.0.0", "machine_id": "testmachine-never-used" },
+      "body": {
+        "action": "check",
+        "version": "1.0.0",
+        "machine_id": "testmachine-never-used"
+      },
       "expectedStatus": 200,
-      "expectedBody": { "trial_used": 0 },
+      "expectedBody": {
+        "trial_used": 0
+      },
       "bodyMatcher": "partial"
     }
   ]

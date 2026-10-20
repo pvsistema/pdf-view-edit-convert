@@ -58,11 +58,19 @@ def _ver_num(v: str):
     return tuple(out)
 
 
-def _latest_release(cur, current: str) -> dict:
-    '''Сведения о новой версии программы — отдаются вместе с проверкой ключа'''
+def _latest_release(cur, current: str, package: str = '') -> dict:
+    '''Сведения о новой версии программы — отдаются вместе с проверкой ключа.
+
+    Linux-программа передаёт тип пакета (deb/rpm) и получает ссылку на него;
+    Windows-программа его не передаёт и получает ссылку на установщик .exe
+    '''
+    kind = str(package or '').strip().lower()
+    column = {'deb': 'download_url_deb', 'rpm': 'download_url_rpm'}.get(kind, 'download_url')
+    only_with_pkg = f"AND COALESCE({column}, '') <> '' " if column != 'download_url' else ''
     cur.execute(
-        f"SELECT version, download_url, notes, is_required, published_at "
+        f"SELECT version, {column}, notes, is_required, published_at "
         f"FROM {SCHEMA}.app_releases WHERE is_published = TRUE "
+        f"{only_with_pkg}"
         f"ORDER BY published_at DESC LIMIT 1"
     )
     row = cur.fetchone()
@@ -201,6 +209,7 @@ def handler(event, context):
         # Программа может спросить о новой версии тем же запросом —
         # это вдвое сокращает число обращений при запуске
         app_ver = str(body.get('app_version') or params.get('app_version', '')).strip()
+        package = str(body.get('package') or params.get('package', '')).strip()
 
         if not key:
             cur.close()
@@ -229,7 +238,7 @@ def handler(event, context):
             result = {'valid': False, 'reason': 'Ключ не найден'}
             result['signed'] = _sign_result(cur, key, machine, result)
             if app_ver:
-                result['update'] = _latest_release(cur, app_ver)
+                result['update'] = _latest_release(cur, app_ver, package)
             cur.close()
             conn.close()
             return _resp(200, result)
@@ -268,7 +277,7 @@ def handler(event, context):
         result['signed'] = _sign_result(cur, key, machine, result)
 
         if app_ver:
-            result['update'] = _latest_release(cur, app_ver)
+            result['update'] = _latest_release(cur, app_ver, package)
 
         cur.close()
         conn.close()

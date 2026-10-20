@@ -5,6 +5,10 @@ declare global {
     PVSPDF_PRINTER?: string;
     PVSPDF_PRINTERS?: string[];
     PVSPDF_FULL?: boolean;
+    // Только в Linux-версии: тип пакета, которым поставлена программа.
+    // По нему сервер отдаёт ссылку на .deb или .rpm вместо .exe
+    PVSPDF_PLATFORM?: 'linux';
+    PVSPDF_PACKAGE?: 'deb' | 'rpm';
     PVSPDF_LIC?: {
       org: string;
       key: string;
@@ -26,6 +30,12 @@ declare global {
 export const isDesktop = () => !!window.PVSPDF_DESKTOP;
 
 export const desktopVersion = () => window.PVSPDF_VERSION || '';
+
+// Программа запущена в Linux. В Windows и в браузере — false
+export const isLinuxDesktop = () => isDesktop() && window.PVSPDF_PLATFORM === 'linux';
+
+// Тип пакета Linux-программы; в Windows и браузере пустая строка
+export const desktopPackage = () => (isLinuxDesktop() ? window.PVSPDF_PACKAGE || '' : '');
 
 const send = (msg: Record<string, unknown>) => {
   window.chrome?.webview?.postMessage(msg);

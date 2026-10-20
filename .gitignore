@@ -39,3 +39,8 @@ __pycache__/
 
 # Ключ защиты платного модуля — личный, в репозиторий не попадает
 desktop/module.key
+# Сборка Linux-версии
+desktop/linux/build/
+desktop/linux/out/
+desktop/linux/PvsPdfLinux/bin/
+desktop/linux/PvsPdfLinux/obj/

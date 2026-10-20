@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Linux-версия ПВ-Система PDF. Отдельный проект: Windows-версия
+       (desktop/csharp) от него никак не зависит и собирается как раньше -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>pvspdf</AssemblyName>
+    <RootNamespace>PvsPdfLinux</RootNamespace>
+    <Product>ПВ-Система PDF</Product>
+    <Company>ПВ-Система</Company>
+    <AssemblyTitle>ПВ-Система PDF</AssemblyTitle>
+    <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
+
+    <!-- Без зависимости от библиотеки ICU: на разных дистрибутивах она
+         разных версий, а программе национальные таблицы не нужны -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <TieredCompilationQuickStartupJit>true</TieredCompilationQuickStartupJit>
+    <TieredPGO>true</TieredPGO>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Ветка 3.x работает с WebKitGTK 4.0 и старой glibc — так программа
+         встаёт и на Astra Linux 1.7, и на свежих РЕД ОС / Альт.
+         Сборщик пакета при возможности пересобирает ядро окна под ту
+         систему, на которой идёт сборка (см. build.sh) -->
+    <PackageReference Include="Photino.NET" Version="3.1.18" />
+  </ItemGroup>
+
+</Project>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { addScanner } from '@/lib/desktop';
+import { addScanner, isLinuxDesktop } from '@/lib/desktop';
 
 type Props = {
   // Названия аппаратов, записанных в Windows. Драйверу нужно точное
@@ -42,9 +42,9 @@ const AddScannerBox = ({ known = [], onClose }: Props) => {
       </div>
 
       <p className="mt-2 text-[0.76rem] leading-relaxed text-muted-foreground">
-        Название пишите ровно так, как аппарат называется в программе
-        производителя или в разделе «Принтеры и сканеры» — по нему программа
-        и обратится к драйверу.
+        {isLinuxDesktop()
+          ? 'Укажите адрес сканера в системе SANE — его показывает команда «scanimage -L», например airscan:e0:Kyocera или escl:http://192.168.1.50:80.'
+          : 'Название пишите ровно так, как аппарат называется в программе производителя или в разделе «Принтеры и сканеры» — по нему программа и обратится к драйверу.'}
       </p>
 
       <input
@@ -61,7 +61,7 @@ const AddScannerBox = ({ known = [], onClose }: Props) => {
       {known.length > 0 && (
         <div className="mt-2">
           <span className="text-[0.72rem] text-muted-foreground">
-            Windows знает такие аппараты — нажмите, чтобы подставить:
+            {isLinuxDesktop() ? 'Система видит такие сканеры' : 'Windows знает такие аппараты'} — нажмите, чтобы подставить:
           </span>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {known.map((k) => (
@@ -78,15 +78,17 @@ const AddScannerBox = ({ known = [], onClose }: Props) => {
       )}
 
       <div className="mt-3 space-y-2">
-        <label className="flex cursor-pointer items-center gap-2 text-[0.82rem]">
-          <input
-            type="checkbox"
-            checked={wia}
-            onChange={(e) => setWia(e.target.checked)}
-            className="accent-primary"
-          />
-          Снимать через Windows, а не через драйвер производителя
-        </label>
+        {!isLinuxDesktop() && (
+          <label className="flex cursor-pointer items-center gap-2 text-[0.82rem]">
+            <input
+              type="checkbox"
+              checked={wia}
+              onChange={(e) => setWia(e.target.checked)}
+              className="accent-primary"
+            />
+            Снимать через Windows, а не через драйвер производителя
+          </label>
+        )}
 
         <label className="flex cursor-pointer items-center gap-2 text-[0.82rem]">
           <input
