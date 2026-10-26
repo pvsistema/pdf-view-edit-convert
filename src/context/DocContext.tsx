@@ -129,7 +129,7 @@ type Ctx = {
   // Ctrl+Z возвращает прежние страницы. images — PNG/JPEG по порядку uids
   replaceWithImages: (
     uids: string[],
-    images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number }[],
+    images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number; text?: Uint8Array | null }[],
     label: string,
   ) => Promise<void>;
   reset: () => void;
@@ -321,7 +321,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
   const replaceWithImages = useCallback(
     async (
       uids: string[],
-      images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number }[],
+      images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number; text?: Uint8Array | null }[],
       label: string,
     ) => {
       if (!uids.length || uids.length !== images.length) return;
@@ -331,6 +331,17 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         const pic = im.type === 'png' ? await out.embedPng(im.bytes) : await out.embedJpg(im.bytes);
         const pg = out.addPage([im.w, im.h]);
         pg.drawImage(pic, { x: 0, y: 0, width: im.w, height: im.h });
+        // Невидимый текст от распознавания — поверх картинки: страница
+        // выглядит как очищенный скан, но по ней работает поиск
+        if (im.text) {
+          try {
+            const src = await PDFDocument.load(im.text);
+            const [layer] = await out.embedPdf(src, [0]);
+            pg.drawPage(layer, { x: 0, y: 0, width: im.w, height: im.h });
+          } catch {
+            /* слой не встал — останется просто картинка */
+          }
+        }
       }
       const raw = await out.save();
       const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;

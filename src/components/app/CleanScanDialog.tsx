@@ -6,10 +6,17 @@ import { pageSize, renderPageOnce } from '@/lib/pdf';
 import { tidyScan, type TidyOptions } from '@/lib/scanTidy';
 import { parseRange } from '@/components/app/PrintDialog';
 import { toast } from '@/hooks/use-toast';
+import { useLicense } from '@/context/LicenseContext';
+import { ModuleLocked } from '@/lib/secureModule';
+import { createOcrWorker, textLayerOf } from '@/lib/ocrEngine';
+import { logError } from '@/lib/desktop';
 
 // Разрешение, в котором лист очищается и остаётся в документе.
 // 200 точек на дюйм — читаемо при печати и не раздувает файл
 const DPI = 200;
+// Для распознавания лист нужен крупнее: на 300 точках движок путает
+// буквы заметно реже. Слой потом ложится на страницу в любом размере
+const OCR_DPI = 300;
 const PREVIEW_SCALE = 0.9;
 
 type Scope = 'current' | 'all' | 'range';
@@ -40,6 +47,20 @@ const canvasBytes = (c: HTMLCanvasElement, type: 'png' | 'jpeg') =>
 // Страницы заменяются очищенными картинками; Ctrl+Z возвращает прежние
 const CleanScanDialog = ({ onClose }: { onClose: () => void }) => {
   const { pages, active, docOf, replaceWithImages } = useDoc();
+  const { isFull, license } = useLicense();
+  // Сразу распознать текст: страница остаётся доступной для поиска
+  // и копирования. Только в полной версии — как и само распознавание
+  const [ocr, setOcrRaw] = useState(() => localStorage.getItem('pvs-tidy-ocr') !== '0');
+  const setOcr = (v: boolean) => {
+    setOcrRaw(v);
+    try {
+      localStorage.setItem('pvs-tidy-ocr', v ? '1' : '0');
+    } catch {
+      /* хранилище недоступно — не страшно */
+    }
+  };
+  const withOcr = ocr && isFull;
+  const [stage, setStage] = useState('');
   const [opts, setOptsRaw] = useState<TidyOptions>(readOpts);
   const [scope, setScope] = useState<Scope>('current');
   const [range, setRange] = useState('');
@@ -105,9 +126,24 @@ const CleanScanDialog = ({ onClose }: { onClose: () => void }) => {
     }
     stop.current = false;
     setBusy({ done: 0, total: list.length });
-    const images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number }[] = [];
+    const images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number; text?: Uint8Array | null }[] = [];
     let specks = 0;
+    let recognized = 0;
+    let worker: Awaited<ReturnType<typeof createOcrWorker>> | null = null;
     try {
+      if (withOcr) {
+        setStage('Запускаю распознавание…');
+        try {
+          worker = await createOcrWorker(license?.key || '', OCR_DPI);
+        } catch (e) {
+          // Распознавание не завелось — чистим всё равно, без текста
+          logError('очистка фона: распознавание', e);
+          toast({
+            title: e instanceof ModuleLocked ? 'Распознавание недоступно' : 'Распознавание не запустилось',
+            description: 'Страницы будут очищены без текстового слоя',
+          });
+        }
+      }
       for (let i = 0; i < list.length; i++) {
         if (stop.current) {
           toast({ title: 'Остановлено', description: 'Документ не изменён' });
@@ -116,13 +152,42 @@ const CleanScanDialog = ({ onClose }: { onClose: () => void }) => {
         const p = list[i];
         const doc = docOf(p);
         const size = await pageSize(doc, p.src, p.rotation);
-        const c = await renderPageOnce(doc, p.src, DPI / 72, p.rotation);
+        setStage(`Очищаю страницу ${i + 1} из ${list.length}`);
+        const c = await renderPageOnce(doc, p.src, (worker ? OCR_DPI : DPI) / 72, p.rotation);
         const res = tidyScan(c, opts);
         specks += res.specks;
+
+        let text: Uint8Array | null = null;
+        if (worker) {
+          setStage(`Распознаю текст: страница ${i + 1} из ${list.length}`);
+          // Читаем уже очищенный лист: на белом фоне движок ошибается реже
+          const layer = await textLayerOf(worker, res.canvas).catch((e) => {
+            logError('очистка фона: распознавание страницы', e);
+            return null;
+          });
+          if (layer?.pdf && layer.text) {
+            text = layer.pdf;
+            recognized++;
+          }
+        }
+
+        // В документ кладём лист в 200 точек: больше для чтения и печати
+        // не нужно, а файл не раздувается
+        let picture = res.canvas;
+        if (worker) {
+          const small = document.createElement('canvas');
+          small.width = Math.round((res.canvas.width * DPI) / OCR_DPI);
+          small.height = Math.round((res.canvas.height * DPI) / OCR_DPI);
+          const sctx = small.getContext('2d')!;
+          sctx.imageSmoothingQuality = 'high';
+          sctx.drawImage(res.canvas, 0, 0, small.width, small.height);
+          picture = small;
+        }
+
         // Чёрно-белый лист без полутонов сжимается в PNG лучше и
         // остаётся резким; цветной — в JPEG, иначе файл раздуется
         const type = opts.gray ? 'png' : 'jpeg';
-        images.push({ bytes: await canvasBytes(res.canvas, type), type, w: size.w, h: size.h });
+        images.push({ bytes: await canvasBytes(picture, type), type, w: size.w, h: size.h, text });
         setBusy({ done: i + 1, total: list.length });
         // Отдаём управление окну, чтобы был виден ход работы
         await new Promise((r) => setTimeout(r, 0));
@@ -132,15 +197,21 @@ const CleanScanDialog = ({ onClose }: { onClose: () => void }) => {
         images,
         list.length > 1 ? `очистку фона (${list.length} стр.)` : 'очистку фона',
       );
+      const parts = [
+        opts.specks && specks ? `убрано точек: ${specks}` : '',
+        worker ? (recognized ? `текст распознан на ${recognized} из ${list.length} стр.` : 'текст не найден') : '',
+      ].filter(Boolean);
       toast({
         title: list.length > 1 ? `Очищено страниц: ${list.length}` : 'Страница очищена',
-        description: opts.specks && specks ? `Убрано точек: ${specks}. Вернуть — Ctrl+Z` : 'Вернуть — Ctrl+Z',
+        description: (parts.length ? parts.join(', ') + '. ' : '') + 'Вернуть — Ctrl+Z',
       });
       onClose();
     } catch (e) {
       toast({ title: 'Не удалось очистить', description: e instanceof Error ? e.message : '' });
     } finally {
+      await worker?.terminate().catch(() => undefined);
       setBusy(null);
+      setStage('');
     }
   };
 
@@ -164,8 +235,10 @@ const CleanScanDialog = ({ onClose }: { onClose: () => void }) => {
         <div className="flex items-center gap-3 p-4">
           <p className="flex-1 text-[0.76rem] text-muted-foreground">
             {busy
-              ? `Обрабатываю: ${busy.done} из ${busy.total}`
-              : 'Страница станет картинкой. Отменить можно через Ctrl+Z.'}
+              ? stage || `Обрабатываю: ${busy.done} из ${busy.total}`
+              : withOcr
+                ? 'Страница станет картинкой с текстом под ней. Отменить — Ctrl+Z.'
+                : 'Страница станет картинкой. Отменить можно через Ctrl+Z.'}
           </p>
           {busy ? (
             <button
@@ -252,6 +325,26 @@ const CleanScanDialog = ({ onClose }: { onClose: () => void }) => {
               Убрать мелкие точки
               <span className="block text-[0.74rem] text-muted-foreground">
                 Пыль и крошки тонера на чистом поле. Точки в тексте остаются
+              </span>
+            </span>
+          </label>
+
+          <label
+            className={`flex items-start gap-2 text-[0.84rem] ${isFull ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+          >
+            <input
+              type="checkbox"
+              checked={withOcr}
+              disabled={!isFull}
+              onChange={(e) => setOcr(e.target.checked)}
+              className="mt-1 accent-primary"
+            />
+            <span>
+              Сразу распознать текст
+              <span className="block text-[0.74rem] text-muted-foreground">
+                {isFull
+                  ? 'Страница останется доступной для поиска и копирования текста. Займёт несколько секунд на лист'
+                  : 'Доступно в полной версии'}
               </span>
             </span>
           </label>
