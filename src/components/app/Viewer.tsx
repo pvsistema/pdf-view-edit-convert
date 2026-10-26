@@ -6,6 +6,7 @@ import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
 import CleanScanDialog from '@/components/app/CleanScanDialog';
+import { clearWhite, readPicture } from '@/lib/insertImage';
 import type { StampSource } from '@/components/app/sheet/useCloneStamp';
 import { onSearchRequest } from '@/lib/searchBus';
 import { requestPrint } from '@/lib/printBus';
@@ -68,6 +69,7 @@ const Viewer = ({ tool, setTool }: Props) => {
     rotate,
     annots,
     addAnnot,
+    updateAnnot,
     removeAnnot,
     remove,
     buildPdf,
@@ -141,6 +143,10 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   // Окно «Очистить фон скана»
   const [cleaning, setCleaning] = useState(false);
+
+  // Вставленные картинки (подпись, печать): какая выбрана для правки
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const pictureInput = useRef<HTMLInputElement>(null);
 
   // Штамп: размер и мягкость кисти запоминаются до следующего запуска,
   // источник — только на время работы с документом
@@ -224,6 +230,102 @@ const Viewer = ({ tool, setTool }: Props) => {
     },
     [addAnnot],
   );
+
+  // Картинка встаёт посередине текущей страницы. Ширина по умолчанию —
+  // 5 см, как у обычной подписи; узкая высокая картинка (печать)
+  // ограничивается по высоте. Дальше её двигают и тянут за углы
+  const insertPicture = useCallback(
+    async (file: File) => {
+      const target = pages[active];
+      const doc = target && docOf(target);
+      if (!target || !doc) return;
+      try {
+        const pic = await readPicture(file);
+        const size = await pageSize(doc, target.src, target.rotation);
+        const MM = 72 / 25.4;
+        let wPt = Math.min(50 * MM, size.w * 0.6);
+        let hPt = (wPt * pic.h) / pic.w;
+        const maxH = Math.min(40 * MM, size.h * 0.5);
+        if (hPt > maxH) {
+          wPt *= maxH / hPt;
+          hPt = maxH;
+        }
+        const w = wPt / size.w;
+        const h = hPt / size.h;
+        const id = addAnnot({
+          pageUid: target.uid,
+          kind: 'image',
+          img: pic.src,
+          x: (1 - w) / 2,
+          y: (1 - h) / 2,
+          w,
+          h,
+          text: '',
+          size: 0,
+          color: '',
+        });
+        setTool('hand');
+        setSelectedImage(id);
+        toast({
+          title: 'Картинка вставлена',
+          description: 'Перетащите её на место, размер — за углы. С Shift — без сохранения пропорций',
+        });
+      } catch (e) {
+        toast({ title: 'Не удалось вставить', description: e instanceof Error ? e.message : '' });
+      }
+    },
+    [pages, active, docOf, addAnnot, setTool],
+  );
+
+  const moveImage = useCallback(
+    (id: string, box: { x: number; y: number; w: number; h: number }) =>
+      updateAnnot(id, box, 'перемещение картинки'),
+    [updateAnnot],
+  );
+
+  // Убрать белый фон: картинка становится прозрачной вокруг чернил,
+  // пустые поля обрезаются, а сама подпись остаётся на прежнем месте
+  const clearImageBg = useCallback(
+    async (id: string) => {
+      const m = annots.find((a) => a.id === id);
+      if (!m?.img) return;
+      try {
+        const res = await clearWhite(m.img);
+        const w = m.w ?? 0.2;
+        const h = m.h ?? 0.08;
+        const c = res.crop;
+        const box = c
+          ? {
+              x: m.x + (c.x0 / c.w) * w,
+              y: m.y + (c.y0 / c.h) * h,
+              w: (c.cw / c.w) * w,
+              h: (c.ch / c.h) * h,
+            }
+          : { x: m.x, y: m.y, w, h };
+        // text — отметка «фон уже убран», чтобы не предлагать снова
+        updateAnnot(id, { ...box, img: res.src, text: 'clear' }, 'удаление белого фона');
+      } catch (e) {
+        toast({ title: 'Не удалось убрать фон', description: e instanceof Error ? e.message : '' });
+      }
+    },
+    [annots, updateAnnot],
+  );
+
+  // Вставка картинки из буфера обмена: скопировали подпись в другой
+  // программе — Ctrl+V кладёт её на текущую страницу
+  useEffect(() => {
+    if (!onScreen) return;
+    const paste = (e: ClipboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      const file = [...(e.clipboardData?.files ?? [])].find((f) => /^image\/(png|jpeg)$/.test(f.type));
+      if (!file) return;
+      e.preventDefault();
+      void insertPicture(file);
+    };
+    window.addEventListener('paste', paste);
+    return () => window.removeEventListener('paste', paste);
+  }, [onScreen, insertPicture]);
 
   // Заметки документа: значки рисуются на листах, тексты — в панели
   const [notes, setNotes] = useState(() => readNotes(name));
@@ -1256,6 +1358,28 @@ const Viewer = ({ tool, setTool }: Props) => {
         <div className="flex shrink-0 items-center border border-border bg-background">
           <button
             className="flex items-center gap-1.5 px-3 py-2 text-[0.8rem] hover:bg-card"
+            onClick={() => pictureInput.current?.click()}
+            title="Вставить картинку PNG или JPEG — подпись, печать, логотип. Также Ctrl+V из буфера обмена"
+          >
+            <Icon name="ImagePlus" size={16} />
+            <span className="hidden lg:inline">Картинка</span>
+          </button>
+          <input
+            ref={pictureInput}
+            type="file"
+            accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void insertPicture(f);
+            }}
+          />
+        </div>
+
+        <div className="flex shrink-0 items-center border border-border bg-background">
+          <button
+            className="flex items-center gap-1.5 px-3 py-2 text-[0.8rem] hover:bg-card"
             onClick={() => setCleaning(true)}
             title="Очистить фон скана: убрать серый оттенок, тени и мелкие точки"
           >
@@ -1512,6 +1636,10 @@ const Viewer = ({ tool, setTool }: Props) => {
                   onShape={shape}
                   stamp={tool === 'stamp' ? stamp : undefined}
                   onPatch={patch}
+                  selectedImage={selectedImage}
+                  onSelectImage={setSelectedImage}
+                  onMoveImage={moveImage}
+                  onClearImageBg={(id) => void clearImageBg(id)}
                   onOpenNote={() => openNotes()}
                   picking={picking}
                   onPick={(c) => {

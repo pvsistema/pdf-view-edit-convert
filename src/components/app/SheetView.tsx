@@ -8,6 +8,7 @@ import useSheetPage from '@/components/app/sheet/useSheetPage';
 import useSheetInput from '@/components/app/sheet/useSheetInput';
 import { SheetDragPreview, SheetHits } from '@/components/app/sheet/SheetLayers';
 import SheetMarks from '@/components/app/sheet/SheetMarks';
+import ImageMark from '@/components/app/sheet/ImageMark';
 import useCloneStamp, { type StampSettings } from '@/components/app/sheet/useCloneStamp';
 
 type Props = {
@@ -53,6 +54,11 @@ type Props = {
   // Штамп: настройки кисти и готовая заплатка
   stamp?: StampSettings;
   onPatch?: (page: PageMeta, x: number, y: number, w: number, h: number, img: string) => void;
+  // Вставленные картинки: какая выбрана, перемещение и размер
+  selectedImage?: string | null;
+  onSelectImage?: (id: string | null) => void;
+  onMoveImage?: (id: string, box: { x: number; y: number; w: number; h: number }) => void;
+  onClearImageBg?: (id: string) => void;
 };
 
 // Один лист в непрерывной ленте. Рисуется, только когда подходит
@@ -80,6 +86,10 @@ const SheetView = ({
   menuActions,
   stamp,
   onPatch,
+  selectedImage,
+  onSelectImage,
+  onMoveImage,
+  onClearImageBg,
 }: Props) => {
   const { box, host, near, drawn, size, spots } = useSheetPage({ page, zoom, doc, found });
 
@@ -114,7 +124,11 @@ const SheetView = ({
           picking ? 'cursor-copy' : cloning ? 'cursor-none' : tool === 'hand' ? '' : 'cursor-crosshair'
         }`}
         style={{ width: `${width}px`, height: `${height}px` }}
-        onClick={click}
+        onClick={(e) => {
+          // Щелчок мимо картинки снимает с неё выбор
+          if (selectedImage) onSelectImage?.(null);
+          click(e);
+        }}
         onContextMenu={rightClick}
         onMouseDown={(e) => {
           if (!clone.down(e)) dragStart(e);
@@ -166,6 +180,24 @@ const SheetView = ({
           onRemoveMark={onRemoveMark}
           locked={cloning}
         />
+
+        {marks
+          .filter((m) => m.kind === 'image')
+          .map((m) => (
+            <ImageMark
+              key={m.id}
+              mark={m}
+              width={width}
+              height={height}
+              zoom={zoom}
+              selected={selectedImage === m.id}
+              locked={cloning || picking}
+              onSelect={(id) => onSelectImage?.(id)}
+              onChange={(id, b) => onMoveImage?.(id, b)}
+              onRemove={onRemoveMark}
+              onClearBg={onClearImageBg}
+            />
+          ))}
 
         {/* Мазок штампа, пока кнопка мыши зажата */}
         <canvas

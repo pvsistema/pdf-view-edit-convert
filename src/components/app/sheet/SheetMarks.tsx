@@ -27,7 +27,7 @@ const SheetMarks = ({
   locked?: boolean;
 }) => (
   <>
-    {marks.map((m) => (
+    {marks.filter((m) => m.kind !== 'image').map((m) => (
       <div
         key={m.id}
         className={`group absolute ${locked || m.kind === 'patch' ? 'pointer-events-none' : ''}`}

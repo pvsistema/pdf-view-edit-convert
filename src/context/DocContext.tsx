@@ -34,8 +34,10 @@ export type Annot = {
     | 'line'
     | 'rect'
     | 'oval'
-    | 'patch';
-  // Картинка заплатки (PNG с прозрачностью), только у patch
+    | 'patch'
+    | 'image';
+  // Картинка заплатки (PNG с прозрачностью) у patch; у image — вставленная
+  // картинка (подпись, печать, логотип) в виде data:-адреса PNG или JPEG
   img?: string;
   // Точные размеры в долях страницы. Есть у пометок, поставленных
   // по выделенному тексту: они закрывают ровно его, буква в букву
@@ -62,6 +64,14 @@ export type SourceFile = {
 };
 
 type Snapshot = { pages: PageMeta[]; annots: Annot[]; label: string };
+
+// Байты картинки из data:-адреса
+const dataBytes = (src: string) => {
+  const raw = atob(src.slice(src.indexOf(',') + 1));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+};
 
 // Картинка из data:-адреса — для заплаток штампа при сборке PDF
 const loadPicture = (src: string) =>
@@ -100,8 +110,8 @@ export const DEFAULT_LAYOUT: Layout = {
 
 type Ctx = {
   annots: Annot[];
-  addAnnot: (a: Omit<Annot, 'id'>) => void;
-  updateAnnot: (id: string, patch: Partial<Annot>) => void;
+  addAnnot: (a: Omit<Annot, 'id'>) => string;
+  updateAnnot: (id: string, patch: Partial<Annot>, label?: string) => void;
   removeAnnot: (id: string) => void;
   files: SourceFile[];
   pages: PageMeta[];
@@ -268,17 +278,20 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         rect: 'рамка',
         oval: 'овал',
         patch: 'штамп',
+        image: 'вставку картинки',
       };
+      const id = `a${++seq}`;
       apply(LABEL[a.kind] ?? 'пометка', {
-        annots: [...annotsRef.current, { ...a, id: `a${++seq}` }],
+        annots: [...annotsRef.current, { ...a, id }],
       });
+      return id;
     },
     [apply],
   );
 
   const updateAnnot = useCallback(
-    (id: string, patch: Partial<Annot>) => {
-      apply('изменение надписи', {
+    (id: string, patch: Partial<Annot>, label = 'изменение надписи') => {
+      apply(label, {
         annots: annotsRef.current.map((a) => (a.id === id ? { ...a, ...patch } : a)),
       });
     },
@@ -651,6 +664,8 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       // Сборщик PDF подключаем при сохранении, а не при запуске программы
       const { PDFDocument, degrees, PDFName, rgb, BlendMode } = await import('pdf-lib');
       const out = await PDFDocument.create();
+      // Одна и та же подпись на многих страницах встраивается в файл один раз
+      const pictures = new Map<string, Awaited<ReturnType<typeof out.embedPng>>>();
       const cache = new Map<string, any>();
 
       // Страницы копируем пачкой на каждый исходный файл, а не по одной:
@@ -755,6 +770,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
             a.kind === 'mark' ||
             a.kind === 'under' ||
             a.kind === 'strike' ||
+            a.kind === 'image' ||
             SHAPES.includes(a.kind),
         );
         // Закраска стирает всё содержимое страницы и заменяет картинкой,
@@ -776,7 +792,22 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
               number,
             ];
           };
-          const [cr, cg, cb] = rgbOf(m.color);
+          if (m.kind === 'image') {
+            // Вставленная картинка ложится в PDF как есть, без пересжатия:
+            // подпись остаётся такой же чёткой, прозрачность PNG сохраняется
+            if (!m.img) continue;
+            let pic = pictures.get(m.img);
+            if (!pic) {
+              const bytes = dataBytes(m.img);
+              pic = m.img.startsWith('data:image/png')
+                ? await out.embedPng(bytes)
+                : await out.embedJpg(bytes);
+              pictures.set(m.img, pic);
+            }
+            added.drawImage(pic, { x: m.x * pwd, y: top - mh, width: mw, height: mh });
+            continue;
+          }
+          const [cr, cg, cb] = rgbOf(m.color || '#000000');
 
           if (SHAPES.includes(m.kind)) {
             // Фигуры рисуем линиями PDF: чёткие при любом увеличении
@@ -887,7 +918,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
             const mw = m.w !== undefined ? m.w * canvas.width : m.size * k * 8;
             const mh = m.h !== undefined ? m.h * canvas.height : m.size * k * 1.5;
 
-            if (m.kind === 'patch') {
+            if (m.kind === 'patch' || m.kind === 'image') {
               // Заплатка штампа: прозрачные края ложатся поверх листа,
               // и переход к соседним местам остаётся незаметным
               if (m.img) {
