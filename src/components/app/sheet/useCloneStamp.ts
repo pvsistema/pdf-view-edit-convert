@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Annot, PageMeta } from '@/context/DocContext';
 import { toast } from '@/hooks/use-toast';
+import { healMargin, healPatch } from '@/lib/heal';
 
 // Точка, откуда штамп берёт «чистый» кусок листа. dx/dy — сдвиг от
 // кисти до источника: он задаётся первым мазком и дальше сохраняется,
@@ -11,6 +12,8 @@ export type StampSettings = {
   size: number;
   // 0 — жёсткий край, 100 — самый мягкий
   soft: number;
+  // Восстанавливающий режим: цвет и яркость подгоняются под фон вокруг
+  heal?: boolean;
   source: StampSource | null;
   setSource: (s: StampSource | null) => void;
   // Ждём щелчка, который задаст источник (вместо Alt+щелчка)
@@ -225,18 +228,41 @@ export const useCloneStamp = ({ active, page, marks, host, stamp, onPatch }: Arg
     const canvas = overlay.current;
     if (!s || !canvas) return;
 
-    const x0 = Math.max(0, Math.floor(s.box.x0));
-    const y0 = Math.max(0, Math.floor(s.box.y0));
-    const x1 = Math.min(canvas.width, Math.ceil(s.box.x1));
-    const y1 = Math.min(canvas.height, Math.ceil(s.box.y1));
+    let x0 = Math.max(0, Math.floor(s.box.x0));
+    let y0 = Math.max(0, Math.floor(s.box.y0));
+    let x1 = Math.min(canvas.width, Math.ceil(s.box.x1));
+    let y1 = Math.min(canvas.height, Math.ceil(s.box.y1));
+    if (x1 - x0 < 2 || y1 - y0 < 2) return;
+
+    let cut: HTMLCanvasElement;
+    if (stamp?.heal) {
+      // Восстановление: берём полоску вокруг мазка — по ней узнаём,
+      // какого цвета и яркости фон, и подгоняем под него заплатку
+      const pad = healMargin(x1 - x0, y1 - y0);
+      x0 = Math.max(0, x0 - pad);
+      y0 = Math.max(0, y0 - pad);
+      x1 = Math.min(canvas.width, x1 + pad);
+      y1 = Math.min(canvas.height, y1 + pad);
+      try {
+        cut = healPatch(s.src, canvas, x0, y0, x1 - x0, y1 - y0, s.dx, s.dy);
+      } catch {
+        cut = document.createElement('canvas');
+        cut.width = x1 - x0;
+        cut.height = y1 - y0;
+        cut.getContext('2d')!.drawImage(canvas, x0, y0, cut.width, cut.height, 0, 0, cut.width, cut.height);
+      }
+      // На экране сразу показываем подогнанную заплатку вместо мазка
+      const octx = canvas.getContext('2d')!;
+      octx.clearRect(x0, y0, x1 - x0, y1 - y0);
+      octx.drawImage(cut, x0, y0);
+    } else {
+      cut = document.createElement('canvas');
+      cut.width = x1 - x0;
+      cut.height = y1 - y0;
+      cut.getContext('2d')!.drawImage(canvas, x0, y0, cut.width, cut.height, 0, 0, cut.width, cut.height);
+    }
     const bw = x1 - x0;
     const bh = y1 - y0;
-    if (bw < 2 || bh < 2) return;
-
-    const cut = document.createElement('canvas');
-    cut.width = bw;
-    cut.height = bh;
-    cut.getContext('2d')!.drawImage(canvas, x0, y0, bw, bh, 0, 0, bw, bh);
     const img = cut.toDataURL('image/png');
 
     onPatch?.(page, x0 / canvas.width, y0 / canvas.height, bw / canvas.width, bh / canvas.height, img);

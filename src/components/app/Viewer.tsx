@@ -154,18 +154,30 @@ const Viewer = ({ tool, setTool }: Props) => {
       /* хранилище недоступно — не страшно */
     }
   };
+  // Режим штампа: обычный переносит пиксели как есть, восстанавливающий
+  // подгоняет цвет и яркость заплатки под фон вокруг помарки
+  const [stampHeal, setStampHealRaw] = useState(() => localStorage.getItem('pvs-stamp-heal') === '1');
+  const setStampHeal = (v: boolean) => {
+    setStampHealRaw(v);
+    try {
+      localStorage.setItem('pvs-stamp-heal', v ? '1' : '0');
+    } catch {
+      /* хранилище недоступно — не страшно */
+    }
+  };
   const [stampSource, setStampSource] = useState<StampSource | null>(null);
   const [stampChoosing, setStampChoosing] = useState(false);
   const stamp = useMemo(
     () => ({
       size: stampSize,
       soft: stampSoft,
+      heal: stampHeal,
       source: stampSource,
       setSource: setStampSource,
       choosing: stampChoosing,
       setChoosing: setStampChoosing,
     }),
-    [stampSize, stampSoft, stampSource, stampChoosing],
+    [stampSize, stampSoft, stampHeal, stampSource, stampChoosing],
   );
 
   // Клавиши [ и ] меняют размер кисти, как в Фотошопе.
@@ -1200,6 +1212,30 @@ const Viewer = ({ tool, setTool }: Props) => {
         {/* Настройки штампа: размер и мягкость кисти, выбор источника */}
         {tool === 'stamp' && (
           <div className="flex shrink-0 items-center gap-2 border border-border bg-background px-2 py-1">
+            {/* Режим: копия как есть или с подгонкой под фон */}
+            <div className="flex border border-border">
+              <button
+                onClick={() => setStampHeal(false)}
+                title="Штамп: переносит кусок листа как есть"
+                className={`flex items-center gap-1 px-2 py-1 text-[0.74rem] transition-colors ${
+                  !stampHeal ? 'bg-primary text-primary-foreground' : 'hover:bg-card'
+                }`}
+              >
+                <Icon name="Stamp" size={13} />
+                Копия
+              </button>
+              <button
+                onClick={() => setStampHeal(true)}
+                title="Восстановление: берёт фактуру из источника, а цвет и яркость подгоняет под фон вокруг помарки"
+                className={`flex items-center gap-1 border-l border-border px-2 py-1 text-[0.74rem] transition-colors ${
+                  stampHeal ? 'bg-primary text-primary-foreground' : 'hover:bg-card'
+                }`}
+              >
+                <Icon name="Bandage" fallback="Sparkles" size={13} />
+                Восстановление
+              </button>
+            </div>
+
             <button
               onClick={() => setStampChoosing((v) => !v)}
               title="Источник: нажмите и щёлкните по чистому месту листа (или Alt+щелчок)"
