@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { pageText, pageSize } from '@/lib/pdf';
+import { pageText, pageSize, searchForm } from '@/lib/pdf';
 import { pageToJpeg, jpegName } from '@/lib/pageJpeg';
 import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
@@ -789,12 +789,12 @@ const Viewer = ({ tool, setTool }: Props) => {
       return;
     }
     setBusy(true);
-    const low = q.toLowerCase();
+    const low = searchForm(q);
     const list: number[] = [];
     for (let i = 0; i < pages.length; i++) {
       const doc = docOf(pages[i]);
       if (!doc) continue;
-      const text = (await pageText(doc, pages[i].src)).toLowerCase();
+      const text = searchForm(await pageText(doc, pages[i].src));
       if (text.includes(low)) list.push(i);
     }
     setHits(list);

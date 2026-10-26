@@ -405,13 +405,19 @@ export const pageSize = async (doc: any, pageIndex: number, extraRotation = 0) =
 // поэтому подсветка правильно ложится при любом увеличении
 export type TextHit = { x: number; y: number; w: number; h: number };
 
+// Строка для поиска: без разницы между большими и малыми буквами и
+// между «ё» и «е». Распознанный текст пишет их вперемешку, а человек
+// почти всегда набирает «е». Длина строки не меняется — места
+// найденного совпадают с исходным текстом
+export const searchForm = (s: string) => s.toLowerCase().replace(/ё/g, 'е');
+
 export const findOnPage = async (
   doc: any,
   pageIndex: number,
   needle: string,
   extraRotation = 0,
 ): Promise<TextHit[]> => {
-  const q = needle.trim().toLowerCase();
+  const q = searchForm(needle.trim());
   if (!q) return [];
 
   const { Util: util } = await engineReady();
@@ -430,7 +436,7 @@ export const findOnPage = async (
 
   const markItem = (item: any, needleText: string) => {
     const str = String(item.str || '');
-    const low = str.toLowerCase();
+    const low = searchForm(str);
     if (!low.includes(needleText)) return false;
 
     // Положение и наклон куска текста на странице
