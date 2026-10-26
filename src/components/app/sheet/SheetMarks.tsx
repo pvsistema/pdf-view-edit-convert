@@ -17,20 +17,32 @@ const SheetMarks = ({
   width,
   height,
   onRemoveMark,
+  locked,
 }: {
   marks: Annot[];
   width: number;
   height: number;
   onRemoveMark: (id: string) => void;
+  // Идёт работа штампом: пометки не перехватывают мышь
+  locked?: boolean;
 }) => (
   <>
     {marks.map((m) => (
       <div
         key={m.id}
-        className="group absolute"
+        className={`group absolute ${locked || m.kind === 'patch' ? 'pointer-events-none' : ''}`}
         style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%` }}
       >
-        {m.kind === 'arrow' || m.kind === 'line' || m.kind === 'rect' || m.kind === 'oval' ? (
+        {m.kind === 'patch' ? (
+          // Заплатка штампа: картинка в долях листа, на любом масштабе
+          // ложится ровно на своё место. Убирается отменой (Ctrl+Z)
+          <img
+            src={m.img}
+            alt=""
+            draggable={false}
+            style={{ width: `${(m.w ?? 0) * width}px`, height: `${(m.h ?? 0) * height}px`, display: 'block' }}
+          />
+        ) : m.kind === 'arrow' || m.kind === 'line' || m.kind === 'rect' || m.kind === 'oval' ? (
           // Фигуры рисуем вектором: они остаются чёткими на любом
           // масштабе и не съедают память под большие картинки
           <Shape

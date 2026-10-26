@@ -5,6 +5,7 @@ import { pageToJpeg, jpegName } from '@/lib/pageJpeg';
 import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
+import type { StampSource } from '@/components/app/sheet/useCloneStamp';
 import { onSearchRequest } from '@/lib/searchBus';
 import { requestPrint } from '@/lib/printBus';
 import { downloadBlob, expectRename } from '@/lib/files';
@@ -12,7 +13,21 @@ import { toast } from '@/hooks/use-toast';
 import { readNotes, saveNotes, makeNote, readAuthor, saveAuthor } from '@/lib/notes';
 import { notesChanged, onNotesChanged, openNotes } from '@/lib/noteBus';
 
-export type Tool = 'hand' | 'pan' | 'text' | 'block' | 'note' | 'arrow' | 'line' | 'rect' | 'oval';
+export type Tool =
+  | 'hand'
+  | 'pan'
+  | 'text'
+  | 'block'
+  | 'note'
+  | 'arrow'
+  | 'line'
+  | 'rect'
+  | 'oval'
+  | 'stamp';
+
+// Размер кисти штампа, в точках экрана
+const STAMP_MIN = 4;
+const STAMP_MAX = 200;
 
 // Цвета рецензирования: жёлтый маркер и красная линия — привычные
 // по бумажным документам
@@ -109,6 +124,77 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   // Пипетка: следующий щелчок по странице возьмёт цвет из этой точки
   const [picking, setPicking] = useState(false);
+
+  // Штамп: размер и мягкость кисти запоминаются до следующего запуска,
+  // источник — только на время работы с документом
+  const [stampSize, setStampSizeRaw] = useState(() => {
+    const v = Number(localStorage.getItem('pvs-stamp-size'));
+    return v >= STAMP_MIN && v <= STAMP_MAX ? v : 24;
+  });
+  const [stampSoft, setStampSoftRaw] = useState(() => {
+    const v = localStorage.getItem('pvs-stamp-soft');
+    return v !== null && Number(v) >= 0 && Number(v) <= 100 ? Number(v) : 50;
+  });
+  const setStampSize = useCallback((v: number | ((p: number) => number)) => {
+    setStampSizeRaw((prev) => {
+      const next = Math.round(Math.min(STAMP_MAX, Math.max(STAMP_MIN, typeof v === 'function' ? v(prev) : v)));
+      try {
+        localStorage.setItem('pvs-stamp-size', String(next));
+      } catch {
+        /* хранилище недоступно — не страшно */
+      }
+      return next;
+    });
+  }, []);
+  const setStampSoft = (v: number) => {
+    setStampSoftRaw(v);
+    try {
+      localStorage.setItem('pvs-stamp-soft', String(v));
+    } catch {
+      /* хранилище недоступно — не страшно */
+    }
+  };
+  const [stampSource, setStampSource] = useState<StampSource | null>(null);
+  const [stampChoosing, setStampChoosing] = useState(false);
+  const stamp = useMemo(
+    () => ({
+      size: stampSize,
+      soft: stampSoft,
+      source: stampSource,
+      setSource: setStampSource,
+      choosing: stampChoosing,
+      setChoosing: setStampChoosing,
+    }),
+    [stampSize, stampSoft, stampSource, stampChoosing],
+  );
+
+  // Клавиши [ и ] меняют размер кисти, как в Фотошопе.
+  // Shift — шаг крупнее
+  useEffect(() => {
+    if (tool !== 'stamp' || !onScreen) return;
+    const key = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      const bigger = e.code === 'BracketRight';
+      const smaller = e.code === 'BracketLeft';
+      if (!bigger && !smaller) return;
+      e.preventDefault();
+      setStampSize((v) => {
+        const step = e.shiftKey ? 20 : v < 20 ? 2 : v < 60 ? 5 : 10;
+        return v + (bigger ? step : -step);
+      });
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [tool, onScreen, setStampSize]);
+
+  // Заплатка от штампа становится обычной пометкой: её отменяет Ctrl+Z
+  const patch = useCallback(
+    (target: (typeof pages)[number], x: number, y: number, w: number, h: number, img: string) => {
+      addAnnot({ pageUid: target.uid, x, y, w, h, img, text: '', size: 0, color: '', kind: 'patch' });
+    },
+    [addAnnot],
+  );
 
   // Заметки документа: значки рисуются на листах, тексты — в панели
   const [notes, setNotes] = useState(() => readNotes(name));
@@ -1108,7 +1194,61 @@ const Viewer = ({ tool, setTool }: Props) => {
           {toolBtn('line', 'Minus', 'Линия: протяните мышью')}
           {toolBtn('rect', 'RectangleHorizontal', 'Рамка: обведите мышью')}
           {toolBtn('oval', 'Circle', 'Овал: обведите мышью')}
+          {toolBtn('stamp', 'Stamp', 'Штамп: Alt+щелчок — взять чистое место, затем закрашивайте помарку')}
         </div>
+
+        {/* Настройки штампа: размер и мягкость кисти, выбор источника */}
+        {tool === 'stamp' && (
+          <div className="flex shrink-0 items-center gap-2 border border-border bg-background px-2 py-1">
+            <button
+              onClick={() => setStampChoosing((v) => !v)}
+              title="Источник: нажмите и щёлкните по чистому месту листа (или Alt+щелчок)"
+              className={`flex items-center gap-1 px-2 py-1 text-[0.76rem] transition-colors ${
+                stampChoosing ? 'bg-primary text-primary-foreground' : stampSource ? 'hover:bg-card' : 'text-primary hover:bg-card'
+              }`}
+            >
+              <Icon name="Crosshair" size={14} />
+              {stampSource ? 'Источник' : 'Выбрать источник'}
+            </button>
+
+            <button
+              onClick={() => setStampSize((v) => v - (v < 20 ? 2 : v < 60 ? 5 : 10))}
+              title="Меньше (клавиша [)"
+              className="px-1 py-1 hover:bg-card"
+            >
+              <Icon name="Minus" size={14} />
+            </button>
+            <input
+              type="range"
+              min={STAMP_MIN}
+              max={STAMP_MAX}
+              value={stampSize}
+              onChange={(e) => setStampSize(Number(e.target.value))}
+              title="Размер кисти"
+              className="w-24 accent-primary"
+            />
+            <button
+              onClick={() => setStampSize((v) => v + (v < 20 ? 2 : v < 60 ? 5 : 10))}
+              title="Больше (клавиша ])"
+              className="px-1 py-1 hover:bg-card"
+            >
+              <Icon name="Plus" size={14} />
+            </button>
+            <span className="w-10 text-right font-head text-[0.74rem] font-bold">{stampSize}</span>
+
+            <label className="flex items-center gap-1 text-[0.74rem] text-muted-foreground" title="Мягкость края кисти">
+              Край
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={stampSoft}
+                onChange={(e) => setStampSoft(Number(e.target.value))}
+                className="w-16 accent-primary"
+              />
+            </label>
+          </div>
+        )}
 
         {/* Цвет заливки: виден, только когда выбрано закрашивание */}
         {tool === 'block' && (
@@ -1259,6 +1399,8 @@ const Viewer = ({ tool, setTool }: Props) => {
                     .map((n) => ({ id: n.id, x: n.x, y: n.y, done: n.done, author: n.author }))}
                   onNote={addNote}
                   onShape={shape}
+                  stamp={tool === 'stamp' ? stamp : undefined}
+                  onPatch={patch}
                   onOpenNote={() => openNotes()}
                   picking={picking}
                   onPick={(c) => {

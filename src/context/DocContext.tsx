@@ -22,7 +22,21 @@ export type Annot = {
   // under — подчёркивание, strike — зачёркивание
   // arrow — стрелка, line — линия, rect — рамка, oval — овал:
   // ими указывают на место в документе
-  kind: 'text' | 'block' | 'mark' | 'under' | 'strike' | 'arrow' | 'line' | 'rect' | 'oval';
+  // patch — заплатка штампа: кусок листа, перенесённый кистью поверх
+  // помарки. Хранится картинкой с прозрачными краями
+  kind:
+    | 'text'
+    | 'block'
+    | 'mark'
+    | 'under'
+    | 'strike'
+    | 'arrow'
+    | 'line'
+    | 'rect'
+    | 'oval'
+    | 'patch';
+  // Картинка заплатки (PNG с прозрачностью), только у patch
+  img?: string;
   // Точные размеры в долях страницы. Есть у пометок, поставленных
   // по выделенному тексту: они закрывают ровно его, буква в букву
   w?: number;
@@ -48,6 +62,15 @@ export type SourceFile = {
 };
 
 type Snapshot = { pages: PageMeta[]; annots: Annot[]; label: string };
+
+// Картинка из data:-адреса — для заплаток штампа при сборке PDF
+const loadPicture = (src: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Картинка заплатки не читается'));
+    img.src = src;
+  });
 
 export type PaperId = 'original' | 'a3' | 'a4' | 'a5' | 'letter' | 'legal';
 export type FitMode = 'fit' | 'fill' | 'stretch' | 'actual';
@@ -237,6 +260,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         line: 'линия',
         rect: 'рамка',
         oval: 'овал',
+        patch: 'штамп',
       };
       apply(LABEL[a.kind] ?? 'пометка', {
         annots: [...annotsRef.current, { ...a, id: `a${++seq}` }],
@@ -776,7 +800,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
         // с закраской — и все остальные пометки этой страницы
         const marks = hidesData
           ? all
-          : all.filter((a) => a.kind === 'block' || a.kind === 'text');
+          : all.filter((a) => a.kind === 'block' || a.kind === 'text' || a.kind === 'patch');
         if (marks.length) {
           const { width, height } = added.getSize();
           const k = 2;
@@ -804,7 +828,14 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
             const mw = m.w !== undefined ? m.w * canvas.width : m.size * k * 8;
             const mh = m.h !== undefined ? m.h * canvas.height : m.size * k * 1.5;
 
-            if (SHAPES.includes(m.kind)) {
+            if (m.kind === 'patch') {
+              // Заплатка штампа: прозрачные края ложатся поверх листа,
+              // и переход к соседним местам остаётся незаметным
+              if (m.img) {
+                const pic = await loadPicture(m.img).catch(() => null);
+                if (pic) ctx.drawImage(pic, px, py, mw, mh);
+              }
+            } else if (SHAPES.includes(m.kind)) {
               // Страница уже стала картинкой из-за закраски —
               // фигуры дорисовываем прямо на ней
               const lw = Math.min(6 * k, Math.max(1.6 * k, Math.min(mw, mh) * 0.035 + 1.4 * k));

@@ -8,6 +8,7 @@ import useSheetPage from '@/components/app/sheet/useSheetPage';
 import useSheetInput from '@/components/app/sheet/useSheetInput';
 import { SheetDragPreview, SheetHits } from '@/components/app/sheet/SheetLayers';
 import SheetMarks from '@/components/app/sheet/SheetMarks';
+import useCloneStamp, { type StampSettings } from '@/components/app/sheet/useCloneStamp';
 
 type Props = {
   page: PageMeta;
@@ -47,6 +48,9 @@ type Props = {
   // Действия меню по правой кнопке: их выполняет окно просмотра,
   // потому что они касаются всего документа, а не одного листа
   menuActions: Omit<MenuActions, 'onCopyPage'>;
+  // Штамп: настройки кисти и готовая заплатка
+  stamp?: StampSettings;
+  onPatch?: (page: PageMeta, x: number, y: number, w: number, h: number, img: string) => void;
 };
 
 // Один лист в непрерывной ленте. Рисуется, только когда подходит
@@ -71,6 +75,8 @@ const SheetView = ({
   onOpenNote,
   onRemoveMark,
   menuActions,
+  stamp,
+  onPatch,
 }: Props) => {
   const { box, host, near, drawn, size, spots } = useSheetPage({ page, zoom, doc, found });
 
@@ -94,19 +100,34 @@ const SheetView = ({
       onShape,
     });
 
+  const cloning = tool === 'stamp';
+  const clone = useCloneStamp({ active: cloning, page, marks, host, stamp, onPatch });
+  const src = cloning && stamp?.source?.pageUid === page.uid ? stamp.source : null;
+
   return (
     <div ref={box} data-sheet={index} className="mb-6 flex flex-col items-center">
       <div
         className={`relative bg-white shadow-[0_2px_14px_rgba(20,24,28,0.16)] ${
-          picking ? 'cursor-copy' : tool === 'hand' ? '' : 'cursor-crosshair'
+          picking ? 'cursor-copy' : cloning ? 'cursor-none' : tool === 'hand' ? '' : 'cursor-crosshair'
         }`}
         style={{ width: `${width}px`, height: `${height}px` }}
         onClick={click}
         onContextMenu={rightClick}
-        onMouseDown={dragStart}
-        onMouseMove={dragMove}
-        onMouseUp={dragEnd}
-        onMouseLeave={dragEnd}
+        onMouseDown={(e) => {
+          if (!clone.down(e)) dragStart(e);
+        }}
+        onMouseMove={(e) => {
+          clone.move(e);
+          dragMove(e);
+        }}
+        onMouseUp={() => {
+          clone.up();
+          dragEnd();
+        }}
+        onMouseLeave={() => {
+          clone.leave();
+          dragEnd();
+        }}
       >
         <div ref={host} />
 
@@ -135,7 +156,56 @@ const SheetView = ({
 
         <SheetHits spots={spots} notes={notes} onOpenNote={onOpenNote} />
 
-        <SheetMarks marks={marks} width={width} height={height} onRemoveMark={onRemoveMark} />
+        <SheetMarks
+          marks={marks}
+          width={width}
+          height={height}
+          onRemoveMark={onRemoveMark}
+          locked={cloning}
+        />
+
+        {/* Мазок штампа, пока кнопка мыши зажата */}
+        <canvas
+          ref={clone.overlay}
+          className="pointer-events-none absolute inset-0"
+          style={{ width: `${width}px`, height: `${height}px` }}
+        />
+
+        {/* Источник штампа — крестик в кружке */}
+        {src && (
+          <div
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary"
+            style={{
+              left: `${src.x * 100}%`,
+              top: `${src.y * 100}%`,
+              width: `${stamp?.size ?? 20}px`,
+              height: `${stamp?.size ?? 20}px`,
+              boxShadow: '0 0 0 1px rgba(255,255,255,.9)',
+            }}
+          >
+            <Icon name="Plus" size={12} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+          </div>
+        )}
+
+        {/* Кольцо кисти вместо курсора: видно, какую область накроет мазок */}
+        {cloning && clone.ring && (
+          <div
+            className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border ${
+              clone.ring.alt ? 'border-primary border-dashed' : 'border-foreground'
+            }`}
+            style={{
+              left: clone.ring.x,
+              top: clone.ring.y,
+              width: `${stamp?.size ?? 20}px`,
+              height: `${stamp?.size ?? 20}px`,
+              boxShadow: '0 0 0 1px rgba(255,255,255,.85)',
+            }}
+          >
+            {clone.ring.alt && (
+              <Icon name="Crosshair" size={14} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+            )}
+          </div>
+        )}
       </div>
 
       <span className="mt-2 font-head text-[0.72rem] font-bold text-muted-foreground">
