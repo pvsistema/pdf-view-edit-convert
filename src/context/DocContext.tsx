@@ -47,6 +47,9 @@ export type Annot = {
   // стрелка должна смотреть туда, куда её вели
   flipX?: boolean;
   flipY?: boolean;
+  // Поворот вставленной картинки вокруг её середины, в градусах
+  // по часовой стрелке. x, y, w, h — рамка до поворота
+  angle?: number;
 };
 
 // Документ, который уже доступен по адресу — так его передаёт программа
@@ -804,7 +807,26 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
                 : await out.embedJpg(bytes);
               pictures.set(m.img, pic);
             }
-            added.drawImage(pic, { x: m.x * pwd, y: top - mh, width: mw, height: mh });
+            const turn = m.angle || 0;
+            if (!turn) {
+              added.drawImage(pic, { x: m.x * pwd, y: top - mh, width: mw, height: mh });
+              continue;
+            }
+            // PDF поворачивает картинку вокруг её нижнего левого угла и против
+            // часовой стрелки. Считаем, где должен оказаться этот угол, чтобы
+            // картинка повернулась вокруг своей середины, как на экране
+            const phi = (-turn * Math.PI) / 180;
+            const cx = m.x * pwd + mw / 2;
+            const cy = top - mh / 2;
+            const ox = (-mw / 2) * Math.cos(phi) + (mh / 2) * Math.sin(phi);
+            const oy = (-mw / 2) * Math.sin(phi) - (mh / 2) * Math.cos(phi);
+            added.drawImage(pic, {
+              x: cx + ox,
+              y: cy + oy,
+              width: mw,
+              height: mh,
+              rotate: degrees(-turn),
+            });
             continue;
           }
           const [cr, cg, cb] = rgbOf(m.color || '#000000');
@@ -923,7 +945,13 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
               // и переход к соседним местам остаётся незаметным
               if (m.img) {
                 const pic = await loadPicture(m.img).catch(() => null);
-                if (pic) ctx.drawImage(pic, px, py, mw, mh);
+                if (pic && m.angle) {
+                  ctx.save();
+                  ctx.translate(px + mw / 2, py + mh / 2);
+                  ctx.rotate((m.angle * Math.PI) / 180);
+                  ctx.drawImage(pic, -mw / 2, -mh / 2, mw, mh);
+                  ctx.restore();
+                } else if (pic) ctx.drawImage(pic, px, py, mw, mh);
               }
             } else if (SHAPES.includes(m.kind)) {
               // Страница уже стала картинкой из-за закраски —

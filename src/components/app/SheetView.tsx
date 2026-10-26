@@ -57,8 +57,9 @@ type Props = {
   // Вставленные картинки: какая выбрана, перемещение и размер
   selectedImage?: string | null;
   onSelectImage?: (id: string | null) => void;
-  onMoveImage?: (id: string, box: { x: number; y: number; w: number; h: number }) => void;
+  onMoveImage?: (id: string, box: { x: number; y: number; w: number; h: number; angle?: number }) => void;
   onClearImageBg?: (id: string) => void;
+  onSaveImage?: (id: string) => void;
 };
 
 // Один лист в непрерывной ленте. Рисуется, только когда подходит
@@ -90,6 +91,7 @@ const SheetView = ({
   onSelectImage,
   onMoveImage,
   onClearImageBg,
+  onSaveImage,
 }: Props) => {
   const { box, host, near, drawn, size, spots } = useSheetPage({ page, zoom, doc, found });
 
@@ -196,6 +198,7 @@ const SheetView = ({
               onChange={(id, b) => onMoveImage?.(id, b)}
               onRemove={onRemoveMark}
               onClearBg={onClearImageBg}
+              onSave={onSaveImage}
             />
           ))}
 

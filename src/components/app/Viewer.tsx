@@ -7,6 +7,8 @@ import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
 import CleanScanDialog from '@/components/app/CleanScanDialog';
 import { clearWhite, readPicture } from '@/lib/insertImage';
+import SignaturesMenu from '@/components/app/SignaturesMenu';
+import { saveSignature, type Signature } from '@/lib/signatures';
 import type { StampSource } from '@/components/app/sheet/useCloneStamp';
 import { onSearchRequest } from '@/lib/searchBus';
 import { requestPrint } from '@/lib/printBus';
@@ -147,6 +149,8 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Вставленные картинки (подпись, печать): какая выбрана для правки
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const pictureInput = useRef<HTMLInputElement>(null);
+  // Файл выбирают для «Моих подписей» — после вставки сразу запоминаем
+  const saveNextPicture = useRef(false);
 
   // Штамп: размер и мягкость кисти запоминаются до следующего запуска,
   // источник — только на время работы с документом
@@ -234,53 +238,116 @@ const Viewer = ({ tool, setTool }: Props) => {
   // Картинка встаёт посередине текущей страницы. Ширина по умолчанию —
   // 5 см, как у обычной подписи; узкая высокая картинка (печать)
   // ограничивается по высоте. Дальше её двигают и тянут за углы
-  const insertPicture = useCallback(
-    async (file: File) => {
+  const MM = 72 / 25.4;
+
+  // Поставить картинку на середину текущей страницы. Размер — в мм:
+  // у сохранённой подписи свой, у новой — 5 см в ширину, как обычно
+  const placePicture = useCallback(
+    async (img: string, wMm: number, hMm: number, angle = 0, clear = false) => {
       const target = pages[active];
       const doc = target && docOf(target);
-      if (!target || !doc) return;
+      if (!target || !doc) return null;
+      const size = await pageSize(doc, target.src, target.rotation);
+      let wPt = wMm * MM;
+      let hPt = hMm * MM;
+      // Лист меньше подписи (например, узкий чек) — уменьшаем
+      const k = Math.min(1, (size.w * 0.9) / wPt, (size.h * 0.9) / hPt);
+      wPt *= k;
+      hPt *= k;
+      const w = wPt / size.w;
+      const h = hPt / size.h;
+      const id = addAnnot({
+        pageUid: target.uid,
+        kind: 'image',
+        img,
+        x: (1 - w) / 2,
+        y: (1 - h) / 2,
+        w,
+        h,
+        angle: angle || undefined,
+        text: clear ? 'clear' : '',
+        size: 0,
+        color: '',
+      });
+      setTool('hand');
+      setSelectedImage(id);
+      return id;
+    },
+    [pages, active, docOf, addAnnot, setTool, MM],
+  );
+
+  const insertPicture = useCallback(
+    async (file: File) => {
       try {
         const pic = await readPicture(file);
-        const size = await pageSize(doc, target.src, target.rotation);
-        const MM = 72 / 25.4;
-        let wPt = Math.min(50 * MM, size.w * 0.6);
-        let hPt = (wPt * pic.h) / pic.w;
-        const maxH = Math.min(40 * MM, size.h * 0.5);
-        if (hPt > maxH) {
-          wPt *= maxH / hPt;
-          hPt = maxH;
+        let wMm = 50;
+        let hMm = (wMm * pic.h) / pic.w;
+        if (hMm > 40) {
+          wMm *= 40 / hMm;
+          hMm = 40;
         }
-        const w = wPt / size.w;
-        const h = hPt / size.h;
-        const id = addAnnot({
-          pageUid: target.uid,
-          kind: 'image',
-          img: pic.src,
-          x: (1 - w) / 2,
-          y: (1 - h) / 2,
-          w,
-          h,
-          text: '',
-          size: 0,
-          color: '',
-        });
-        setTool('hand');
-        setSelectedImage(id);
+        const id = await placePicture(pic.src, wMm, hMm);
+        if (!id) return;
+        if (saveNextPicture.current) {
+          saveNextPicture.current = false;
+          await saveSignature({ name: file.name.replace(/\.(png|jpe?g)$/i, '') || 'Подпись', img: pic.src, wMm, hMm });
+          toast({
+            title: 'Подпись добавлена в «Мои подписи»',
+            description: 'Поправьте размер на листе и нажмите «В мои подписи», чтобы запомнить его',
+          });
+          return;
+        }
         toast({
           title: 'Картинка вставлена',
-          description: 'Перетащите её на место, размер — за углы. С Shift — без сохранения пропорций',
+          description: 'Перетащите её на место, размер — за углы, поворот — за кружок сверху',
         });
       } catch (e) {
+        saveNextPicture.current = false;
         toast({ title: 'Не удалось вставить', description: e instanceof Error ? e.message : '' });
       }
     },
-    [pages, active, docOf, addAnnot, setTool],
+    [placePicture],
+  );
+
+  // Сохранённая подпись — на страницу одним щелчком
+  const pickSignature = useCallback(
+    (sg: Signature) => void placePicture(sg.img, sg.wMm, sg.hMm, sg.rotation ?? 0, true),
+    [placePicture],
+  );
+
+  // Запомнить картинку с листа вместе с её нынешним размером и поворотом
+  const rememberImage = useCallback(
+    async (id: string) => {
+      const m = annots.find((a) => a.id === id);
+      const target = m && pages.find((p) => p.uid === m.pageUid);
+      const doc = target && docOf(target);
+      if (!m?.img || !target || !doc) return;
+      const size = await pageSize(doc, target.src, target.rotation);
+      const name = (window.prompt('Название подписи', 'Моя подпись') || '').trim();
+      if (!name) return;
+      try {
+        await saveSignature({
+          name,
+          img: m.img,
+          wMm: ((m.w ?? 0.2) * size.w) / MM,
+          hMm: ((m.h ?? 0.08) * size.h) / MM,
+          rotation: m.angle || undefined,
+        });
+        toast({ title: 'Сохранено в «Мои подписи»', description: `«${name}» теперь ставится одним щелчком` });
+      } catch (e) {
+        toast({ title: 'Не удалось сохранить', description: e instanceof Error ? e.message : '' });
+      }
+    },
+    [annots, pages, docOf, MM],
   );
 
   const moveImage = useCallback(
-    (id: string, box: { x: number; y: number; w: number; h: number }) =>
-      updateAnnot(id, box, 'перемещение картинки'),
-    [updateAnnot],
+    (id: string, box: { x: number; y: number; w: number; h: number; angle?: number }) => {
+      const m = annots.find((a) => a.id === id);
+      const turned = (box.angle ?? 0) !== (m?.angle ?? 0);
+      updateAnnot(id, { ...box, angle: box.angle || undefined }, turned ? 'поворот картинки' : 'перемещение картинки');
+    },
+    [annots, updateAnnot],
   );
 
   // Убрать белый фон: картинка становится прозрачной вокруг чернил,
@@ -1364,6 +1431,14 @@ const Viewer = ({ tool, setTool }: Props) => {
             <Icon name="ImagePlus" size={16} />
             <span className="hidden lg:inline">Картинка</span>
           </button>
+          <div className="h-5 w-px bg-border" />
+          <SignaturesMenu
+            onPick={pickSignature}
+            onAddFile={() => {
+              saveNextPicture.current = true;
+              pictureInput.current?.click();
+            }}
+          />
           <input
             ref={pictureInput}
             type="file"
@@ -1373,6 +1448,7 @@ const Viewer = ({ tool, setTool }: Props) => {
               const f = e.target.files?.[0];
               e.target.value = '';
               if (f) void insertPicture(f);
+              else saveNextPicture.current = false;
             }}
           />
         </div>
@@ -1640,6 +1716,7 @@ const Viewer = ({ tool, setTool }: Props) => {
                   onSelectImage={setSelectedImage}
                   onMoveImage={moveImage}
                   onClearImageBg={(id) => void clearImageBg(id)}
+                  onSaveImage={(id) => void rememberImage(id)}
                   onOpenNote={() => openNotes()}
                   picking={picking}
                   onPick={(c) => {
