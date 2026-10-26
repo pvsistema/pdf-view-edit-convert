@@ -403,7 +403,19 @@ export const pageSize = async (doc: any, pageIndex: number, extraRotation = 0) =
 
 // Места на странице, где встретилось искомое. Доли от размера страницы,
 // поэтому подсветка правильно ложится при любом увеличении
-export type TextHit = { x: number; y: number; w: number; h: number };
+// whole — найден весь запрос целиком (а не одно слово из фразы):
+// по таким местам считается счётчик «3 из 12» и идёт переход F3
+export type TextHit = { x: number; y: number; w: number; h: number; whole?: boolean };
+
+// Сколько раз запрос встречается в тексте страницы
+export const countIn = (text: string, needle: string) => {
+  const q = searchForm(needle.trim());
+  if (!q) return 0;
+  const t = searchForm(text);
+  let n = 0;
+  for (let at = t.indexOf(q); at >= 0; at = t.indexOf(q, at + q.length)) n++;
+  return n;
+};
 
 // Строка для поиска: без разницы между большими и малыми буквами и
 // между «ё» и «е». Распознанный текст пишет их вперемешку, а человек
@@ -461,6 +473,7 @@ export const findOnPage = async (
         y: y / viewport.height,
         w: (perChar * needleText.length) / viewport.width,
         h: height / viewport.height,
+        whole: needleText === q,
       });
       from = at + needleText.length;
     }

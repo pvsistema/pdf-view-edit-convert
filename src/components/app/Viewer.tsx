@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Icon from '@/components/ui/icon';
-import { pageText, pageSize, searchForm } from '@/lib/pdf';
+import { pageText, pageSize, countIn } from '@/lib/pdf';
 import { pageToJpeg, jpegName } from '@/lib/pageJpeg';
 import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
@@ -90,6 +90,19 @@ const Viewer = ({ tool, setTool }: Props) => {
   const [hits, setHits] = useState<number[] | null>(null);
   // Что именно ищем сейчас — по нему подсвечиваем найденное на странице
   const [found, setFound] = useState('');
+  // Все совпадения по порядку: страница и номер совпадения на ней.
+  // По ним считается «3 из 12» и идёт переход по F3
+  const [matches, setMatches] = useState<{ page: number; k: number; n: number }[]>([]);
+  const [cur, setCur] = useState(0);
+  // Номер перехода: при каждом переходе текущее совпадение
+  // подводится в поле зрения, даже если оно то же самое
+  const [jumpSeq, setJumpSeq] = useState(0);
+  const clearSearch = () => {
+    setHits(null);
+    setFound('');
+    setMatches([]);
+    setCur(0);
+  };
   // Разворот: два листа рядом, как в раскрытой книге.
   // Выбор запоминается до следующего запуска программы
   const [spread, setSpread] = useState(() => {
@@ -522,8 +535,7 @@ const Viewer = ({ tool, setTool }: Props) => {
       // Escape в поле поиска убирает подсветку и возвращает управление документу
       if (e.key === 'Escape' && typing) {
         e.preventDefault();
-        setHits(null);
-        setFound('');
+        clearSearch();
         setQuery('');
         searchBox.current?.blur();
         return;
@@ -784,25 +796,33 @@ const Viewer = ({ tool, setTool }: Props) => {
   const search = async (text?: string) => {
     const q = (text ?? query).trim();
     if (!q) {
-      setHits(null);
-      setFound('');
+      clearSearch();
       return;
     }
     setBusy(true);
-    const low = searchForm(q);
     const list: number[] = [];
+    const all: { page: number; k: number; n: number }[] = [];
     for (let i = 0; i < pages.length; i++) {
       const doc = docOf(pages[i]);
       if (!doc) continue;
-      const text = searchForm(await pageText(doc, pages[i].src));
-      if (text.includes(low)) list.push(i);
+      const n = countIn(await pageText(doc, pages[i].src), q);
+      if (!n) continue;
+      list.push(i);
+      for (let k = 0; k < n; k++) all.push({ page: i, k, n });
     }
     setHits(list);
+    setMatches(all);
     setFound(list.length ? q : '');
     setBusy(false);
-    if (list.length) {
-      setActive(list[0]);
-      scrollToPage(list[0]);
+    if (all.length) {
+      // Начинаем с первого совпадения на текущей странице или дальше —
+      // так поиск не отбрасывает человека в начало документа
+      const from = all.findIndex((m) => m.page >= active);
+      const at = from < 0 ? 0 : from;
+      setCur(at);
+      setJumpSeq((v) => v + 1);
+      setActive(all[at].page);
+      if (all[at].page !== active) scrollToPage(all[at].page);
     }
   };
 
@@ -823,11 +843,30 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   // Переход к следующей или предыдущей найденной странице
   const jumpHit = (dir: number) => {
-    if (!hits?.length) return;
-    const at = hits.indexOf(active);
-    const next = at < 0 ? hits[0] : hits[(at + dir + hits.length) % hits.length];
-    setActive(next);
-    scrollToPage(next);
+    if (!matches.length) return;
+    // Человек сам перелистал на другую страницу — продолжаем оттуда
+    let next: number;
+    if (matches[cur]?.page === active) {
+      next = (cur + dir + matches.length) % matches.length;
+    } else if (dir > 0) {
+      const i = matches.findIndex((m) => m.page > active);
+      next = i < 0 ? 0 : i;
+    } else {
+      let i = -1;
+      for (let j = matches.length - 1; j >= 0; j--)
+        if (matches[j].page < active) {
+          i = j;
+          break;
+        }
+      next = i < 0 ? matches.length - 1 : i;
+    }
+    const m = matches[next];
+    setCur(next);
+    setJumpSeq((v) => v + 1);
+    if (m.page !== active) {
+      setActive(m.page);
+      scrollToPage(m.page);
+    }
   };
   jumpRef.current = jumpHit;
 
@@ -1356,10 +1395,24 @@ const Viewer = ({ tool, setTool }: Props) => {
             ref={searchBox}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && search()}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              // Повторный Enter по тому же запросу — к следующему совпадению,
+              // как в браузере и Word. Shift+Enter — к предыдущему
+              if (matches.length && query.trim() === found) jumpHit(e.shiftKey ? -1 : 1);
+              else void search();
+            }}
             placeholder="Поиск (Ctrl+F)"
             className="w-[120px] bg-transparent px-2 py-2 text-[0.86rem] outline-none md:w-[180px] md:px-3"
           />
+          {matches.length > 0 && query.trim() === found && (
+            <span
+              className="whitespace-nowrap px-1 font-head text-[0.74rem] font-bold tabular-nums text-muted-foreground"
+              title="Номер текущего совпадения и сколько всего найдено"
+            >
+              {cur + 1} из {matches.length}
+            </span>
+          )}
           <button
             className="px-3 py-2 text-primary hover:bg-card"
             onClick={() => void search()}
@@ -1375,26 +1428,28 @@ const Viewer = ({ tool, setTool }: Props) => {
           {hits.length ? (
             <>
               <Icon name="Search" size={14} className="text-primary" />
-              <span>Найдено на {hits.length} стр. — совпадения подсвечены жёлтым</span>
+              <span>
+                Совпадение <b className="text-foreground">{cur + 1}</b> из {matches.length}
+                {hits.length > 1 ? ` · на ${hits.length} стр.` : ''} — текущее выделено оранжевым
+              </span>
               <div className="ml-auto flex items-center gap-1">
                 <button
                   onClick={() => jumpHit(-1)}
                   className="border border-border px-2 py-1 hover:border-foreground"
-                  title="Предыдущая найденная страница (Shift+F3)"
+                  title="Предыдущее совпадение (Shift+F3)"
                 >
                   <Icon name="ChevronUp" size={13} />
                 </button>
                 <button
                   onClick={() => jumpHit(1)}
                   className="border border-border px-2 py-1 hover:border-foreground"
-                  title="Следующая найденная страница (F3)"
+                  title="Следующее совпадение (F3)"
                 >
                   <Icon name="ChevronDown" size={13} />
                 </button>
                 <button
                   onClick={() => {
-                    setHits(null);
-                    setFound('');
+                    clearSearch();
                     setQuery('');
                   }}
                   className="border border-border px-2 py-1 hover:border-destructive hover:text-destructive"
@@ -1412,6 +1467,7 @@ const Viewer = ({ tool, setTool }: Props) => {
 
       <div
         ref={scroller}
+        data-scroller
         className={`relative flex-1 overflow-auto overscroll-contain bg-desk ${
           panning ? 'pvs-grabbing' : handOn ? 'pvs-grab' : ''
         }`}
@@ -1442,6 +1498,9 @@ const Viewer = ({ tool, setTool }: Props) => {
                   tool={tool}
                   marks={annots.filter((a) => a.pageUid === p.uid)}
                   found={found}
+                  current={
+                    matches[cur]?.page === i ? { k: matches[cur].k, n: matches[cur].n, seq: jumpSeq } : null
+                  }
                   hint={hint}
                   onPlace={place}
                   onCover={cover}

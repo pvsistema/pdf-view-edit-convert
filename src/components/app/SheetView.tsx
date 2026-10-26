@@ -18,6 +18,8 @@ type Props = {
   tool: Tool;
   marks: Annot[];
   found: string;
+  // Текущее совпадение поиска на этой странице (для счётчика «3 из 12»)
+  current?: { k: number; n: number; seq: number } | null;
   // Ожидаемый размер листа: пока страница далеко, лента строится по нему
   // и не заставляет читать весь файл ради размеров
   hint?: { w: number; h: number } | null;
@@ -63,6 +65,7 @@ const SheetView = ({
   tool,
   marks,
   found,
+  current,
   hint,
   onPlace,
   onCover,
@@ -154,7 +157,7 @@ const SheetView = ({
           </div>
         )}
 
-        <SheetHits spots={spots} notes={notes} onOpenNote={onOpenNote} />
+        <SheetHits spots={spots} current={current} notes={notes} onOpenNote={onOpenNote} />
 
         <SheetMarks
           marks={marks}

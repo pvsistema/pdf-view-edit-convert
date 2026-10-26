@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import Icon from '@/components/ui/icon';
 import Shape from '@/components/app/Shape';
 import type { TextHit } from '@/lib/pdf';
@@ -52,28 +53,68 @@ export const SheetDragPreview = ({
 
 // Найденные слова и значки замечаний — то, что лежит поверх листа,
 // но пометками не является
+// Текущее совпадение: при каждом переходе (seq меняется) подводим его
+// в поле зрения. Только при переходе — если человек сам листает дальше,
+// лента не прыгает обратно
+const CurrentHit = ({ s, seq }: { s: TextHit; seq: number }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const box = el.closest('[data-scroller]')?.getBoundingClientRect();
+    const top = box ? box.top : 0;
+    const bottom = box ? box.bottom : window.innerHeight;
+    const left = box ? box.left : 0;
+    const right = box ? box.right : window.innerWidth;
+    if (r.top < top + 40 || r.bottom > bottom - 40 || r.left < left || r.right > right)
+      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+  }, [seq]);
+  return (
+    <div
+      ref={ref}
+      className="pointer-events-none absolute z-10 bg-orange-400/70 outline outline-2 outline-orange-600 mix-blend-multiply"
+      style={{ left: `${s.x * 100}%`, top: `${s.y * 100}%`, width: `${s.w * 100}%`, height: `${s.h * 100}%` }}
+    />
+  );
+};
+
+// Подсветка найденного. Текущее совпадение (к которому перешли по F3
+// или стрелкам) — ярче и в рамке, остальные — бледно-жёлтые
 export const SheetHits = ({
   spots,
+  current,
   notes,
   onOpenNote,
 }: {
   spots: TextHit[];
+  // Какое по счёту совпадение на этой странице текущее, сколько их
+  // на странице по тексту, и номер перехода. Если места на листе
+  // не сходятся с текстом (фраза разбита на куски), особо не выделяем
+  current?: { k: number; n: number; seq: number } | null;
   notes?: { id: string; x: number; y: number; done?: boolean; author: string }[];
   onOpenNote?: (id: string) => void;
-}) => (
+}) => {
+  const whole = spots.filter((s) => s.whole);
+  const cur = current && whole.length === current.n ? whole[current.k] : undefined;
+  return (
   <>
-    {spots.map((s, i) => (
-      <div
-        key={`hit-${i}`}
-        className="pointer-events-none absolute bg-yellow-300/50 mix-blend-multiply"
-        style={{
-          left: `${s.x * 100}%`,
-          top: `${s.y * 100}%`,
-          width: `${s.w * 100}%`,
-          height: `${s.h * 100}%`,
-        }}
-      />
-    ))}
+    {spots.map((s, i) =>
+      s === cur ? (
+        <CurrentHit key={`hit-${i}`} s={s} seq={current!.seq} />
+      ) : (
+        <div
+          key={`hit-${i}`}
+          className="pointer-events-none absolute bg-yellow-300/50 mix-blend-multiply"
+          style={{
+            left: `${s.x * 100}%`,
+            top: `${s.y * 100}%`,
+            width: `${s.w * 100}%`,
+            height: `${s.h * 100}%`,
+          }}
+        />
+      ),
+    )}
 
     {/* Значки заметок: сам текст замечания живёт в боковой панели,
         на листе остаётся только метка места */}
@@ -94,6 +135,7 @@ export const SheetHits = ({
       </button>
     ))}
   </>
-);
+  );
+};
 
 export default SheetHits;
