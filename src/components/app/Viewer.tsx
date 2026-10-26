@@ -5,6 +5,7 @@ import { pageToJpeg, jpegName } from '@/lib/pageJpeg';
 import { useDoc } from '@/context/DocContext';
 import { useTabActive } from '@/context/TabsContext';
 import SheetView from '@/components/app/SheetView';
+import CleanScanDialog from '@/components/app/CleanScanDialog';
 import type { StampSource } from '@/components/app/sheet/useCloneStamp';
 import { onSearchRequest } from '@/lib/searchBus';
 import { requestPrint } from '@/lib/printBus';
@@ -124,6 +125,9 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   // Пипетка: следующий щелчок по странице возьмёт цвет из этой точки
   const [picking, setPicking] = useState(false);
+
+  // Окно «Очистить фон скана»
+  const [cleaning, setCleaning] = useState(false);
 
   // Штамп: размер и мягкость кисти запоминаются до следующего запуска,
   // источник — только на время работы с документом
@@ -1074,6 +1078,7 @@ const Viewer = ({ tool, setTool }: Props) => {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
+      {cleaning && <CleanScanDialog onClose={() => setCleaning(false)} />}
       {/* На телефоне панель переносилась на три строки и съедала экран.
           Теперь она в одну строку и прокручивается пальцем вбок */}
       <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-2 py-2 md:flex-wrap md:gap-2 md:overflow-visible md:px-4">
@@ -1207,6 +1212,17 @@ const Viewer = ({ tool, setTool }: Props) => {
           {toolBtn('rect', 'RectangleHorizontal', 'Рамка: обведите мышью')}
           {toolBtn('oval', 'Circle', 'Овал: обведите мышью')}
           {toolBtn('stamp', 'Stamp', 'Штамп: Alt+щелчок — взять чистое место, затем закрашивайте помарку')}
+        </div>
+
+        <div className="flex shrink-0 items-center border border-border bg-background">
+          <button
+            className="flex items-center gap-1.5 px-3 py-2 text-[0.8rem] hover:bg-card"
+            onClick={() => setCleaning(true)}
+            title="Очистить фон скана: убрать серый оттенок, тени и мелкие точки"
+          >
+            <Icon name="Sparkles" size={16} />
+            <span className="hidden lg:inline">Очистить фон</span>
+          </button>
         </div>
 
         {/* Настройки штампа: размер и мягкость кисти, выбор источника */}

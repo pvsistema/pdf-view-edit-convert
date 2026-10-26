@@ -125,6 +125,13 @@ type Ctx = {
   // перед страницей с номером at (at = число страниц — в самый конец)
   movePagesTo: (uids: string[], at: number) => void;
   insertPage: (page: PageMeta, file: SourceFile, at: number, label?: string) => void;
+  // Заменить страницы картинками (очистка скана): одним действием,
+  // Ctrl+Z возвращает прежние страницы. images — PNG/JPEG по порядку uids
+  replaceWithImages: (
+    uids: string[],
+    images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number }[],
+    label: string,
+  ) => Promise<void>;
   reset: () => void;
   docOf: (p: PageMeta) => any;
   buildPdf: (
@@ -307,6 +314,47 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       next.splice(Math.max(0, Math.min(at, next.length)), 0, copy);
       apply(label, { pages: next });
       setActive(Math.max(0, Math.min(at, next.length - 1)));
+    },
+    [apply, ownerId],
+  );
+
+  const replaceWithImages = useCallback(
+    async (
+      uids: string[],
+      images: { bytes: Uint8Array; type: 'png' | 'jpeg'; w: number; h: number }[],
+      label: string,
+    ) => {
+      if (!uids.length || uids.length !== images.length) return;
+      const { PDFDocument } = await import('pdf-lib');
+      const out = await PDFDocument.create();
+      for (const im of images) {
+        const pic = im.type === 'png' ? await out.embedPng(im.bytes) : await out.embedJpg(im.bytes);
+        const pg = out.addPage([im.w, im.h]);
+        pg.drawImage(pic, { x: 0, y: 0, width: im.w, height: im.h });
+      }
+      const raw = await out.save();
+      const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+      const doc = await loadDocFromBytes(buf);
+
+      const file: SourceFile = {
+        id: `f${++seq}`,
+        name: 'очищенные страницы.pdf',
+        bytes: async () => buf,
+        doc,
+        size: buf.byteLength,
+      };
+      holdFiles(ownerId, [file.id]);
+      filesRef.current = [...filesRef.current, file];
+      setFiles((list) => [...list, file]);
+
+      // Поворот уже «впечатан» в картинку, поэтому у новой страницы он 0.
+      // Пометки привязаны к uid страницы — оставляем его прежним, и они
+      // остаются на своих местах
+      const at = new Map(uids.map((u, i) => [u, i]));
+      const next = pagesRef.current.map((p) =>
+        at.has(p.uid) ? { ...p, fileId: file.id, src: at.get(p.uid)!, rotation: 0 } : p,
+      );
+      apply(label, { pages: next });
     },
     [apply, ownerId],
   );
@@ -953,6 +1001,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       movePageTo,
       movePagesTo,
       insertPage,
+      replaceWithImages,
       duplicatePage,
       selectAllPages,
       reset,
@@ -990,6 +1039,7 @@ export const DocProvider = ({ children }: { children: React.ReactNode }) => {
       movePageTo,
       movePagesTo,
       insertPage,
+      replaceWithImages,
       duplicatePage,
       selectAllPages,
       reset,
