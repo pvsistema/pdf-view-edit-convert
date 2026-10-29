@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import MenuShell, { type MenuItem } from '@/components/app/MenuShell';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob } from '@/lib/files';
+import { downloadBlob, expectRename } from '@/lib/files';
 import { pageText } from '@/lib/pdf';
 import { toast } from '@/hooks/use-toast';
 import { requestPrint } from '@/lib/printBus';
@@ -47,6 +47,7 @@ const MenuBar = () => {
     annots,
     clearAnnots,
     docOf,
+    renameDoc,
   } = useDoc();
 
   const tabsApi = useTabs();
@@ -115,7 +116,11 @@ const MenuBar = () => {
 
   const save = async () => {
     close();
-    downloadBlob(await makeBlob(), name || 'document.pdf');
+    const blob = await makeBlob();
+    // Сохраняется сам документ: имя, заданное в окне Windows, становится
+    // его новым названием — на вкладке, в заголовке и при следующем сохранении
+    expectRename(renameDoc);
+    downloadBlob(blob, name || 'document.pdf');
     markSaved();
     if (!isDesktop()) toast({ title: 'Документ сохранён' });
   };
@@ -124,7 +129,9 @@ const MenuBar = () => {
     close();
     // В десктопной версии имя и папку спрашивает системное окно Windows
     if (isDesktop()) {
-      downloadBlob(await makeBlob(), name || 'document.pdf');
+      const blob = await makeBlob();
+      expectRename(renameDoc);
+      downloadBlob(blob, name || 'document.pdf');
       markSaved();
       return;
     }
@@ -136,6 +143,7 @@ const MenuBar = () => {
     const file = `${draft.trim() || 'document'}.pdf`;
     setAskName(false);
     downloadBlob(await makeBlob(), file);
+    renameDoc(file);
     markSaved();
     toast({ title: 'Файл сохранён', description: file });
   };

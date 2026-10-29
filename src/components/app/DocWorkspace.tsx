@@ -17,7 +17,8 @@ type Props = { source: File | DocSource; tabId: string; activeTab: boolean };
 // Рабочая область одной вкладки: документ открывается один раз
 // и остаётся готовым, пока вкладку не закроют
 const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
-  const { pages, name, open, loading, insertPage, remove, dirty, buildPdf, markSaved } = useDoc();
+  const { pages, name, open, loading, insertPage, remove, dirty, buildPdf, markSaved, renameDoc } =
+    useDoc();
   const [tool, setTool] = useState<Tool>('hand');
   const [panel, setPanel] = useState<'pages' | 'tools' | null>(null);
   const tabsApi = useTabs();
@@ -39,8 +40,8 @@ const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
 
   // «Сохранить и закрыть» из вопроса при закрытии вкладки
   const closeTab = tabsApi?.closeTab;
-  const saveRef = useRef({ buildPdf, markSaved, name });
-  saveRef.current = { buildPdf, markSaved, name };
+  const saveRef = useRef({ buildPdf, markSaved, name, renameDoc });
+  saveRef.current = { buildPdf, markSaved, name, renameDoc };
   useEffect(
     () =>
       onSaveAndCloseRequest(async (id) => {
@@ -60,6 +61,7 @@ const Inner = ({ source, tabId }: Omit<Props, 'activeTab'>) => {
           const off = onSaveDone((r) => {
             off();
             if (r.ok) {
+              if (r.name && !r.count) saveRef.current.renameDoc(r.name);
               saved();
               closeTab?.(tabId);
             } else if (!r.cancelled) {

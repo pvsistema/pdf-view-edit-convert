@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/icon';
 import { useDoc } from '@/context/DocContext';
-import { downloadBlob, formatSize } from '@/lib/files';
+import { downloadBlob, expectRename, formatSize } from '@/lib/files';
 import { toast } from '@/hooks/use-toast';
 import MenuBar from '@/components/app/MenuBar';
 import PrintDialog from '@/components/app/PrintDialog';
@@ -13,10 +13,11 @@ import { useLicense } from '@/context/LicenseContext';
 import { useTabActive } from '@/context/TabsContext';
 
 const AppBar = () => {
-  const { name, pages, files, buildPdf, markSaved, undo, redo, canUndo, canRedo } = useDoc();
+  const { name, pages, files, buildPdf, markSaved, undo, redo, canUndo, canRedo, renameDoc } = useDoc();
 
   const save = async () => {
     const bytes = await buildPdf();
+    expectRename(renameDoc);
     downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name || 'document.pdf');
     markSaved();
     if (!isDesktop()) toast({ title: 'Документ сохранён' });
