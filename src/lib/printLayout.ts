@@ -11,8 +11,9 @@ export type Orientation = 'auto' | 'portrait' | 'landscape';
 // off — с одной стороны; long — лист переворачивается по длинному краю
 // (как книга); short — по короткому (как блокнот или календарь);
 // manual — принтер без двусторонней печати: сначала лицевые стороны,
-// затем стопку переворачивают и печатают обороты
-export type Duplex = 'off' | 'long' | 'short' | 'manual';
+// затем стопку переворачивают и печатают обороты;
+// backs — лицевые уже напечатаны раньше, допечатываем только обороты
+export type Duplex = 'off' | 'long' | 'short' | 'manual' | 'backs';
 
 export type Layout = {
   paper: PaperId;
@@ -21,6 +22,9 @@ export type Layout = {
   // Поля, в точках PDF
   margin: number;
   duplex?: Duplex;
+  // Край переворота для ручной печати и допечатки оборотов: long —
+  // переплёт сбоку (как книга), short — сверху (как блокнот)
+  edge?: 'long' | 'short';
   // Переплётное поле, в точках: у лицевой стороны слева (сверху при
   // перевороте по короткому краю), у оборота — справа (снизу)
   gutter?: number;
@@ -67,8 +71,11 @@ export const needsLayout = (l: Layout) =>
 // Как ложится оборот: лист переворачивается вокруг вертикальной оси
 // (слева направо) или горизонтальной (сверху вниз). Длинный край у
 // книжного листа вертикальный, у альбомного — горизонтальный
-export const flipsSideways = (l: Layout, pw: number, ph: number) =>
-  (l.duplex === 'short') === pw > ph;
+export const flipsSideways = (l: Layout, pw: number, ph: number) => {
+  const byHand = l.duplex === 'manual' || l.duplex === 'backs';
+  const short = l.duplex === 'short' || (byHand && l.edge === 'short');
+  return short === pw > ph;
+};
 
 export type Placement = {
   // Размер листа

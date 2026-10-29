@@ -25,6 +25,12 @@ const MODES: { id: Duplex; label: string; note: string; icon: string }[] = [
     note: 'Принтер без двусторонней печати: сначала лицевые, затем обороты',
     icon: 'Hand',
   },
+  {
+    id: 'backs',
+    label: 'Допечатать обороты',
+    note: 'Лицевые (нечётные) уже напечатаны — печатаем только чётные, под их поля',
+    icon: 'Layers',
+  },
 ];
 
 const Row = ({ label, children, note }: { label: string; children: React.ReactNode; note?: string }) => (
@@ -83,6 +89,10 @@ const DuplexTab = ({
   onApplyReading,
   sideways,
   pageCount,
+  busy,
+  onTrialBack,
+  backCount,
+  scopeWidened,
 }: {
   prefs: DuplexPrefs;
   set: (p: Partial<DuplexPrefs>) => void;
@@ -95,6 +105,14 @@ const DuplexTab = ({
   sideways: boolean;
   // Сколько страниц выбрано к печати
   pageCount: number;
+  busy: boolean;
+  // Пробный оборот первого листа
+  onTrialBack: () => void;
+  // Сколько оборотов уйдёт в принтер
+  backCount: number;
+  // В «Страницах» выбраны «Нечётные» или «Чётные», а для допечатки
+  // программа взяла весь документ
+  scopeWidened: boolean;
 }) => {
   const [readX, setReadX] = useState(0);
   const [readY, setReadY] = useState(0);
@@ -141,6 +159,98 @@ const DuplexTab = ({
             К печати выбрана одна страница — оборот у листа будет пустым, и двусторонняя печать ничего
             не изменит. Выберите «Все страницы» или диапазон хотя бы из двух страниц.
           </span>
+        </div>
+      )}
+
+      {(prefs.duplex === 'manual' || prefs.duplex === 'backs') && (
+        <>
+          <div className="label-caps mt-5">Переплёт</div>
+          <div className="mt-2 flex gap-2">
+            {(
+              [
+                ['long', 'Сбоку', 'как книга', 'BookOpen'],
+                ['short', 'Сверху', 'как блокнот', 'Notebook'],
+              ] as const
+            ).map(([id, label, note, icon]) => (
+              <button
+                key={id}
+                onClick={() => set({ edge: id })}
+                className={`flex flex-1 items-center gap-2 border px-3 py-2 text-left transition-colors ${
+                  prefs.edge === id
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border hover:border-foreground'
+                }`}
+              >
+                <Icon name={icon} size={15} className="shrink-0" />
+                <span>
+                  <span className="block text-[0.84rem]">{label}</span>
+                  <span
+                    className={`block text-[0.7rem] ${
+                      prefs.edge === id ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {note}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {prefs.duplex === 'backs' && (
+        <div className="mt-3 border border-border bg-card px-3 py-2.5 text-[0.78rem] leading-snug">
+          {scopeWidened && (
+            <div className="mb-2 flex items-start gap-2 text-primary">
+              <Icon name="Info" size={14} className="mt-0.5 shrink-0" />
+              <span>
+                Для допечатки программа берёт весь документ, чтобы знать, какая страница на каком листе.
+                В принтер уйдут только обороты.
+              </span>
+            </div>
+          )}
+          <div className="font-medium">Как допечатать: {backCount} листов</div>
+          <ol className="mt-1 list-decimal space-y-1 pl-5 text-muted-foreground">
+            <li>
+              В «Страницах» выберите «Все страницы» — те же, что печатались. Если печатали диапазон —
+              укажите его целиком (например 1-91), а не только нечётные.
+            </li>
+            <li>
+              На вкладке «Формат листа» поставьте те же настройки, с которыми печатали лицевые.
+              «Переплёт, мм» ниже оставьте 0, если у лицевых его не было.
+            </li>
+            <li>
+              Положите напечатанную стопку в лоток чистой стороной к печати,{' '}
+              {sideways
+                ? 'тем же краем вперёд, что и при первой печати.'
+                : 'развернув верхним краем к себе (переплёт сверху).'}
+            </li>
+            <li>
+              Нажмите «Пробный оборот» — напечатается оборот только того листа, который принтер возьмёт
+              первым. Проверьте на просвет и по номеру страницы, что он лёг правильно.
+            </li>
+            <li>
+              Если всё совпало — верните лист в стопку на прежнее место и нажмите «Печатать обороты». Если
+              оборот лёг вверх ногами или не на ту страницу — поменяйте переплёт или порядок ниже.
+            </li>
+          </ol>
+          <button
+            onClick={onTrialBack}
+            disabled={busy || pageCount < 2}
+            className="mt-2 flex w-full items-center justify-center gap-2 border border-foreground px-3 py-2 text-[0.8rem] transition-colors hover:bg-foreground hover:text-background disabled:opacity-40"
+          >
+            <Icon name="FileCheck" size={14} />
+            Пробный оборот (1 лист)
+          </button>
+          <label className="mt-3 flex cursor-pointer items-center gap-2">
+            <Checkbox checked={prefs.reverseBacks} onCheckedChange={(v) => set({ reverseBacks: !!v })} />
+            <span>Обороты в обратном порядке</span>
+          </label>
+          <div className="pl-6 text-[0.7rem] text-muted-foreground">
+            Включите, если принтер первым возьмёт из лотка последний лист (стр.{' '}
+            {pageCount > 1 ? pageCount - (pageCount % 2 ? 0 : 1) : 1}). Если первым пойдёт лист со стр. 1 —
+            выключите. Пробный оборот покажет, верно ли выбрано
+          </div>
         </div>
       )}
 

@@ -112,14 +112,24 @@ const PrintDialog = ({
   // Ручная печать: после лицевых сторон окно ждёт, пока перевернут стопку
   const [waitBacks, setWaitBacks] = useState(false);
 
+  // Допечатка оборотов: лицевые уже на бумаге, печатаем только обороты
+  const backsOnly = prefs.duplex === 'backs';
+
   const indexes = useMemo(() => {
     const total = pages.length;
     if (scope === 'all') return pages.map((_, i) => i);
     if (scope === 'current') return [active];
+    // При допечатке оборотов нужны все страницы: по ним программа
+    // понимает, какая страница на каком листе и куда её сдвинуть.
+    // Печатаются при этом всё равно только обороты
+    if (backsOnly && (scope === 'odd' || scope === 'even')) return pages.map((_, i) => i);
     if (scope === 'odd') return pages.map((_, i) => i).filter((i) => i % 2 === 0);
     if (scope === 'even') return pages.map((_, i) => i).filter((i) => i % 2 === 1);
     return parseRange(range, total);
-  }, [scope, range, active, pages]);
+  }, [scope, range, active, pages, backsOnly]);
+
+  // Сколько оборотов уйдёт в принтер (с пустыми для ровной стопки)
+  const backCount = Math.floor((indexes.length + 1) / 2) * copies;
 
   const pos = Math.min(preview, Math.max(0, indexes.length - 1));
   const shown = pages[indexes[pos]];
@@ -175,8 +185,11 @@ const PrintDialog = ({
     return {
       ...layout,
       duplex: prefs.duplex,
+      edge: prefs.edge,
       gutter: prefs.gutter * MM,
-      turn: prefs.turn,
+      // Лицевые, напечатанные раньше обычной печатью, лежат на листе
+      // без поворота — обороты кладём так же
+      turn: prefs.duplex === 'backs' ? false : prefs.turn,
       mirrorX: prefs.mirror && margins ? margins.right - margins.left : 0,
       mirrorY: prefs.mirror && margins ? margins.bottom - margins.top : 0,
       shiftX: prefs.shiftX * MM,
@@ -190,10 +203,14 @@ const PrintDialog = ({
   const shownSideways = placeOnSheet(595, 842, effective).sideways;
 
   // Документ со всеми пометками, разложенный на листы для принтера
-  const sheetsPdf = async (part: PrintPart = 'all') => {
-    const list = indexes.map((i) => pages[i]);
+  const sheetsPdf = async (part: PrintPart = 'all', only?: number[]) => {
+    const list = (only ?? indexes).map((i) => pages[i]);
     const raw = await buildPdf(list);
-    return composeSheets(raw, effective, { copies, part, reverseBacks: prefs.reverseBacks });
+    return composeSheets(raw, effective, {
+      copies: only ? 1 : copies,
+      part,
+      reverseBacks: prefs.reverseBacks,
+    });
   };
 
   const sendToPrinter = async (
@@ -240,7 +257,7 @@ const PrintDialog = ({
         sheetLand: false,
       });
       const file = 'проверка-двусторонней-печати.pdf';
-      if (prefs.duplex === 'manual') {
+      if (prefs.duplex === 'manual' || prefs.duplex === 'backs') {
         downloadBlob(new Blob([out.bytes as BlobPart], { type: 'application/pdf' }), file);
         toast({
           title: 'Тестовый лист сохранён',
@@ -271,6 +288,17 @@ const PrintDialog = ({
           downloadBlob(new Blob([out.bytes as BlobPart], { type: 'application/pdf' }), file);
           toast({ title: 'Листы для двусторонней печати сохранены', description: `Страниц в файле: ${out.sheets}` });
           onClose();
+          return;
+        }
+        if (backsOnly) {
+          const out = await sheetsPdf('backs');
+          onClose();
+          await sendToPrinter(
+            out.bytes,
+            `${(name || 'document').replace(/\.pdf$/i, '')}-обороты.pdf`,
+            out.sheets,
+            out.paper,
+          );
           return;
         }
         if (prefs.duplex === 'manual') {
@@ -320,6 +348,35 @@ const PrintDialog = ({
     { id: 'even', label: 'Чётные', note: '2, 4, 6…' },
   ];
 
+  // Пробный оборот: только у первого листа. Проверяем, как легла
+  // стопка, прежде чем пускать в принтер все листы
+  const printTrialBack = async () => {
+    if (indexes.length < 2) return;
+    // Лист, который принтер возьмёт первым: при обратном порядке —
+    // последний лист документа, иначе первый
+    const sheets = Math.ceil(indexes.length / 2);
+    const first = prefs.reverseBacks ? sheets - 1 : 0;
+    const pair = indexes.slice(first * 2, first * 2 + 2);
+    if (pair.length < 2) {
+      toast({
+        title: 'У последнего листа нет оборота',
+        description: `Страниц нечётное число: лист со стр. ${pair[0] + 1} останется чистым с обратной стороны. Отложите его и проверьте пробу на следующем`,
+      });
+      return;
+    }
+    setBusy(true);
+    try {
+      const out = await sheetsPdf('backs', pair);
+      await sendToPrinter(out.bytes, 'пробный-оборот.pdf', 1, out.paper);
+      toast({
+        title: `Пробный оборот: стр. ${pair[1] + 1}`,
+        description: `Должен лечь на обратную сторону стр. ${pair[0] + 1}. Если совпало — верните лист в стопку на прежнее место`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const printBacks = async () => {
     setBusy(true);
     try {
@@ -365,7 +422,11 @@ const PrintDialog = ({
         title={desktop && printer ? `Печать на ${printer}` : undefined}
       >
         <Icon name={busy ? 'LoaderCircle' : 'Printer'} size={16} className={busy ? 'animate-spin' : ''} />
-        {prefs.duplex === 'manual' ? 'Печать лицевых сторон' : 'Печать'}
+        {prefs.duplex === 'manual'
+          ? 'Печать лицевых сторон'
+          : backsOnly
+            ? 'Печатать обороты'
+            : 'Печать'}
       </button>
       <button
         className="border border-foreground px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background disabled:opacity-50"
@@ -426,6 +487,10 @@ const PrintDialog = ({
                 desktop={desktop}
                 sideways={shownSideways}
                 pageCount={indexes.length}
+                busy={busy}
+                onTrialBack={() => void printTrialBack()}
+                backCount={backCount}
+                scopeWidened={backsOnly && (scope === 'odd' || scope === 'even')}
                 onTestSheet={() => void printTest()}
                 onApplyReading={(x, y) => {
                   const next = applyReading(shownSideways, { x: prefs.shiftX, y: prefs.shiftY }, { x, y });
@@ -683,7 +748,9 @@ const PrintDialog = ({
               </span>
               {duplexOn && indexes.length > 0 && (
                 <div className="mt-0.5 text-[0.74rem]">
-                  на {Math.ceil(indexes.length / 2) * copies} листах
+                  {backsOnly
+                    ? `только обороты: ${backCount} шт.`
+                    : `на ${Math.ceil(indexes.length / 2) * copies} листах`}
                   {indexes.length % 2 === 1 ? ' (последний оборот пустой)' : ''}
                 </div>
               )}

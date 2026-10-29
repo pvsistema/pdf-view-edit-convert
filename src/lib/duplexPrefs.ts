@@ -15,6 +15,8 @@ export type DuplexPrefs = {
   turn: boolean;
   // Ручной режим: обороты печатать в обратном порядке
   reverseBacks: boolean;
+  // Переплёт при ручной печати и допечатке оборотов: сбоку или сверху
+  edge: 'long' | 'short';
 };
 
 export const DUPLEX_DEFAULTS: DuplexPrefs = {
@@ -25,6 +27,7 @@ export const DUPLEX_DEFAULTS: DuplexPrefs = {
   mirror: true,
   turn: true,
   reverseBacks: true,
+  edge: 'long',
 };
 
 const KEY = 'pvs-duplex';
@@ -46,7 +49,14 @@ export const saveDuplex = (printer: string, p: DuplexPrefs) => {
   try {
     const all = readAll();
     // Режим и переплёт — общие привычки; сдвиг — свойство аппарата
-    all['*'] = { duplex: p.duplex, gutter: p.gutter, mirror: p.mirror, turn: p.turn, reverseBacks: p.reverseBacks };
+    all['*'] = {
+      duplex: p.duplex,
+      gutter: p.gutter,
+      mirror: p.mirror,
+      turn: p.turn,
+      reverseBacks: p.reverseBacks,
+      edge: p.edge,
+    };
     all[printer || '*'] = { ...all['*'], shiftX: p.shiftX, shiftY: p.shiftY };
     localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
