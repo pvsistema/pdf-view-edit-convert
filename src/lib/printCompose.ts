@@ -78,7 +78,15 @@ export const composeSheets = async (
     sheet.drawPage(emb, { x: ax, y: ay, width: W, height: H, rotate: degrees(theta) });
   }
 
-  return { bytes: await out.save(), sheets: chosen.length };
+  // Размер первого листа: по нему принтеру задаётся бумага, иначе
+  // программа печати подгоняет лист под свой формат по умолчанию
+  // (Letter) и сдвигает все поля
+  const first = out.getPageCount() ? out.getPage(0).getSize() : null;
+  return {
+    bytes: await out.save(),
+    sheets: chosen.length,
+    paper: first ? ([first.width, first.height] as [number, number]) : undefined,
+  };
 };
 
 // Тестовый лист для проверки совпадения сторон на просвет: на лице —

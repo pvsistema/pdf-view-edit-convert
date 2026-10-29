@@ -45,7 +45,7 @@ internal static class Printing
     }
 
     // Возвращает имя принтера, на который ушёл документ
-    public static string Print(string pdfPath, string printer, string title, string duplex = "off")
+    public static string Print(string pdfPath, string printer, string title, string duplex = "off", double paperW = 0, double paperH = 0)
     {
         if (!Shell.Exists("lp"))
             throw new InvalidOperationException(
@@ -55,7 +55,25 @@ internal static class Printing
         if (!string.IsNullOrWhiteSpace(printer)) { args.Add("-d"); args.Add(printer); }
         args.Add("-t"); args.Add(string.IsNullOrWhiteSpace(title) ? "document.pdf" : title);
         // Масштаб «по размеру листа»: документ не обрежется по краям
-        args.Add("-o"); args.Add("fit-to-page");
+        // Размер листа передаётся, когда листы разложены программой
+        // для двусторонней печати (в том числе ручной)
+        if (duplex == "long" || duplex == "short" || (paperW > 0 && paperH > 0))
+        {
+            // Двусторонняя печать: лист уже разложен программой точно
+            // в размер бумаги. Подгонка CUPS сдвинула бы поля лица и
+            // оборота по-разному — печатаем строго 1:1
+            args.Add("-o"); args.Add("print-scaling=none");
+            if (paperW > 0 && paperH > 0)
+            {
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                double a = Math.Min(paperW, paperH), b = Math.Max(paperW, paperH);
+                args.Add("-o"); args.Add("media=Custom." + Math.Round(a).ToString(inv) + "x" + Math.Round(b).ToString(inv));
+            }
+        }
+        else
+        {
+            args.Add("-o"); args.Add("fit-to-page");
+        }
         // Двусторонняя печать: поля оборота программа уже выровняла,
         // CUPS остаётся переворачивать лист по нужному краю
         args.Add("-o");

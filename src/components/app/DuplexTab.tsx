@@ -82,6 +82,7 @@ const DuplexTab = ({
   onTestSheet,
   onApplyReading,
   sideways,
+  pageCount,
 }: {
   prefs: DuplexPrefs;
   set: (p: Partial<DuplexPrefs>) => void;
@@ -92,6 +93,8 @@ const DuplexTab = ({
   onApplyReading: (x: number, y: number) => void;
   // Оборот переворачивается слева направо
   sideways: boolean;
+  // Сколько страниц выбрано к печати
+  pageCount: number;
 }) => {
   const [readX, setReadX] = useState(0);
   const [readY, setReadY] = useState(0);
@@ -131,6 +134,16 @@ const DuplexTab = ({
         ))}
       </div>
 
+      {on && pageCount < 2 && (
+        <div className="mt-3 flex items-start gap-2 border border-[hsl(var(--destructive))] px-3 py-2.5 text-[0.78rem] leading-snug">
+          <Icon name="TriangleAlert" size={14} className="mt-0.5 shrink-0 text-[hsl(var(--destructive))]" />
+          <span>
+            К печати выбрана одна страница — оборот у листа будет пустым, и двусторонняя печать ничего
+            не изменит. Выберите «Все страницы» или диапазон хотя бы из двух страниц.
+          </span>
+        </div>
+      )}
+
       {prefs.duplex === 'manual' && (
         <div className="mt-3 border border-border bg-card px-3 py-2.5 text-[0.78rem] leading-snug">
           <div className="flex items-start gap-2">
@@ -168,9 +181,9 @@ const DuplexTab = ({
                       ? 'Измеряю поля документа…'
                       : margins
                         ? Math.abs(diff) < 0.004
-                          ? 'Поля документа одинаковые — сдвиг не нужен'
-                          : `Поля документа разные (${sideways ? 'слева и справа' : 'сверху и снизу'}) — оборот сдвинется зеркально, на просвет строки совпадут`
-                        : 'Текст в документе не найден (скан) — страницы стоят по центру листа'}
+                          ? `Поля документа одинаковые${margins.by === 'image' ? ' (измерено по скану)' : ''} — сдвиг не нужен`
+                          : `Поля документа разные (${sideways ? 'слева и справа' : 'сверху и снизу'}${margins.by === 'image' ? ', измерено по скану' : ''}): оборот сдвинется зеркально, и на просвет строки совпадут`
+                        : 'Поля не удалось определить — страницы стоят по центру листа'}
                   </span>
                 </span>
               </label>

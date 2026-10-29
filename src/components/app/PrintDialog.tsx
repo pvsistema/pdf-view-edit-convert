@@ -196,13 +196,18 @@ const PrintDialog = ({
     return composeSheets(raw, effective, { copies, part, reverseBacks: prefs.reverseBacks });
   };
 
-  const sendToPrinter = async (bytes: Uint8Array, file: string, count: number) => {
+  const sendToPrinter = async (
+    bytes: Uint8Array,
+    file: string,
+    count: number,
+    paper?: [number, number],
+  ) => {
     const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
     // Принтер сам переворачивает лист — режим передаём ему. В ручном
     // режиме каждая партия печатается с одной стороны
     const mode = prefs.duplex === 'long' || prefs.duplex === 'short' ? prefs.duplex : 'off';
     if (desktop) {
-      await nativePrint(blob, file, printer, mode);
+      await nativePrint(blob, file, printer, mode, paper);
     } else {
       setTimeout(() => printBlob(blob, file), 60);
       toast({
@@ -242,7 +247,7 @@ const PrintDialog = ({
           description: 'Напечатайте страницу 1, переверните лист и напечатайте страницу 2',
         });
       } else {
-        await sendToPrinter(out.bytes, file, 1);
+        await sendToPrinter(out.bytes, file, 1, out.paper);
         if (desktop) toast({ title: 'Тестовый лист отправлен', description: 'Посмотрите его на просвет' });
       }
     } catch (e) {
@@ -270,13 +275,13 @@ const PrintDialog = ({
         }
         if (prefs.duplex === 'manual') {
           const out = await sheetsPdf('fronts');
-          await sendToPrinter(out.bytes, file, out.sheets);
+          await sendToPrinter(out.bytes, file, out.sheets, out.paper);
           setWaitBacks(true);
           return;
         }
         const out = await sheetsPdf('all');
         onClose();
-        await sendToPrinter(out.bytes, file, out.sheets);
+        await sendToPrinter(out.bytes, file, out.sheets, out.paper);
         return;
       }
       let list = indexes.map((i) => pages[i]);
@@ -320,7 +325,7 @@ const PrintDialog = ({
     try {
       const out = await sheetsPdf('backs');
       onClose();
-      await sendToPrinter(out.bytes, `${(name || 'document').replace(/\.pdf$/i, '')}-обороты.pdf`, out.sheets);
+      await sendToPrinter(out.bytes, `${(name || 'document').replace(/\.pdf$/i, '')}-обороты.pdf`, out.sheets, out.paper);
     } finally {
       setBusy(false);
     }
@@ -420,6 +425,7 @@ const PrintDialog = ({
                 measuring={measuring}
                 desktop={desktop}
                 sideways={shownSideways}
+                pageCount={indexes.length}
                 onTestSheet={() => void printTest()}
                 onApplyReading={(x, y) => {
                   const next = applyReading(shownSideways, { x: prefs.shiftX, y: prefs.shiftY }, { x, y });

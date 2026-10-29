@@ -15,10 +15,15 @@ public class PrintWindow : Form
     readonly Action<bool, string?> _done;
     readonly string _printer;
     readonly string _duplex;
+    // Размер листа в точках PDF (1/72 дюйма); 0 — как у принтера
+    readonly double _paperW;
+    readonly double _paperH;
     bool _started;
 
-    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done, string printer = "", string duplex = "off")
+    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done, string printer = "", string duplex = "off", double paperW = 0, double paperH = 0)
     {
+        _paperW = paperW;
+        _paperH = paperH;
         _file = file;
         _env = env;
         _done = done;
@@ -96,6 +101,24 @@ public class PrintWindow : Form
             settings.MarginBottom = 0;
             settings.MarginLeft = 0;
             settings.MarginRight = 0;
+
+            // Масштаб строго 1:1 и бумага того же размера, что и листы
+            // документа. Иначе программа печати вписывает страницу в свой
+            // формат по умолчанию, поля меняются, и оборот не совпадает
+            // с лицевой стороной
+            settings.ScaleFactor = 1.0;
+            if (_paperW > 0 && _paperH > 0)
+            {
+                bool land = _paperW > _paperH;
+                double shortIn = Math.Min(_paperW, _paperH) / 72.0;
+                double longIn = Math.Max(_paperW, _paperH) / 72.0;
+                settings.MediaSize = CoreWebView2PrintMediaSize.Custom;
+                settings.Orientation = land
+                    ? CoreWebView2PrintOrientation.Landscape
+                    : CoreWebView2PrintOrientation.Portrait;
+                settings.PageWidth = shortIn;
+                settings.PageHeight = longIn;
+            }
 
             // Двусторонняя печать. Листы документа уже разложены так, что
             // поля оборота совпадают с полями лицевой стороны, — принтеру

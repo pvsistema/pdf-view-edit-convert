@@ -484,7 +484,11 @@ public class MainForm : Form
                 string duplex = root.TryGetProperty("duplex", out var dp)
                     ? (dp.GetString() ?? "off")
                     : "off";
-                _ = PrintPdfAsync(b64, fileName, printer, duplex);
+                // Размер листа в точках PDF: без него программа печати
+                // подгоняет страницу под свой формат и сдвигает поля
+                double paperW = root.TryGetProperty("paperW", out var pw) && pw.ValueKind == JsonValueKind.Number ? pw.GetDouble() : 0;
+                double paperH = root.TryGetProperty("paperH", out var ph) && ph.ValueKind == JsonValueKind.Number ? ph.GetDouble() : 0;
+                _ = PrintPdfAsync(b64, fileName, printer, duplex, paperW, paperH);
             }
             else if (type == "openPath")
             {
@@ -1042,7 +1046,7 @@ public class MainForm : Form
     // Окно последней печати: их не должно быть двух сразу
     PrintWindow? _printWin;
 
-    async Task PrintPdfAsync(string base64, string fileName, string printer = "", string duplex = "off")
+    async Task PrintPdfAsync(string base64, string fileName, string printer = "", string duplex = "off", double paperW = 0, double paperH = 0)
     {
         try
         {
@@ -1077,7 +1081,7 @@ public class MainForm : Form
                         "Не удалось напечатать документ.\r\n\r\n" + info,
                         "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
-            }, printer, duplex);
+            }, printer, duplex, paperW, paperH);
 
             // Прошлое окно печати закрываем.
             //

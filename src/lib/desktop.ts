@@ -79,9 +79,11 @@ export const nativePrint = async (
   name = 'document.pdf',
   printer = '',
   duplex: 'off' | 'long' | 'short' = 'off',
+  // Размер листа в точках PDF (ширина, высота)
+  paper?: [number, number],
 ) => {
   const data = toBase64(await blob.arrayBuffer());
-  send({ type: 'print', name, data, printer, duplex });
+  send({ type: 'print', name, data, printer, duplex, paperW: paper?.[0] ?? 0, paperH: paper?.[1] ?? 0 });
 };
 
 // Сохранение через системное окно "Сохранить как"
