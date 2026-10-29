@@ -480,7 +480,11 @@ public class MainForm : Form
                 string printer = root.TryGetProperty("printer", out var pr)
                     ? (pr.GetString() ?? "")
                     : "";
-                _ = PrintPdfAsync(b64, fileName, printer);
+                // off — одна сторона, long/short — двусторонняя печать
+                string duplex = root.TryGetProperty("duplex", out var dp)
+                    ? (dp.GetString() ?? "off")
+                    : "off";
+                _ = PrintPdfAsync(b64, fileName, printer, duplex);
             }
             else if (type == "openPath")
             {
@@ -1038,7 +1042,7 @@ public class MainForm : Form
     // Окно последней печати: их не должно быть двух сразу
     PrintWindow? _printWin;
 
-    async Task PrintPdfAsync(string base64, string fileName, string printer = "")
+    async Task PrintPdfAsync(string base64, string fileName, string printer = "", string duplex = "off")
     {
         try
         {
@@ -1073,7 +1077,7 @@ public class MainForm : Form
                         "Не удалось напечатать документ.\r\n\r\n" + info,
                         "ПВ-Система PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
-            }, printer);
+            }, printer, duplex);
 
             // Прошлое окно печати закрываем.
             //

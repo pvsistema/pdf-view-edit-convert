@@ -45,7 +45,7 @@ internal static class Printing
     }
 
     // Возвращает имя принтера, на который ушёл документ
-    public static string Print(string pdfPath, string printer, string title)
+    public static string Print(string pdfPath, string printer, string title, string duplex = "off")
     {
         if (!Shell.Exists("lp"))
             throw new InvalidOperationException(
@@ -56,6 +56,15 @@ internal static class Printing
         args.Add("-t"); args.Add(string.IsNullOrWhiteSpace(title) ? "document.pdf" : title);
         // Масштаб «по размеру листа»: документ не обрежется по краям
         args.Add("-o"); args.Add("fit-to-page");
+        // Двусторонняя печать: поля оборота программа уже выровняла,
+        // CUPS остаётся переворачивать лист по нужному краю
+        args.Add("-o");
+        args.Add(duplex switch
+        {
+            "long" => "sides=two-sided-long-edge",
+            "short" => "sides=two-sided-short-edge",
+            _ => "sides=one-sided",
+        });
         args.Add("--"); args.Add(pdfPath);
 
         var r = Shell.Run("lp", args, 60000);

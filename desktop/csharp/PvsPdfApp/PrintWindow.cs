@@ -14,14 +14,16 @@ public class PrintWindow : Form
     readonly CoreWebView2Environment _env;
     readonly Action<bool, string?> _done;
     readonly string _printer;
+    readonly string _duplex;
     bool _started;
 
-    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done, string printer = "")
+    public PrintWindow(string file, CoreWebView2Environment env, Action<bool, string?> done, string printer = "", string duplex = "off")
     {
         _file = file;
         _env = env;
         _done = done;
         _printer = printer;
+        _duplex = duplex ?? "off";
 
         // Окно нужно только для загрузки документа, пользователь его не видит
         FormBorderStyle = FormBorderStyle.None;
@@ -94,6 +96,16 @@ public class PrintWindow : Form
             settings.MarginBottom = 0;
             settings.MarginLeft = 0;
             settings.MarginRight = 0;
+
+            // Двусторонняя печать. Листы документа уже разложены так, что
+            // поля оборота совпадают с полями лицевой стороны, — принтеру
+            // остаётся только переворачивать лист по нужному краю
+            settings.Duplex = _duplex switch
+            {
+                "long" => CoreWebView2PrintDuplex.TwoSidedLongEdge,
+                "short" => CoreWebView2PrintDuplex.TwoSidedShortEdge,
+                _ => CoreWebView2PrintDuplex.OneSided,
+            };
 
             var status = await _web.CoreWebView2.PrintAsync(settings);
 

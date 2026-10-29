@@ -13,6 +13,12 @@ import { toast } from '@/hooks/use-toast';
 import PrintPreview from '@/components/app/PrintPreview';
 import DraggableDialog from '@/components/app/DraggableDialog';
 import { isDesktop, nativePrint, openPrinterSetup, printerList, savedPrinter } from '@/lib/desktop';
+import DuplexTab from '@/components/app/DuplexTab';
+import { pageSize } from '@/lib/pdf';
+import { MM, PAPERS, applyReading, placeOnSheet } from '@/lib/printLayout';
+import { composeSheets, testSheet, type PrintPart } from '@/lib/printCompose';
+import { loadDuplex, saveDuplex, type DuplexPrefs } from '@/lib/duplexPrefs';
+import { measureMargins, type DocMargins } from '@/lib/docMargins';
 
 type Scope = 'all' | 'current' | 'range' | 'even' | 'odd';
 
@@ -63,7 +69,7 @@ const PrintDialog = ({
   onClose: () => void;
   start?: { scope?: 'current'; tab?: 'paper' };
 }) => {
-  const { pages, active, name, buildPdf } = useDoc();
+  const { pages, active, name, buildPdf, docOf } = useDoc();
   // Из меню по правой кнопке окно открывается сразу на нужном:
   // на текущей странице или на выборе размера листа
   const [scope, setScope] = useState<Scope>(start?.scope ?? 'all');
@@ -71,7 +77,7 @@ const PrintDialog = ({
   const [copies, setCopies] = useState(1);
   const [busy, setBusy] = useState(false);
   const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT);
-  const [tab, setTab] = useState<'pages' | 'paper'>(start?.tab ?? 'pages');
+  const [tab, setTab] = useState<'pages' | 'paper' | 'duplex'>(start?.tab ?? 'pages');
   const [preview, setPreview] = useState(0);
 
   const desktop = isDesktop();
@@ -93,6 +99,19 @@ const PrintDialog = ({
     return () => window.removeEventListener('pvspdf-printers', sync);
   }, [desktop]);
 
+  // Двусторонняя печать: настройки свои у каждого принтера
+  const [prefs, setPrefs] = useState<DuplexPrefs>(() => loadDuplex(printer));
+  useEffect(() => setPrefs(loadDuplex(printer)), [printer]);
+  const setDuplex = (patch: Partial<DuplexPrefs>) =>
+    setPrefs((p) => {
+      const next = { ...p, ...patch };
+      saveDuplex(printer, next);
+      return next;
+    });
+  const duplexOn = prefs.duplex !== 'off';
+  // Ручная печать: после лицевых сторон окно ждёт, пока перевернут стопку
+  const [waitBacks, setWaitBacks] = useState(false);
+
   const indexes = useMemo(() => {
     const total = pages.length;
     if (scope === 'all') return pages.map((_, i) => i);
@@ -107,6 +126,132 @@ const PrintDialog = ({
 
   const set = (patch: Partial<Layout>) => setLayout((l) => ({ ...l, ...patch }));
 
+  // Поля документа по тексту — для выравнивания оборота
+  const [margins, setMargins] = useState<DocMargins | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  // Размер листа «как в файле»: самый частый размер страниц
+  const [sheet, setSheet] = useState<{ size: [number, number]; land: boolean } | null>(null);
+  const measureKey = indexes.join(',');
+  useEffect(() => {
+    if (!duplexOn) return;
+    let stop = false;
+    const list = indexes.map((i) => pages[i]).filter(Boolean);
+    setMeasuring(true);
+    (async () => {
+      const items = list.map((p) => ({ doc: docOf(p), src: p.src, rotation: p.rotation }));
+      const m = await measureMargins(items).catch(() => null);
+      // Размеры всех страниц: самый частый — это и есть лист
+      const count = new Map<string, number>();
+      let land = 0;
+      for (const p of list.slice(0, 400)) {
+        const d = docOf(p);
+        if (!d) continue;
+        const sz = await pageSize(d, p.src, p.rotation).catch(() => null);
+        if (!sz) continue;
+        if (sz.w > sz.h) land++;
+        const a = Math.min(sz.w, sz.h);
+        const b = Math.max(sz.w, sz.h);
+        const k = `${Math.round(a)}x${Math.round(b)}`;
+        count.set(k, (count.get(k) ?? 0) + 1);
+      }
+      const top = [...count.entries()].sort((x, y) => y[1] - x[1])[0];
+      if (stop) return;
+      setMargins(m);
+      if (top) {
+        const [a, b] = top[0].split('x').map(Number);
+        setSheet({ size: [a, b], land: land > list.length / 2 });
+      }
+      setMeasuring(false);
+    })();
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duplexOn, measureKey, docOf]);
+
+  // Итоговая раскладка: формат листа плюс двусторонняя печать
+  const effective: Layout = useMemo(() => {
+    if (!duplexOn) return layout;
+    return {
+      ...layout,
+      duplex: prefs.duplex,
+      gutter: prefs.gutter * MM,
+      turn: prefs.turn,
+      mirrorX: prefs.mirror && margins ? margins.right - margins.left : 0,
+      mirrorY: prefs.mirror && margins ? margins.bottom - margins.top : 0,
+      shiftX: prefs.shiftX * MM,
+      shiftY: prefs.shiftY * MM,
+      sheet: sheet?.size,
+      sheetLand: sheet?.land,
+    };
+  }, [layout, duplexOn, prefs, margins, sheet]);
+
+  // Как переворачивается лист у показанной страницы — для подписей
+  const shownSideways = placeOnSheet(595, 842, effective).sideways;
+
+  // Документ со всеми пометками, разложенный на листы для принтера
+  const sheetsPdf = async (part: PrintPart = 'all') => {
+    const list = indexes.map((i) => pages[i]);
+    const raw = await buildPdf(list);
+    return composeSheets(raw, effective, { copies, part, reverseBacks: prefs.reverseBacks });
+  };
+
+  const sendToPrinter = async (bytes: Uint8Array, file: string, count: number) => {
+    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+    // Принтер сам переворачивает лист — режим передаём ему. В ручном
+    // режиме каждая партия печатается с одной стороны
+    const mode = prefs.duplex === 'long' || prefs.duplex === 'short' ? prefs.duplex : 'off';
+    if (desktop) {
+      await nativePrint(blob, file, printer, mode);
+    } else {
+      setTimeout(() => printBlob(blob, file), 60);
+      toast({
+        title: 'Готовим печать',
+        description:
+          mode === 'off'
+            ? `Листов: ${count}`
+            : `Листов: ${count}. В окне печати включите «Двусторонняя печать», переворот ${mode === 'long' ? 'по длинному' : 'по короткому'} краю`,
+      });
+    }
+  };
+
+  const printTest = async () => {
+    setBusy(true);
+    try {
+      const size: [number, number] =
+        layout.paper === 'original' ? (sheet?.size ?? [595.28, 841.89]) : PAPERS[layout.paper];
+      const raw = await testSheet(size);
+      const out = await composeSheets(raw, {
+        ...effective,
+        paper: layout.paper,
+        orientation: 'portrait',
+        fit: 'actual',
+        margin: 0,
+        gutter: 0,
+        mirrorX: 0,
+        mirrorY: 0,
+        turn: false,
+        sheet: size,
+        sheetLand: false,
+      });
+      const file = 'проверка-двусторонней-печати.pdf';
+      if (prefs.duplex === 'manual') {
+        downloadBlob(new Blob([out.bytes as BlobPart], { type: 'application/pdf' }), file);
+        toast({
+          title: 'Тестовый лист сохранён',
+          description: 'Напечатайте страницу 1, переверните лист и напечатайте страницу 2',
+        });
+      } else {
+        await sendToPrinter(out.bytes, file, 1);
+        if (desktop) toast({ title: 'Тестовый лист отправлен', description: 'Посмотрите его на просвет' });
+      }
+    } catch (e) {
+      toast({ title: 'Не удалось подготовить лист', description: e instanceof Error ? e.message : '' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const run = async (mode: 'print' | 'save') => {
     if (!indexes.length) {
       toast({ title: 'Страницы не выбраны', description: 'Проверьте указанный диапазон' });
@@ -114,6 +259,26 @@ const PrintDialog = ({
     }
     setBusy(true);
     try {
+      if (duplexOn) {
+        const file = `${(name || 'document').replace(/\.pdf$/i, '')}-печать.pdf`;
+        if (mode === 'save') {
+          const out = await sheetsPdf('all');
+          downloadBlob(new Blob([out.bytes as BlobPart], { type: 'application/pdf' }), file);
+          toast({ title: 'Листы для двусторонней печати сохранены', description: `Страниц в файле: ${out.sheets}` });
+          onClose();
+          return;
+        }
+        if (prefs.duplex === 'manual') {
+          const out = await sheetsPdf('fronts');
+          await sendToPrinter(out.bytes, file, out.sheets);
+          setWaitBacks(true);
+          return;
+        }
+        const out = await sheetsPdf('all');
+        onClose();
+        await sendToPrinter(out.bytes, file, out.sheets);
+        return;
+      }
       let list = indexes.map((i) => pages[i]);
       if (copies > 1) list = Array.from({ length: copies }, () => list).flat();
       const bytes = await buildPdf(list, layout);
@@ -150,7 +315,42 @@ const PrintDialog = ({
     { id: 'even', label: 'Чётные', note: '2, 4, 6…' },
   ];
 
-  const footer = (
+  const printBacks = async () => {
+    setBusy(true);
+    try {
+      const out = await sheetsPdf('backs');
+      onClose();
+      await sendToPrinter(out.bytes, `${(name || 'document').replace(/\.pdf$/i, '')}-обороты.pdf`, out.sheets);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const footer = waitBacks ? (
+    <div className="p-4">
+      <div className="mb-3 flex items-start gap-2.5 border border-primary bg-primary/5 px-3 py-2.5 text-[0.84rem] leading-snug">
+        <Icon name="RefreshCw" size={16} className="mt-0.5 shrink-0 text-primary" />
+        <span>
+          Лицевые стороны отправлены. Когда принтер закончит, возьмите стопку, переверните её чистой
+          стороной и вложите обратно в лоток{' '}
+          {shownSideways ? 'тем же краем вперёд' : 'другим краем вперёд (верх листа — к себе)'}.
+          Затем нажмите «Печатать обороты».
+        </span>
+      </div>
+      <div className="flex gap-3">
+        <button className="btn-block flex-1 justify-center disabled:opacity-50" onClick={printBacks} disabled={busy}>
+          <Icon name={busy ? 'LoaderCircle' : 'Printer'} size={16} className={busy ? 'animate-spin' : ''} />
+          Печатать обороты
+        </button>
+        <button
+          className="border border-border px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:border-foreground"
+          onClick={onClose}
+        >
+          Готово
+        </button>
+      </div>
+    </div>
+  ) : (
     <div className="p-4">
       <div className="flex gap-3">
       <button
@@ -160,7 +360,7 @@ const PrintDialog = ({
         title={desktop && printer ? `Печать на ${printer}` : undefined}
       >
         <Icon name={busy ? 'LoaderCircle' : 'Printer'} size={16} className={busy ? 'animate-spin' : ''} />
-        Печать
+        {prefs.duplex === 'manual' ? 'Печать лицевых сторон' : 'Печать'}
       </button>
       <button
         className="border border-foreground px-5 py-3 font-head text-[0.72rem] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-foreground hover:text-background disabled:opacity-50"
@@ -197,6 +397,7 @@ const PrintDialog = ({
                 [
                   ['pages', 'Страницы'],
                   ['paper', 'Формат листа'],
+                  ['duplex', duplexOn ? 'Две стороны ✓' : 'Две стороны'],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -211,7 +412,22 @@ const PrintDialog = ({
               ))}
             </div>
 
-            {tab === 'pages' ? (
+            {tab === 'duplex' ? (
+              <DuplexTab
+                prefs={prefs}
+                set={setDuplex}
+                margins={margins}
+                measuring={measuring}
+                desktop={desktop}
+                sideways={shownSideways}
+                onTestSheet={() => void printTest()}
+                onApplyReading={(x, y) => {
+                  const next = applyReading(shownSideways, { x: prefs.shiftX, y: prefs.shiftY }, { x, y });
+                  setDuplex({ shiftX: next.x, shiftY: next.y });
+                  toast({ title: 'Сдвиг оборота учтён', description: `Вправо ${next.x} мм, вниз ${next.y} мм` });
+                }}
+              />
+            ) : tab === 'pages' ? (
               <>
                 {desktop && (
                   <div className="mt-4 shrink-0">
@@ -411,7 +627,26 @@ const PrintDialog = ({
 
           <div className="flex w-full shrink-0 flex-col items-center overflow-y-auto border-t border-border bg-card p-5 md:w-[300px] md:border-l md:border-t-0">
             <div className="label-caps mb-4 self-start">Предпросмотр</div>
-            <PrintPreview page={shown} layout={layout} index={pos} total={indexes.length} />
+            <PrintPreview
+              page={shown}
+              layout={effective}
+              index={pos}
+              total={indexes.length}
+              back={duplexOn && pos % 2 === 1}
+              hasPair={pos % 2 === 1 || pos + 1 < indexes.length}
+              margins={duplexOn ? margins : null}
+            />
+            {duplexOn && (
+              <div className="mt-2 flex items-center gap-3 text-[0.68rem] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2.5 w-3.5 border border-primary/60 bg-primary/10" /> текст листа
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2.5 w-3.5 border border-dashed border-[hsl(var(--destructive))]" />
+                  оборот на просвет
+                </span>
+              </div>
+            )}
 
             {indexes.length > 1 && (
               <div className="mt-3 flex items-center border border-border bg-background">
@@ -440,6 +675,12 @@ const PrintDialog = ({
               <span className="font-head font-bold text-foreground">
                 {indexes.length * copies} стр.
               </span>
+              {duplexOn && indexes.length > 0 && (
+                <div className="mt-0.5 text-[0.74rem]">
+                  на {Math.ceil(indexes.length / 2) * copies} листах
+                  {indexes.length % 2 === 1 ? ' (последний оборот пустой)' : ''}
+                </div>
+              )}
             </div>
           </div>
         </div>

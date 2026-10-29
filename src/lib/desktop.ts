@@ -72,9 +72,16 @@ export const openPrinterSetup = (printer = '') => send({ type: 'printerSetup', p
 
 // Печать на выбранный принтер: документ уходит сразу,
 // без дополнительных окон Windows
-export const nativePrint = async (blob: Blob, name = 'document.pdf', printer = '') => {
+// duplex: off — одна сторона, long/short — двусторонняя печать
+// с переворотом листа по длинному или короткому краю
+export const nativePrint = async (
+  blob: Blob,
+  name = 'document.pdf',
+  printer = '',
+  duplex: 'off' | 'long' | 'short' = 'off',
+) => {
   const data = toBase64(await blob.arrayBuffer());
-  send({ type: 'print', name, data, printer });
+  send({ type: 'print', name, data, printer, duplex });
 };
 
 // Сохранение через системное окно "Сохранить как"

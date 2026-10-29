@@ -132,6 +132,12 @@ import {
   UserPen,
   Users,
   ZoomIn,
+  FlipHorizontal2,
+  FlipVertical2,
+  ArrowDownUp,
+  Notebook,
+  Ruler,
+  FileCheck,
 } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import type { FC } from 'react';
@@ -272,4 +278,10 @@ export const icons: Record<string, FC<LucideProps>> = {
   UserPen,
   Users,
   ZoomIn,
+  FlipHorizontal2,
+  FlipVertical2,
+  ArrowDownUp,
+  Notebook,
+  Ruler,
+  FileCheck,
 };

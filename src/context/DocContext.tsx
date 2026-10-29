@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { forgetDoc, closeDoc, loadDocFromBytes, loadDocFromUrl, renderPageOnce } from '@/lib/pdf';
 import { holdFiles, releaseOwner } from '@/lib/pageSwap';
+import { PAPERS, DEFAULT_LAYOUT, type Layout } from '@/lib/printLayout';
 
 export type PageMeta = {
   uid: string;
@@ -85,31 +86,10 @@ const loadPicture = (src: string) =>
     img.src = src;
   });
 
-export type PaperId = 'original' | 'a3' | 'a4' | 'a5' | 'letter' | 'legal';
-export type FitMode = 'fit' | 'fill' | 'stretch' | 'actual';
-export type Orientation = 'auto' | 'portrait' | 'landscape';
-
-export type Layout = {
-  paper: PaperId;
-  fit: FitMode;
-  orientation: Orientation;
-  margin: number;
-};
-
-export const PAPERS: Record<Exclude<PaperId, 'original'>, [number, number]> = {
-  a3: [841.89, 1190.55],
-  a4: [595.28, 841.89],
-  a5: [419.53, 595.28],
-  letter: [612, 792],
-  legal: [612, 1008],
-};
-
-export const DEFAULT_LAYOUT: Layout = {
-  paper: 'original',
-  fit: 'fit',
-  orientation: 'auto',
-  margin: 0,
-};
+// Раскладка печати живёт в отдельном модуле — по ней же строится
+// предпросмотр и листы для двусторонней печати
+export { PAPERS, DEFAULT_LAYOUT } from '@/lib/printLayout';
+export type { PaperId, FitMode, Orientation, Layout } from '@/lib/printLayout';
 
 type Ctx = {
   annots: Annot[];

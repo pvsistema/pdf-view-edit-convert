@@ -165,7 +165,8 @@ internal sealed class MainWindow
                         string data = Str(root, "data");
                         string name = Str(root, "name", "document.pdf");
                         string printer = Str(root, "printer");
-                        _ = Task.Run(() => PrintPdf(data, name, printer));
+                        string duplex = Str(root, "duplex", "off");
+                        _ = Task.Run(() => PrintPdf(data, name, printer, duplex));
                         break;
                     }
 
@@ -459,7 +460,7 @@ internal sealed class MainWindow
         _ = Task.Run(() => Post(new { type = "__printers", list = Printing.List() }));
     }
 
-    void PrintPdf(string base64, string fileName, string printer)
+    void PrintPdf(string base64, string fileName, string printer, string duplex = "off")
     {
         string dir = Path.Combine(Path.GetTempPath(), "pvspdf-print-" + Paths.Uid());
         try
@@ -475,7 +476,7 @@ internal sealed class MainWindow
             string path = Path.Combine(dir, Guid.NewGuid().ToString("N") + "_" + safe);
             File.WriteAllBytes(path, Convert.FromBase64String(base64));
 
-            string used = Printing.Print(path, printer, safe);
+            string used = Printing.Print(path, printer, safe, duplex);
             if (!string.IsNullOrWhiteSpace(used)) Settings.Printer = used;
             Post(new { type = "printDone", ok = true, printer = used });
         }
