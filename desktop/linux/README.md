@@ -30,8 +30,8 @@ bash desktop/linux/build.sh arm64    # для процессоров ARM (Бай
 Готовые пакеты появятся в `desktop/linux/out`:
 
 ```
-pvspdf_3.57.1_amd64.deb
-pvspdf-3.57.1-1.x86_64.rpm
+pvspdf_3.57.2_amd64.deb
+pvspdf-3.57.2-1.x86_64.rpm
 ```
 
 Номер версии берётся из того же файла `desktop/APP_VERSION`, что и для Windows.
@@ -40,9 +40,9 @@ pvspdf-3.57.1-1.x86_64.rpm
 
 | Система | Команда |
 |---|---|
-| Astra Linux | `sudo apt install ./pvspdf_3.57.1_amd64.deb` |
-| РЕД ОС | `sudo dnf install ./pvspdf-3.57.1-1.x86_64.rpm` |
-| Альт | `sudo apt-get install ./pvspdf-3.57.1-1.x86_64.rpm` |
+| Astra Linux | `sudo apt install ./pvspdf_3.57.2_amd64.deb` |
+| РЕД ОС | `sudo dnf install ./pvspdf-3.57.2-1.x86_64.rpm` |
+| Альт | `sudo apt-get install ./pvspdf-3.57.2-1.x86_64.rpm` |
 
 Программа ставится в `/opt/pvspdf`. Ярлык появляется в меню «Офис», и
 документы PDF можно открывать в ней двойным щелчком.
