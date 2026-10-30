@@ -43,7 +43,18 @@ export type UpdateInfo = {
 // минутами, и программа впустую держала соединение
 const WAIT_MS = 15000;
 
+// Общедоступные запросы программы (проверка версии, ключа, проб, оплата)
+// уходят «простыми»: без служебного заголовка и как обычный текст.
+// Тогда перед каждым из них не летит отдельный предварительный запрос
+// за разрешением — вызовов серверных функций становится вдвое меньше
+const PUBLIC: Record<string, string[]> = {
+  [VER_URL]: ['check'],
+  [LIC_URL]: ['verify', 'module_key', 'trial_event'],
+  [PAY_URL]: ['tariffs', 'create_order', 'order_status'],
+};
+
 const post = async (url: string, body: Record<string, unknown>) => {
+  const open = (PUBLIC[url] || []).includes(String(body.action || ''));
   const stop = new AbortController();
   const timer = setTimeout(() => stop.abort(), WAIT_MS);
 
@@ -51,7 +62,9 @@ const post = async (url: string, body: Record<string, unknown>) => {
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': getToken() },
+      headers: open
+        ? { 'Content-Type': 'text/plain;charset=UTF-8' }
+        : { 'Content-Type': 'application/json', 'X-Auth-Token': getToken() },
       body: JSON.stringify(body),
       signal: stop.signal,
     });

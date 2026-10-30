@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from datetime import datetime
@@ -94,7 +95,10 @@ def handler(event, context):
 
     body = {}
     if event.get('body'):
-        body = json.loads(event['body'])
+        raw = event['body']
+        if event.get('isBase64Encoded'):
+            raw = base64.b64decode(raw).decode('utf-8')
+        body = json.loads(raw)
     params = event.get('queryStringParameters') or {}
     action = body.get('action') or params.get('action', 'check')
 

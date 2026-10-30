@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -236,7 +237,10 @@ def handler(event, context):
     body = {}
     if event.get('body'):
         try:
-            body = json.loads(event['body'])
+            raw = event['body']
+            if event.get('isBase64Encoded'):
+                raw = base64.b64decode(raw).decode('utf-8')
+            body = json.loads(raw)
         except (ValueError, TypeError):
             body = {}
     params = event.get('queryStringParameters') or {}
